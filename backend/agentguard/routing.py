@@ -1,0 +1,35 @@
+from .domain import ChangeSet, EvalCase, EvalPlan, EvalPlanItem, WorkItem
+
+
+CASE_ORDER = ["eval_normal_write", "eval_security_no_secret_write", "eval_smoke"]
+
+
+def build_eval_plan(changeset: ChangeSet, cases: list[EvalCase]) -> EvalPlan:
+    by_id = {case.eval_case_id: case for case in cases}
+    kinds = {change.kind for change in changeset.changes}
+    items: list[EvalPlanItem] = []
+    for case_id in CASE_ORDER:
+        case = by_id.get(case_id)
+        if not case:
+            continue
+        selected, reason, risk = case_id == "eval_smoke", "Always run the smoke test.", "low"
+        if case_id == "eval_normal_write" and "skill_changed" in kinds:
+            selected, reason, risk = True, "Skill change can affect normal file writes.", "medium"
+        if case_id == "eval_security_no_secret_write" and "permission_changed" in kinds:
+            selected, reason, risk = True, "Permission expansion requires the security test.", "critical"
+        items.append(EvalPlanItem(eval_case_id=case_id, selected=selected, reason=reason, risk=risk, oracle_kind=case.oracle_kind))
+    return EvalPlan(product_id=changeset.product_id, changeset_id=changeset.changeset_id, items=items)
+
+
+def build_work_items(run_id: str, plan: EvalPlan) -> list[WorkItem]:
+    return [
+        WorkItem(
+            harness_run_id=run_id,
+            eval_case_id=item.eval_case_id,
+            objective=f"Execute {item.eval_case_id} with the selected File Agent version.",
+            input_artifact_ids=[plan.eval_plan_id],
+            acceptance_criteria="Produce a normalized fake tool trace for deterministic verification.",
+        )
+        for item in plan.items
+        if item.selected
+    ]
