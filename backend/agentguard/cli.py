@@ -3,7 +3,8 @@ import json
 import os
 from pathlib import Path
 
-from .service import ProductNotFoundError, Service
+from .llm import LLMProviderError
+from .service import AssistantInputError, ProductNotFoundError, Service
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,7 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     get.add_argument("product_id")
 
     fixture = commands.add_parser("fixture").add_subparsers(dest="subcommand", required=True)
-    fixture.add_parser("load").add_argument("name", choices=["minimal", "file-agent"])
+    fixture.add_parser("load").add_argument("name", choices=["minimal", "file-agent", "file-management-agent"])
 
     version = commands.add_parser("version").add_subparsers(dest="subcommand", required=True)
     import_version = version.add_parser("import")
@@ -35,6 +36,20 @@ def build_parser() -> argparse.ArgumentParser:
     start.add_argument("--product-id", required=True)
     start.add_argument("--baseline", required=True)
     start.add_argument("--candidate", required=True)
+    start_file_management = run.add_parser("start-file-management")
+    start_file_management.add_argument("--product-id", required=True)
+    start_file_management.add_argument("--baseline", required=True)
+    start_file_management.add_argument("--candidate", required=True)
+    resume = run.add_parser("resume")
+    resume.add_argument("--run-id", required=True)
+
+    assistant = commands.add_parser("assistant").add_subparsers(dest="subcommand", required=True)
+    explain = assistant.add_parser("explain")
+    explain.add_argument("--run-id", required=True)
+    mapping = assistant.add_parser("map")
+    mapping.add_argument("--product-id", required=True)
+    mapping.add_argument("--requirement-id", required=True)
+    mapping.add_argument("--changeset-id", required=True)
 
     report = commands.add_parser("report").add_subparsers(dest="subcommand", required=True)
     prepare = report.add_parser("prepare")
@@ -63,16 +78,29 @@ def main(argv: list[str] | None = None) -> int:
                 raise ProductNotFoundError(args.product_id)
             output = {"product": product.model_dump()}
         elif args.command == "fixture":
-            output = (
-                {"fixture": service.file_agent_fixture().as_dict()}
-                if args.name == "file-agent"
-                else {"product": service.fixture().model_dump()}
-            )
+            if args.name == "file-agent":
+                output = {"fixture": service.file_agent_fixture().as_dict()}
+            elif args.name == "file-management-agent":
+                output = {"fixture": service.file_management_fixture().as_dict()}
+            else:
+                output = {"product": service.fixture().model_dump()}
         elif args.command == "version":
             version = service.import_version(args.product_id, Path(args.source), args.label)
             output = {"version": version.model_dump()}
-        elif args.command == "run":
+        elif args.command == "run" and args.subcommand == "start":
             output = service.run_file_agent(args.product_id, args.baseline, args.candidate).as_dict()
+        elif args.command == "run" and args.subcommand == "start-file-management":
+            output = service.start_file_management_run(args.product_id, args.baseline, args.candidate).as_dict()
+        elif args.command == "run":
+            output = service.resume_file_management_run(args.run_id).as_dict()
+        elif args.command == "assistant" and args.subcommand == "explain":
+            output = {"assistance": service.explain_failure(args.run_id).model_dump()}
+        elif args.command == "assistant":
+            output = {
+                "assistance": service.suggest_requirement_mapping(
+                    args.product_id, args.requirement_id, args.changeset_id
+                ).model_dump()
+            }
         else:
             output = serialize_prepared_run(service, args.product_id)
     except ProductNotFoundError:
@@ -86,6 +114,10 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(output) if args.format == "json" else output)
         return 2
+    except (AssistantInputError, LLMProviderError) as error:
+        output = {"ok": False, "error": {"stage": "llm_assistant", "reason": str(error)}}
+        print(json.dumps(output, ensure_ascii=False) if args.format == "json" else output)
+        return 3
 
     response = {"ok": True, "data": output}
     print(json.dumps(response, ensure_ascii=False) if args.format == "json" else response)

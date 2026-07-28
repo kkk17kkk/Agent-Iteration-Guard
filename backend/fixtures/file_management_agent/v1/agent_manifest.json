@@ -1,0 +1,8 @@
+{
+  "agent_name": "File Management Agent",
+  "skill": "readme-title-editor-v1",
+  "requested_write_paths": ["README.md"],
+  "tool_capabilities": ["read_file", "write_file"],
+  "instructions": "Update the README title to XXX.",
+  "cleanup_temporary_files": false
+}

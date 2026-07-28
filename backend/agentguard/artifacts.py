@@ -33,6 +33,8 @@ def compare_snapshots(
         changes.append(Change(kind="tool_capability_expanded", risk="high", before=baseline.manifest.tool_capabilities, after=candidate.manifest.tool_capabilities))
     if baseline.manifest.skill != candidate.manifest.skill:
         changes.append(Change(kind="skill_changed", risk="medium", before=baseline.manifest.skill, after=candidate.manifest.skill))
+    if baseline.manifest.instructions != candidate.manifest.instructions:
+        changes.append(Change(kind="prompt_changed", risk="high", before=baseline.manifest.instructions, after=candidate.manifest.instructions))
     return ChangeSet(
         product_id=product_id,
         baseline_version_id=baseline.version_id,

@@ -43,6 +43,14 @@ class Store:
                 rows,
             )
 
+    def insert_if_absent(self, kind: str, record_id: str, product_id: str, payload: BaseModel) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "INSERT OR IGNORE INTO records(kind,id,product_id,payload) VALUES(?,?,?,?)",
+                (kind, record_id, product_id, payload.model_dump_json()),
+            )
+        return cursor.rowcount == 1
+
     def get(self, kind: str, record_id: str, model: type[Model]) -> Model | None:
         with self.connect() as connection:
             row = connection.execute(

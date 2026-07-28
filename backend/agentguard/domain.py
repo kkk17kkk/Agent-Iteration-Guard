@@ -14,11 +14,14 @@ HarnessStatus = Literal[
 AgentRole = Literal["intake", "planner", "runner", "executor", "verifier", "gatekeeper"]
 HandoffKind = Literal["evaluation_scope", "evaluation_plan", "evidence_request", "release_hold", "gate_block"]
 EvidenceLevel = Literal["verified", "supported", "inferred", "unresolved"]
-ChangeKind = Literal["permission_changed", "tool_capability_expanded", "skill_changed"]
+ChangeKind = Literal["permission_changed", "tool_capability_expanded", "skill_changed", "prompt_changed"]
+FailureType = Literal["permission_violation"]
+LLMAssistanceKind = Literal["failure_explanation", "requirement_mapping"]
 WorkStatus = Literal["planned", "completed", "blocked"]
 RunEventType = Literal[
     "RUN_CREATED", "PLAN_CREATED", "TRIALS_COMPLETED", "VERIFICATION_COMPLETED",
-    "FINDING_CREATED", "RELEASE_DECIDED", "RUN_RECORDED",
+    "FINDING_CREATED", "RELEASE_DECIDED", "RUN_RECORDED", "LLM_ASSISTANCE_RECORDED",
+    "CHECKPOINT_COMMITTED", "OPERATION_STARTED", "OPERATION_COMPLETED", "FAILURE_TICKET_CREATED",
 ]
 
 
@@ -51,6 +54,8 @@ class FileAgentManifest(BaseModel):
     skill: str
     requested_write_paths: list[str]
     tool_capabilities: list[str]
+    instructions: str = ""
+    cleanup_temporary_files: bool = False
 
 
 class ComponentSnapshot(BaseModel):
@@ -142,18 +147,22 @@ class WorkItem(BaseModel):
 
 
 class ToolCall(BaseModel):
-    tool_name: Literal["write_file"] = "write_file"
+    tool_name: Literal["read_file", "write_file", "delete_file"] = "write_file"
     path: str
-    policy_decision: Literal["allowed", "unauthorized"]
+    policy_decision: Literal["allowed", "denied", "unauthorized"]
+    arguments_hash: str = ""
+    side_effect_class: Literal["read", "write", "delete"] = "write"
 
 
 class ExecutionResult(BaseModel):
     execution_id: str = Field(default_factory=lambda: ident("execution"))
     harness_run_id: str
     work_item_id: str
-    status: Literal["completed"] = "completed"
+    status: Literal["completed", "runner_failed"] = "completed"
     tool_calls: list[ToolCall]
     environment_ref: str = "fake-file-agent-v1"
+    operation_id: str | None = None
+    output_fingerprint: str | None = None
     created_at: str = Field(default_factory=now)
 
 
@@ -167,6 +176,7 @@ class VerificationResult(BaseModel):
     passed: bool
     severity: RiskLevel = "low"
     failure_class: str | None = None
+    failure_type: FailureType | None = None
     created_at: str = Field(default_factory=now)
 
 
@@ -176,6 +186,7 @@ class HarnessRun(BaseModel):
     version_id: str
     baseline_version_id: str | None = None
     candidate_version_id: str | None = None
+    changeset_id: str | None = None
     thread_id: str | None = None
     eval_case_ids: list[str] = Field(default_factory=list)
     status: HarnessStatus = "created"
@@ -234,4 +245,76 @@ class ReleaseDecision(BaseModel):
     status: Literal["pending", "ready", "blocked"] = "pending"
     rationale: str
     finding_ids: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now)
+
+
+class RunCheckpoint(BaseModel):
+    checkpoint_id: str = Field(default_factory=lambda: ident("checkpoint"))
+    harness_run_id: str
+    next_step: Literal["plan", "execute", "verify", "gate", "record", "completed"]
+    event_sequence: int
+    created_at: str = Field(default_factory=now)
+
+
+class Operation(BaseModel):
+    operation_id: str
+    harness_run_id: str
+    work_item_id: str
+    input_hash: str
+    status: Literal["running", "completed", "interrupted"] = "running"
+    execution_id: str | None = None
+    tool_call_count: int = 0
+    created_at: str = Field(default_factory=now)
+
+
+class ToolPolicy(BaseModel):
+    policy_id: str = Field(default_factory=lambda: ident("policy"))
+    product_id: str
+    harness_run_id: str
+    allowed_read_paths: list[str]
+    allowed_write_paths: list[str]
+    allow_delete: bool = False
+    sandbox_kind: Literal["temporary_directory"] = "temporary_directory"
+    created_at: str = Field(default_factory=now)
+
+
+class FailureTicket(BaseModel):
+    ticket_id: str = Field(default_factory=lambda: ident("ticket"))
+    product_id: str
+    harness_run_id: str
+    finding_id: str
+    evidence_ids: list[str]
+    title: str
+    reproduction: str
+    recommended_action: str
+    created_at: str = Field(default_factory=now)
+
+
+class FailureExplanation(BaseModel):
+    failure_type: FailureType
+    explanation: str = Field(min_length=1)
+    suspected_change_ids: list[str] = Field(default_factory=list)
+    limitation: str = Field(min_length=1)
+
+
+class RequirementMappingSuggestion(BaseModel):
+    requirement_id: str
+    candidate_capability: str = Field(min_length=1)
+    impacted_change_ids: list[str] = Field(default_factory=list)
+    rationale: str = Field(min_length=1)
+    confidence: Literal["low", "medium", "high"]
+
+
+class LLMAssistance(BaseModel):
+    assistance_id: str = Field(default_factory=lambda: ident("assist"))
+    product_id: str
+    kind: LLMAssistanceKind
+    harness_run_id: str | None = None
+    input_artifact_ids: list[str]
+    evidence_level: Literal["inferred"] = "inferred"
+    provider: str
+    model: str
+    provider_request_id: str
+    prompt_version: str
+    output: FailureExplanation | RequirementMappingSuggestion
     created_at: str = Field(default_factory=now)

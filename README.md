@@ -4,7 +4,7 @@
 
 ## 当前阶段与目标
 
-当前为 **Phase 1：协作型 Harness 基础**。本阶段的唯一目标是建立可靠的运行账本，而不是伪造“已评测”的 demo：
+当前为 **P2：Resilient File Management Runner**。P0 已证明确定性证据闭环，P1 将 LLM 限制为辅助工件；P2 将一个 File Management Agent 接入真实、受控且可恢复的本地 Runner，而不是把 LLM 变成控制系统的 Agent：
 
 - 建立产品、初始版本、需求、能力和 Eval Case 的结构化登记；
 - 用 LangGraph 编排显式角色交接：`intake → planner → executor → verifier → gatekeeper`；
@@ -97,6 +97,71 @@ python -m agentguard --db data/p0.db version import \
   --source fixtures/file_agent/v1 --label v1
 ```
 
+## P1 LLM Assistant：解释和候选映射，不参与发布决策
+
+P1 的调用发生在 P0 确定性闭环之后，且不回写 `EvalPlan`、`Finding` 或 `ReleaseDecision`：
+
+```text
+PathPolicyOracle -> Verification(failure_type=permission_violation)
+                         -> Finding -> ReleaseDecision(blocked)
+                                               |
+                                               +-> LLM Assistant -> LLMAssistance(inferred)
+```
+
+`LLMAssistance` 会保存输入工件 ID、provider request ID、模型、prompt 版本和结果，并明确标记为 `inferred`，不是 Oracle Evidence。当前只有两个受限用途：
+
+- `failure_explanation`：在 Oracle 已给出 `permission_violation` 后，解释可能关联的 ChangeSet；
+- `requirement_mapping`：把 Requirement 与 ChangeSet 提示为候选 Capability 映射。
+
+DeepSeek 配置写在仓库根目录 `.env`（不入库）；可从 `.env.example` 复制：
+
+```dotenv
+DEEPSEEK_API_KEY=
+DEEPSEEK_MODEL=deepseek-v4-flash
+```
+
+生成失败解释：
+
+```bash
+python -m agentguard --db data/p1.db --format json assistant explain --run-id <harness_run_id>
+```
+
+生成需求映射候选：
+
+```bash
+python -m agentguard --db data/p1.db --format json assistant map \
+  --product-id <product_id> \
+  --requirement-id <requirement_id> \
+  --changeset-id <changeset_id>
+```
+
+每次请求均为非流式 JSON、禁用 thinking、无 tools、`max_tokens=300`，且不重试。Provider 或输出契约失败会以可观察错误结束调用；系统不会伪造解释或改变已产生的 release 结论。
+
+## P2 File Management Agent：真实 sandbox、恢复与幂等
+
+P2 将第一个被测 Agent 从 fake trace 提升为真实的本地工具执行，但仍严格限制在 `TemporaryDirectory` sandbox 内：
+
+```text
+v2 cleanup instruction + delete_file capability
+  -> read_file(README.md) -> write_file(README.md, "# XXX") -> delete_file(temporary.txt)
+  -> ToolPolicy deny before deletion -> Trace -> Oracle -> Finding -> Failure Ticket -> blocked
+```
+
+每个 run 通过 SQLite `RunCheckpoint(next_step)` 保存下一安全节点；LangGraph 每次只执行一个 checkpoint 指定的节点。Runner 使用确定性 `operation_id(run, work_item, snapshot)`，并在真实工具 trace 完成后原子写入 `Operation(completed) + ExecutionResult`。因此“Runner 已完成、图尚未提交”后恢复会复用执行结果，不会重复工具调用；如果工具调用中途进程死亡，系统不会猜测性重试。
+
+运行 P2 fixture：
+
+```bash
+python -m agentguard --db data/p2.db --format json fixture load file-management-agent
+python -m agentguard --db data/p2.db --format json run start-file-management \
+  --product-id <product_id> \
+  --baseline <v1_version_id> \
+  --candidate <v2_version_id>
+python -m agentguard --db data/p2.db --format json run resume --run-id <harness_run_id>
+```
+
+输出包括真实 `tool_calls`、`operations`、所有 `checkpoints`、确定性 `verification`、`failure_tickets` 与 `release_decision`。`delete_file` 默认拒绝，真实删除、Shell、网络和工作区外路径均不开放。
+
 ## 验证
 
 ```bash
@@ -110,4 +175,4 @@ npm run build
 
 ## 当前边界
 
-P0 已支持显式 File Agent Manifest、版本 Snapshot、结构化 ChangeSet、规则 EvalPlan、WorkItem、确定性 fake Runner、路径 Oracle、Evidence-Finding-Decision 链和阻断 Gate。它仍不支持 checkpoint/resume、真实 Provider、网络或外部副作用、并行 Trial、Replay/Ablation、变异基准或 LLM 裁决；这些能力不能由 P0 的模拟执行结果替代。
+P0 已支持显式 File Agent Manifest、版本 Snapshot、结构化 ChangeSet、规则 EvalPlan、WorkItem、确定性 fake Runner、路径 Oracle、Evidence-Finding-Decision 链和阻断 Gate。P1 新增真实 LLM API 的解释/候选映射。P2 新增一个受控的真实本地 File Management Agent、durable checkpoint、幂等 operation 和 Failure Ticket；仍不支持成熟外部 Runner、复杂 Coding Agent、真实外部副作用、并行 Trial、Replay/Ablation 或变异基准。
