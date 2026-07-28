@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-iteration-guard"
+version = "0.1.0"
+description = "Local-first regression harness for Tool and Skill agents"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<0.116",
+  "uvicorn[standard]>=0.34,<0.35",
+  "pydantic>=2.10,<3",
+  "langgraph>=0.2.60,<0.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3,<9", "httpx>=0.28,<0.29"]
+
+[project.scripts]
+agentguard = "agentguard.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["agentguard*"]
