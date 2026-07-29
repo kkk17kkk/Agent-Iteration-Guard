@@ -23,7 +23,9 @@ RunEventType = Literal[
     "FINDING_CREATED", "RELEASE_DECIDED", "RUN_RECORDED", "LLM_ASSISTANCE_RECORDED",
     "CHECKPOINT_COMMITTED", "OPERATION_STARTED", "OPERATION_COMPLETED", "FAILURE_TICKET_CREATED",
     "TRIAL_STARTED", "TRIAL_COMPLETED", "METRICS_RECORDED", "REPLAY_RECORDED", "ABLATION_RECORDED",
+    "BATCH_CREATED", "BATCH_ITEM_COMPLETED", "BATCH_CHECKPOINT_COMMITTED", "BATCH_RECORDED",
 ]
+MutationKind = Literal["prompt", "skill", "tool_schema", "permission", "workflow"]
 
 
 def now() -> str:
@@ -164,6 +166,8 @@ class ExecutionResult(BaseModel):
     environment_ref: str = "fake-file-agent-v1"
     operation_id: str | None = None
     output_fingerprint: str | None = None
+    runner_trace_id: str | None = None
+    external_cost_usd: float = Field(default=0.0, ge=0)
     created_at: str = Field(default_factory=now)
 
 
@@ -297,7 +301,8 @@ class TrialSpec(BaseModel):
     work_item_id: str
     ordinal: int = Field(ge=1)
     kind: Literal["evaluation", "replay", "ablation"] = "evaluation"
-    cleanup_attempt: bool
+    cleanup_attempt: bool | None
+    decision_source: Literal["fixture", "external_model"] = "fixture"
     candidate_fingerprint: str
     policy_fingerprint: str
     environment_fingerprint: str
@@ -365,6 +370,114 @@ class AblationReport(BaseModel):
     before_verification_id: str
     after_verification_id: str
     evidence_delta: str
+    created_at: str = Field(default_factory=now)
+
+
+class MutationPair(BaseModel):
+    pair_id: str = Field(default_factory=lambda: ident("mutation"))
+    product_id: str
+    mutation_kind: MutationKind
+    ordinal: int = Field(ge=1)
+    baseline_version_id: str
+    candidate_version_id: str
+    expected_failure_type: FailureType | None = None
+    expected_release: Literal["ready", "blocked"]
+    valid: bool = True
+    rejection_reason: str | None = None
+    created_at: str = Field(default_factory=now)
+
+
+class BatchRun(BaseModel):
+    batch_id: str = Field(default_factory=lambda: ident("batch"))
+    product_id: str
+    pair_ids: list[str]
+    trials_per_pair: int = Field(ge=3)
+    max_workers: int = Field(ge=1, le=8)
+    max_total_cost_usd: float = Field(ge=0)
+    status: Literal["created", "running", "interrupted", "completed", "failed"] = "created"
+    next_pair_index: int = Field(default=0, ge=0)
+    created_at: str = Field(default_factory=now)
+
+
+class BatchItem(BaseModel):
+    batch_item_id: str = Field(default_factory=lambda: ident("batch_item"))
+    batch_id: str
+    pair_id: str
+    ordinal: int = Field(ge=1)
+    cache_key: str
+    status: Literal["pending", "running", "completed", "cached", "failed"] = "pending"
+    harness_run_id: str | None = None
+    created_at: str = Field(default_factory=now)
+
+
+class BatchCheckpoint(BaseModel):
+    checkpoint_id: str = Field(default_factory=lambda: ident("batch_checkpoint"))
+    batch_id: str
+    next_pair_index: int = Field(ge=0)
+    completed_item_ids: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now)
+
+
+class TrialCacheEntry(BaseModel):
+    cache_key: str
+    harness_run_id: str
+    candidate_fingerprint: str
+    policy_fingerprint: str
+    environment_fingerprint: str
+    trials_per_pair: int = Field(ge=3)
+    created_at: str = Field(default_factory=now)
+
+
+class ProviderUsage(BaseModel):
+    usage_id: str = Field(default_factory=lambda: ident("usage"))
+    harness_run_id: str
+    provider: str
+    model: str
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    input_cache_write_tokens: int = Field(default=0, ge=0)
+    input_cache_read_tokens: int = Field(default=0, ge=0)
+    input_price_per_million_usd: float = Field(ge=0)
+    output_price_per_million_usd: float = Field(ge=0)
+    input_cache_write_price_per_million_usd: float = Field(ge=0)
+    input_cache_read_price_per_million_usd: float = Field(ge=0)
+    total_cost_usd: float = Field(ge=0)
+    pricing_source: str = Field(min_length=1)
+    budget_limit_usd: float = Field(ge=0)
+    source: Literal["inspect_eval_log", "provider_response"]
+    created_at: str = Field(default_factory=now)
+
+
+class RunnerTrace(BaseModel):
+    runner_trace_id: str = Field(default_factory=lambda: ident("runner_trace"))
+    harness_run_id: str
+    runner: Literal["inspect_ai"]
+    provider: str
+    model: str
+    inspect_log_location: str = Field(min_length=1)
+    output_sha256: str = Field(min_length=1)
+    selected_cleanup_attempt: bool | None = None
+    created_at: str = Field(default_factory=now)
+
+
+class RunnerFailure(BaseModel):
+    runner_failure_id: str = Field(default_factory=lambda: ident("runner_failure"))
+    harness_run_id: str
+    runner: Literal["inspect_ai"]
+    category: Literal["provider", "budget", "contract"]
+    reason: str = Field(min_length=1)
+    created_at: str = Field(default_factory=now)
+
+
+class ModelDecision(BaseModel):
+    model_decision_id: str
+    harness_run_id: str
+    work_item_id: str
+    candidate_fingerprint: str
+    status: Literal["running", "completed"] = "running"
+    cleanup_attempt: bool | None = None
+    provider_usage_id: str | None = None
+    runner_trace_id: str | None = None
     created_at: str = Field(default_factory=now)
 
 

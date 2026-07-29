@@ -44,10 +44,12 @@ class FileTrialEvaluator:
         work_item: WorkItem,
         candidate: ComponentSnapshot,
         policy: ToolPolicy,
+        runner: object | None = None,
     ) -> TrialResult:
         self._event(run, "TRIAL_STARTED", [spec.trial_id])
         started = perf_counter()
-        execution = self.runner.execute(run, work_item, candidate, policy, spec.cleanup_attempt)
+        active_runner = runner or self.runner
+        execution = active_runner.execute(run, work_item, candidate, policy, spec.cleanup_attempt)
         latency_ms = (perf_counter() - started) * 1000
         verification = self.oracle.verify(run.harness_run_id, execution)
         evidence = Evidence(
@@ -68,7 +70,7 @@ class FileTrialEvaluator:
             evidence_id=evidence.evidence_id,
             passed=verification.passed,
             latency_ms=latency_ms,
-            cost_usd=0.0,
+            cost_usd=execution.external_cost_usd,
             trace_fingerprint=fingerprint([call.model_dump() for call in execution.tool_calls]),
         )
         self.store.save_many([

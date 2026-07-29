@@ -4,7 +4,7 @@
 
 ## 当前阶段与目标
 
-当前为 **P3：受控多 Trial、固定环境 Replay 与单变量 Ablation**。P0 已证明确定性证据闭环，P1 将 LLM 限制为辅助工件，P2 将一个 File Management Agent 接入真实、受控且可恢复的本地 Runner；P3 在不让 LLM 控制系统的前提下验证多次执行的统计、复现和因果诊断机制：
+当前为 **P4：Mutation Benchmark、批次恢复与受控外部 Runner**。P0 已证明确定性证据闭环，P1 将 LLM 限制为辅助工件，P2 将一个 File Management Agent 接入真实、受控且可恢复的本地 Runner，P3 验证多次执行的统计、复现和因果诊断；P4 在此基础上验证变异基准、批次恢复、缓存、并发和真实 LLM 成本账本：
 
 - 建立产品、初始版本、需求、能力和 Eval Case 的结构化登记；
 - 用 LangGraph 编排显式角色交接：`intake → planner → executor → verifier → gatekeeper`；
@@ -213,6 +213,36 @@ cd ../frontend
 npm run build
 ```
 
+## P4 Mutation Benchmark：60 对、批次恢复与真实受控 Runner
+
+P4 固定在 File Management Agent 纵向切片上生成 60 个有效的 baseline-candidate 版本对，均匀覆盖五种用户指定 mutation：`prompt`、`skill`、`tool_schema`、`permission`、`workflow`。每个版本对保存 Version、Snapshot、非空 ChangeSet 和程序化 Ground Truth；其中 30 对引入 cleanup 权限回归，30 对是安全对照。
+
+```text
+MutationPair -> ChangeSet -> EvalPlan(安全 case)
+  -> BatchItem / checkpoint / cache
+  -> Trial -> Local Tool Trace -> deterministic Oracle
+  -> Evidence -> Finding -> ReleaseDecision
+```
+
+批次命令以受控 worker 波次运行每对至少三个 Trial。每个 `BatchItem` 在开始前预分配 HarnessRun ID；一个 item 或单个 Trial 完成后立即写入持久化状态。进程在边界崩溃后只继续缺失的 Trial，不会重复已完成的本地工具操作。相同 product、candidate 指纹、固定环境和 Trial 数量的后续批次会命中可观察的 cache。
+
+```bash
+python -m agentguard --db data/p4.db --format json benchmark create-file-management \
+  --workers 2 --trials 3
+python -m agentguard --db data/p4.db --format json benchmark run --batch-id <batch_id>
+```
+
+真实模型只承担一个受限的外部 Runner 决策：它只能输出 `{"cleanup_attempt": true|false}`，没有文件、Shell、网络或发布工具。随后仍由本地 `TemporaryDirectory` Runner 执行实际工具调用，ToolPolicy 与确定性 Oracle 决定是否存在权限回归，Release Gate 不读取模型的结论。每个模型调用都会保存 Inspect EvalLog 位置与输出哈希、输入/输出/缓存 token、逐类单价、总成本、价格来源和预算；外部调用中断不会被自动重发。
+
+```bash
+python -m agentguard --db data/p4-external.db --format json fixture load file-management-agent
+python -m agentguard --db data/p4-external.db --format json run evaluate-external \
+  --product-id <product_id> --baseline <v1_version_id> --candidate <v2_version_id> \
+  --trials 3 --max-total-cost-usd 0.05
+```
+
+该命令读取仓库根目录 `.env` 的 `DEEPSEEK_API_KEY`，并把外部日志默认写入 `D:/codexdata/agentguard-inspect-logs`。P4 命令层硬性限制单次 smoke 预算为 `$0.05` 及以下；请求前按固定 prompt 与 `max_tokens=96` 做保守上界检查，请求后按保存的 token 和官方价格重新计算。外部 Runner、Provider 或输出契约失败时，Run 会被显式记为 `failed`，ReleaseDecision 保持 `pending`，绝不伪装成 Agent 权限回归或自动放行。
+
 ## 当前边界
 
-P0 已支持显式 File Agent Manifest、版本 Snapshot、结构化 ChangeSet、规则 EvalPlan、WorkItem、确定性 fake Runner、路径 Oracle、Evidence-Finding-Decision 链和阻断 Gate。P1 新增真实 LLM API 的解释/候选映射。P2 新增一个受控的真实本地 File Management Agent、durable checkpoint、幂等 operation 和 Failure Ticket。P3 新增受控多 Trial、稳定性统计、固定环境 Replay 与单变量 Ablation；仍不支持成熟外部 Runner、复杂 Coding Agent、真实外部副作用、并行执行、外部成本计量或变异基准。
+P0 已支持显式 File Agent Manifest、版本 Snapshot、结构化 ChangeSet、规则 EvalPlan、WorkItem、确定性 fake Runner、路径 Oracle、Evidence-Finding-Decision 链和阻断 Gate。P1 新增真实 LLM API 的解释/候选映射。P2 新增一个受控的真实本地 File Management Agent、durable checkpoint、幂等 operation 和 Failure Ticket。P3 新增受控多 Trial、稳定性统计、固定环境 Replay 与单变量 Ablation。P4 新增 60 对程序化 mutation、批次级 checkpoint/resume、缓存、受控并发、Inspect 外部 Runner、可重算 token/cost 账本和真实模型 smoke。当前仍不支持复杂 Coding Agent、真实外部副作用、分布式调度，以及 PRD 所要求第六类 mutation 的完整覆盖；后者尚未纳入用户指定的本阶段五类 mutation 范围。

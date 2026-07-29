@@ -47,12 +47,27 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--baseline", required=True)
     evaluate.add_argument("--candidate", required=True)
     evaluate.add_argument("--cleanup-attempts", default="false,false,true")
+    evaluate_external = run.add_parser("evaluate-external")
+    evaluate_external.add_argument("--product-id", required=True)
+    evaluate_external.add_argument("--baseline", required=True)
+    evaluate_external.add_argument("--candidate", required=True)
+    evaluate_external.add_argument("--trials", type=int, default=3)
+    evaluate_external.add_argument("--max-total-cost-usd", type=float, default=0.05)
     replay = run.add_parser("replay")
     replay.add_argument("--run-id", required=True)
     replay.add_argument("--source-trial-result-id", required=True)
     ablate = run.add_parser("ablate-cleanup")
     ablate.add_argument("--run-id", required=True)
     ablate.add_argument("--source-trial-result-id", required=True)
+
+    benchmark = commands.add_parser("benchmark").add_subparsers(dest="subcommand", required=True)
+    create_batch = benchmark.add_parser("create-file-management")
+    create_batch.add_argument("--workers", type=int, default=2)
+    create_batch.add_argument("--trials", type=int, default=3)
+    create_batch.add_argument("--max-total-cost-usd", type=float, default=0.0)
+    create_batch.add_argument("--product-id")
+    run_batch = benchmark.add_parser("run")
+    run_batch.add_argument("--batch-id", required=True)
 
     assistant = commands.add_parser("assistant").add_subparsers(dest="subcommand", required=True)
     explain = assistant.add_parser("explain")
@@ -119,12 +134,29 @@ def main(argv: list[str] | None = None) -> int:
                 args.candidate,
                 parse_cleanup_attempts(args.cleanup_attempts),
             ).as_dict()
+        elif args.command == "run" and args.subcommand == "evaluate-external":
+            output = service.evaluate_file_management_external_trials(
+                args.product_id,
+                args.baseline,
+                args.candidate,
+                trial_count=args.trials,
+                max_total_cost_usd=args.max_total_cost_usd,
+            ).as_dict()
         elif args.command == "run" and args.subcommand == "replay":
             output = service.replay_file_management_trial(args.run_id, args.source_trial_result_id).as_dict()
         elif args.command == "run" and args.subcommand == "ablate-cleanup":
             output = service.ablate_file_management_cleanup(args.run_id, args.source_trial_result_id).as_dict()
         elif args.command == "run":
             output = service.resume_file_management_run(args.run_id).as_dict()
+        elif args.command == "benchmark" and args.subcommand == "create-file-management":
+            output = service.create_file_management_mutation_batch(
+                max_workers=args.workers,
+                trials_per_pair=args.trials,
+                max_total_cost_usd=args.max_total_cost_usd,
+                product_id=args.product_id,
+            ).as_dict()
+        elif args.command == "benchmark":
+            output = service.run_file_management_mutation_batch(args.batch_id).as_dict()
         elif args.command == "assistant" and args.subcommand == "explain":
             output = {"assistance": service.explain_failure(args.run_id).model_dump()}
         elif args.command == "assistant":

@@ -42,6 +42,18 @@ class MultiTrialRun(StartRun):
     cleanup_attempts: list[bool] = [False, False, True]
 
 
+class ExternalMultiTrialRun(StartRun):
+    trials: int = 3
+    max_total_cost_usd: float = 0.05
+
+
+class MutationBatchRequest(BaseModel):
+    max_workers: int = 2
+    trials_per_pair: int = 3
+    max_total_cost_usd: float = 0.0
+    product_id: str | None = None
+
+
 class RequirementMappingRequest(BaseModel):
     requirement_id: str
     changeset_id: str
@@ -131,6 +143,20 @@ def evaluate_file_management_trials(body: MultiTrialRun):
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
+@app.post("/api/v1/runs/trials/external")
+def evaluate_file_management_external_trials(body: ExternalMultiTrialRun):
+    try:
+        return service().evaluate_file_management_external_trials(
+            body.product_id,
+            body.baseline_version_id,
+            body.candidate_version_id,
+            trial_count=body.trials,
+            max_total_cost_usd=body.max_total_cost_usd,
+        ).as_dict()
+    except (ProductNotFoundError, AssistantInputError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
 @app.post("/api/v1/runs/{harness_run_id}/replays/{source_trial_result_id}")
 def replay_file_management_trial(harness_run_id: str, source_trial_result_id: str):
     try:
@@ -143,6 +169,27 @@ def replay_file_management_trial(harness_run_id: str, source_trial_result_id: st
 def ablate_file_management_cleanup(harness_run_id: str, source_trial_result_id: str):
     try:
         return service().ablate_file_management_cleanup(harness_run_id, source_trial_result_id).as_dict()
+    except AssistantInputError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/benchmarks/file-management")
+def create_file_management_mutation_batch(body: MutationBatchRequest):
+    try:
+        return service().create_file_management_mutation_batch(
+            max_workers=body.max_workers,
+            trials_per_pair=body.trials_per_pair,
+            max_total_cost_usd=body.max_total_cost_usd,
+            product_id=body.product_id,
+        ).as_dict()
+    except AssistantInputError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/benchmarks/{batch_id}/run")
+def run_file_management_mutation_batch(batch_id: str):
+    try:
+        return service().run_file_management_mutation_batch(batch_id).as_dict()
     except AssistantInputError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
