@@ -7,7 +7,13 @@ from agentguard.stage1 import (
     persist_corpus_run,
     select_cases,
 )
+import os
+import subprocess
+import sys
+
+from agentguard.domain import HarnessRun
 from agentguard.store import Store
+from agentguard.service import Service
 from agentguard.cli import main
 
 
@@ -67,3 +73,30 @@ def test_stage1_benchmark_has_a_cli_reproduction_entrypoint(tmp_path, capsys):
     output = __import__("json").loads(capsys.readouterr().out)["data"]
     assert output["sample_count"] == 8
     assert output["severe_regression_recall"] == 1.0
+
+
+def test_stage1_cross_process_termination_resumes_without_duplicate_operation(tmp_path):
+    db = tmp_path / "terminated.db"
+    code = """
+from agentguard.resilient import InjectedCrash
+from agentguard.service import Service
+import os
+service = Service(r'__DB__')
+fixture = service.file_management_fixture()
+try:
+    service.start_file_management_run(
+        fixture.product.product_id, fixture.baseline.version_id, fixture.candidate.version_id, crash_at='after_runner'
+    )
+except InjectedCrash:
+    os._exit(23)
+raise SystemExit(99)
+""".replace("__DB__", str(db))
+    completed = subprocess.run([sys.executable, "-c", code], cwd=os.getcwd(), check=False)
+    assert completed.returncode == 23
+
+    service = Service(str(db))
+    run = service.store.list("harness_run", HarnessRun)[0]
+    resumed = service.resume_file_management_run(run.harness_run_id)
+    assert resumed.release_decision.status == "blocked"
+    assert len(resumed.operations) == 1
+    assert resumed.operations[0].tool_call_count == 3
