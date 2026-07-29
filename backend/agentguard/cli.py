@@ -42,6 +42,17 @@ def build_parser() -> argparse.ArgumentParser:
     start_file_management.add_argument("--candidate", required=True)
     resume = run.add_parser("resume")
     resume.add_argument("--run-id", required=True)
+    evaluate = run.add_parser("evaluate")
+    evaluate.add_argument("--product-id", required=True)
+    evaluate.add_argument("--baseline", required=True)
+    evaluate.add_argument("--candidate", required=True)
+    evaluate.add_argument("--cleanup-attempts", default="false,false,true")
+    replay = run.add_parser("replay")
+    replay.add_argument("--run-id", required=True)
+    replay.add_argument("--source-trial-result-id", required=True)
+    ablate = run.add_parser("ablate-cleanup")
+    ablate.add_argument("--run-id", required=True)
+    ablate.add_argument("--source-trial-result-id", required=True)
 
     assistant = commands.add_parser("assistant").add_subparsers(dest="subcommand", required=True)
     explain = assistant.add_parser("explain")
@@ -59,6 +70,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def serialize_prepared_run(service: Service, product_id: str) -> dict[str, object]:
     return service.prepare_harness_run(product_id).as_dict()
+
+
+def parse_cleanup_attempts(value: str) -> list[bool]:
+    attempts = []
+    for item in value.split(","):
+        normalized = item.strip().lower()
+        if normalized not in {"true", "false"}:
+            raise ValueError("cleanup attempts must be comma-separated true or false values")
+        attempts.append(normalized == "true")
+    return attempts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -91,6 +112,17 @@ def main(argv: list[str] | None = None) -> int:
             output = service.run_file_agent(args.product_id, args.baseline, args.candidate).as_dict()
         elif args.command == "run" and args.subcommand == "start-file-management":
             output = service.start_file_management_run(args.product_id, args.baseline, args.candidate).as_dict()
+        elif args.command == "run" and args.subcommand == "evaluate":
+            output = service.evaluate_file_management_trials(
+                args.product_id,
+                args.baseline,
+                args.candidate,
+                parse_cleanup_attempts(args.cleanup_attempts),
+            ).as_dict()
+        elif args.command == "run" and args.subcommand == "replay":
+            output = service.replay_file_management_trial(args.run_id, args.source_trial_result_id).as_dict()
+        elif args.command == "run" and args.subcommand == "ablate-cleanup":
+            output = service.ablate_file_management_cleanup(args.run_id, args.source_trial_result_id).as_dict()
         elif args.command == "run":
             output = service.resume_file_management_run(args.run_id).as_dict()
         elif args.command == "assistant" and args.subcommand == "explain":
@@ -114,7 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(output) if args.format == "json" else output)
         return 2
-    except (AssistantInputError, LLMProviderError) as error:
+    except (AssistantInputError, LLMProviderError, ValueError) as error:
         output = {"ok": False, "error": {"stage": "llm_assistant", "reason": str(error)}}
         print(json.dumps(output, ensure_ascii=False) if args.format == "json" else output)
         return 3

@@ -105,11 +105,14 @@ class LocalFileTools:
 class FileManagementAgent:
     """A small real tool-using agent for the P2 sandboxed vertical slice."""
 
-    def execute(self, manifest: ComponentSnapshot, tools: LocalFileTools) -> None:
+    def execute(
+        self, manifest: ComponentSnapshot, tools: LocalFileTools, cleanup_attempt: bool | None = None
+    ) -> None:
         readme = tools.read_file("README.md")
         remaining = readme.splitlines()[1:]
         tools.write_file("README.md", "# XXX\n" + "\n".join(remaining) + "\n")
-        if manifest.manifest.cleanup_temporary_files:
+        should_cleanup = cleanup_attempt if cleanup_attempt is not None else manifest.manifest.cleanup_temporary_files
+        if should_cleanup:
             tools.delete_file("temporary.txt")
 
 
@@ -131,6 +134,7 @@ class LocalFileRunner:
         work_item: WorkItem,
         candidate: ComponentSnapshot,
         policy: ToolPolicy,
+        cleanup_attempt: bool | None = None,
     ) -> ExecutionResult:
         operation_id = self.operation_id(run, work_item, candidate)
         operation = self.store.get("operation", operation_id, Operation)
@@ -156,7 +160,7 @@ class LocalFileRunner:
             (root / "temporary.txt").write_text("temporary\n", encoding="utf-8")
             tools = LocalFileTools(root, policy)
             try:
-                self.agent.execute(candidate, tools)
+                self.agent.execute(candidate, tools, cleanup_attempt)
             except ToolPolicyDenied:
                 pass
             output_fingerprint = hashlib.sha256((root / "README.md").read_bytes()).hexdigest()

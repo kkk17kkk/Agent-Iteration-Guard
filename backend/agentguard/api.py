@@ -38,6 +38,10 @@ class StartRun(BaseModel):
     candidate_version_id: str
 
 
+class MultiTrialRun(StartRun):
+    cleanup_attempts: list[bool] = [False, False, True]
+
+
 class RequirementMappingRequest(BaseModel):
     requirement_id: str
     changeset_id: str
@@ -110,6 +114,35 @@ def start_file_management_run(body: StartRun):
 def resume_file_management_run(harness_run_id: str):
     try:
         return service().resume_file_management_run(harness_run_id).as_dict()
+    except AssistantInputError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/runs/trials")
+def evaluate_file_management_trials(body: MultiTrialRun):
+    try:
+        return service().evaluate_file_management_trials(
+            body.product_id,
+            body.baseline_version_id,
+            body.candidate_version_id,
+            body.cleanup_attempts,
+        ).as_dict()
+    except (ProductNotFoundError, AssistantInputError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/runs/{harness_run_id}/replays/{source_trial_result_id}")
+def replay_file_management_trial(harness_run_id: str, source_trial_result_id: str):
+    try:
+        return service().replay_file_management_trial(harness_run_id, source_trial_result_id).as_dict()
+    except AssistantInputError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/runs/{harness_run_id}/ablations/cleanup/{source_trial_result_id}")
+def ablate_file_management_cleanup(harness_run_id: str, source_trial_result_id: str):
+    try:
+        return service().ablate_file_management_cleanup(harness_run_id, source_trial_result_id).as_dict()
     except AssistantInputError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 

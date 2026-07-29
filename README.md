@@ -4,7 +4,7 @@
 
 ## 当前阶段与目标
 
-当前为 **P2：Resilient File Management Runner**。P0 已证明确定性证据闭环，P1 将 LLM 限制为辅助工件；P2 将一个 File Management Agent 接入真实、受控且可恢复的本地 Runner，而不是把 LLM 变成控制系统的 Agent：
+当前为 **P3：受控多 Trial、固定环境 Replay 与单变量 Ablation**。P0 已证明确定性证据闭环，P1 将 LLM 限制为辅助工件，P2 将一个 File Management Agent 接入真实、受控且可恢复的本地 Runner；P3 在不让 LLM 控制系统的前提下验证多次执行的统计、复现和因果诊断机制：
 
 - 建立产品、初始版本、需求、能力和 Eval Case 的结构化登记；
 - 用 LangGraph 编排显式角色交接：`intake → planner → executor → verifier → gatekeeper`；
@@ -162,6 +162,46 @@ python -m agentguard --db data/p2.db --format json run resume --run-id <harness_
 
 输出包括真实 `tool_calls`、`operations`、所有 `checkpoints`、确定性 `verification`、`failure_tickets` 与 `release_decision`。`delete_file` 默认拒绝，真实删除、Shell、网络和工作区外路径均不开放。
 
+## P3 多 Trial、固定环境 Replay 与单变量 Ablation
+
+P3 在 P2 的本地 `TemporaryDirectory` Runner 上把每次评估显式保存为 `TrialSpec -> TrialResult`。每个 Trial 都有独立 `WorkItem`、真实工具 Trace、Oracle Verification 和 Evidence；汇总指标只从已持久化的 TrialResult 复算。
+
+```text
+Trial 1 (cleanup=false) -> read/write -> passed
+Trial 2 (cleanup=false) -> read/write -> passed
+Trial 3 (cleanup=true)  -> delete_file denied -> permission_violation -> failed
+                                      |
+                                      -> ReleaseDecision(blocked)
+```
+
+运行三次受控 Trial：
+
+```bash
+python -m agentguard --db data/p3.db --format json fixture load file-management-agent
+python -m agentguard --db data/p3.db --format json run evaluate \
+  --product-id <product_id> \
+  --baseline <v1_version_id> \
+  --candidate <v2_version_id> \
+  --cleanup-attempts false,false,true
+```
+
+默认序列产生 `success_rate=2/3`、Bernoulli population `variance=2/9`、实际 `mean_latency_ms` 和 `total_cost_usd=0.0`。本地 Runner 没有外部计费，因此成本明确记为零，不做估算。
+
+对失败 Trial 做固定环境 Replay 和单变量 Ablation：
+
+```bash
+python -m agentguard --db data/p3.db --format json run replay \
+  --run-id <harness_run_id> \
+  --source-trial-result-id <failed_trial_result_id>
+python -m agentguard --db data/p3.db --format json run ablate-cleanup \
+  --run-id <harness_run_id> \
+  --source-trial-result-id <failed_trial_result_id>
+```
+
+Replay 在执行前校验候选快照、Tool Policy 和固定 Runner 环境指纹，并要求 Trace 指纹与 Oracle 结论同时复现。Ablation 只把 `cleanup_attempt` 从 `true` 改为 `false`，保存 `failed -> passed` 的 Evidence delta；版本、权限策略、环境、seed 和其他输入均保持不变。
+
+这里的 `false,false,true` 是显式、受控的行为序列，用于验证非确定性评估的统计、复现和诊断机制；它不是对真实 LLM 随机性的性能宣称。真实模型或外部 Runner 后续可复用同一 Trial 接口，但必须额外记录其成本和环境事实。
+
 ## 验证
 
 ```bash
@@ -175,4 +215,4 @@ npm run build
 
 ## 当前边界
 
-P0 已支持显式 File Agent Manifest、版本 Snapshot、结构化 ChangeSet、规则 EvalPlan、WorkItem、确定性 fake Runner、路径 Oracle、Evidence-Finding-Decision 链和阻断 Gate。P1 新增真实 LLM API 的解释/候选映射。P2 新增一个受控的真实本地 File Management Agent、durable checkpoint、幂等 operation 和 Failure Ticket；仍不支持成熟外部 Runner、复杂 Coding Agent、真实外部副作用、并行 Trial、Replay/Ablation 或变异基准。
+P0 已支持显式 File Agent Manifest、版本 Snapshot、结构化 ChangeSet、规则 EvalPlan、WorkItem、确定性 fake Runner、路径 Oracle、Evidence-Finding-Decision 链和阻断 Gate。P1 新增真实 LLM API 的解释/候选映射。P2 新增一个受控的真实本地 File Management Agent、durable checkpoint、幂等 operation 和 Failure Ticket。P3 新增受控多 Trial、稳定性统计、固定环境 Replay 与单变量 Ablation；仍不支持成熟外部 Runner、复杂 Coding Agent、真实外部副作用、并行执行、外部成本计量或变异基准。

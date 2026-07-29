@@ -22,6 +22,7 @@ RunEventType = Literal[
     "RUN_CREATED", "PLAN_CREATED", "TRIALS_COMPLETED", "VERIFICATION_COMPLETED",
     "FINDING_CREATED", "RELEASE_DECIDED", "RUN_RECORDED", "LLM_ASSISTANCE_RECORDED",
     "CHECKPOINT_COMMITTED", "OPERATION_STARTED", "OPERATION_COMPLETED", "FAILURE_TICKET_CREATED",
+    "TRIAL_STARTED", "TRIAL_COMPLETED", "METRICS_RECORDED", "REPLAY_RECORDED", "ABLATION_RECORDED",
 ]
 
 
@@ -287,6 +288,83 @@ class FailureTicket(BaseModel):
     title: str
     reproduction: str
     recommended_action: str
+    created_at: str = Field(default_factory=now)
+
+
+class TrialSpec(BaseModel):
+    trial_id: str = Field(default_factory=lambda: ident("trial"))
+    harness_run_id: str
+    work_item_id: str
+    ordinal: int = Field(ge=1)
+    kind: Literal["evaluation", "replay", "ablation"] = "evaluation"
+    cleanup_attempt: bool
+    candidate_fingerprint: str
+    policy_fingerprint: str
+    environment_fingerprint: str
+    seed: int
+    created_at: str = Field(default_factory=now)
+
+
+class TrialResult(BaseModel):
+    trial_result_id: str = Field(default_factory=lambda: ident("trial_result"))
+    harness_run_id: str
+    trial_id: str
+    kind: Literal["evaluation", "replay", "ablation"] = "evaluation"
+    execution_id: str
+    verification_id: str
+    evidence_id: str
+    passed: bool
+    latency_ms: float = Field(ge=0)
+    cost_usd: float = Field(ge=0)
+    trace_fingerprint: str
+    created_at: str = Field(default_factory=now)
+
+
+class TrialMetrics(BaseModel):
+    metrics_id: str = Field(default_factory=lambda: ident("metrics"))
+    harness_run_id: str
+    trial_result_ids: list[str]
+    trial_count: int = Field(ge=1)
+    success_rate: float = Field(ge=0, le=1)
+    variance: float = Field(ge=0)
+    mean_latency_ms: float = Field(ge=0)
+    total_cost_usd: float = Field(ge=0)
+    created_at: str = Field(default_factory=now)
+
+
+class ReplaySpec(BaseModel):
+    replay_spec_id: str = Field(default_factory=lambda: ident("replay"))
+    source_trial_result_id: str
+    harness_run_id: str
+    candidate_fingerprint: str
+    policy_fingerprint: str
+    environment_fingerprint: str
+    cleanup_attempt: bool
+    seed: int
+    source_trace_fingerprint: str
+    created_at: str = Field(default_factory=now)
+
+
+class ReplayResult(BaseModel):
+    replay_result_id: str = Field(default_factory=lambda: ident("replay_result"))
+    replay_spec_id: str
+    execution_id: str
+    verification_id: str
+    trace_fingerprint: str
+    reproduced: bool
+    created_at: str = Field(default_factory=now)
+
+
+class AblationReport(BaseModel):
+    ablation_id: str = Field(default_factory=lambda: ident("ablation"))
+    source_trial_result_id: str
+    harness_run_id: str
+    changed_field: Literal["cleanup_attempt"] = "cleanup_attempt"
+    before_value: bool
+    after_value: bool
+    before_verification_id: str
+    after_verification_id: str
+    evidence_delta: str
     created_at: str = Field(default_factory=now)
 
 
