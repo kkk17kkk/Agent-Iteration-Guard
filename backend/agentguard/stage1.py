@@ -6,6 +6,8 @@ results have been saved.  This keeps labels out of the execution path.
 """
 
 from collections import Counter
+import json
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -176,4 +178,24 @@ def persist_corpus_run(store: Store, product_id: str) -> Stage1Metrics:
     saved_truth = store.list("stage1_ground_truth", Stage1GroundTruth, product_id)
     metrics = compute_metrics(saved_raw, saved_truth)
     store.save("stage1_metrics", "stage1_metrics", product_id, metrics)
+    return metrics
+
+
+def write_artifacts(store: Store, product_id: str, root: Path) -> Stage1Metrics:
+    """Materialize Stage 1 raw records and a regenerated metrics report."""
+    metrics = persist_corpus_run(store, product_id)
+    raw_dir = root / "raw_results"
+    metrics_dir = root / "metrics"
+    failure_dir = root / "failure_cases"
+    report_dir = root / "reports"
+    for directory in (raw_dir, metrics_dir, failure_dir, report_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+    raw = store.list("stage1_raw_result", Stage1RawResult, product_id)
+    truth = store.list("stage1_ground_truth", Stage1GroundTruth, product_id)
+    (raw_dir / "stage1_raw_results.json").write_text(json.dumps([item.model_dump() for item in raw], indent=2), encoding="utf-8")
+    (raw_dir / "stage1_ground_truth.json").write_text(json.dumps([item.model_dump() for item in truth], indent=2), encoding="utf-8")
+    (metrics_dir / "stage1_metrics.json").write_text(json.dumps(metrics.model_dump(), indent=2), encoding="utf-8")
+    (failure_dir / "case_level.json").write_text(json.dumps({"severe_misses": metrics.severe_miss_case_ids, "false_blocks": metrics.false_block_case_ids}, indent=2), encoding="utf-8")
+    (report_dir / "stage1_report.md").write_text(f"# Stage 1 report\n\nSamples: {metrics.sample_count}\n\nRegression F1: {metrics.regression_f1}\n", encoding="utf-8")
+    (root / "reproduction_commands.md").write_text("python -m agentguard --db <db> --format json benchmark stage1\n", encoding="utf-8")
     return metrics

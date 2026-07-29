@@ -6,6 +6,7 @@ from agentguard.stage1 import (
     execute_case,
     persist_corpus_run,
     select_cases,
+    write_artifacts,
 )
 import os
 import subprocess
@@ -73,6 +74,14 @@ def test_stage1_benchmark_has_a_cli_reproduction_entrypoint(tmp_path, capsys):
     output = __import__("json").loads(capsys.readouterr().out)["data"]
     assert output["sample_count"] == 8
     assert output["severe_regression_recall"] == 1.0
+
+
+def test_stage1_writes_recomputable_artifacts(tmp_path):
+    metrics = write_artifacts(Store(str(tmp_path / "stage1.db")), "stage1-product", tmp_path / "artifacts")
+    assert metrics.sample_count == 8
+    assert (tmp_path / "artifacts" / "raw_results" / "stage1_raw_results.json").is_file()
+    assert (tmp_path / "artifacts" / "metrics" / "stage1_metrics.json").is_file()
+    assert (tmp_path / "artifacts" / "reproduction_commands.md").is_file()
 
 
 def test_stage1_cross_process_termination_resumes_without_duplicate_operation(tmp_path):
