@@ -61,6 +61,7 @@ from .trials import ENVIRONMENT_FINGERPRINT, FileTrialEvaluator, policy_fingerpr
 from .routing import build_file_management_plan
 from .mutations import FileManagementMutationFactory
 from .inspect_runner import ExternalRunnerError, InspectFileManagementRunner
+from .stage1 import Stage1Metrics, persist_corpus_run
 
 
 class ProductNotFoundError(KeyError):
@@ -362,6 +363,11 @@ class Service:
             *[("mutation_pair", pair.pair_id, fixture.product.product_id, pair) for pair in pairs],
         ])
         return fixture, pairs
+
+    def run_stage1_benchmark(self) -> Stage1Metrics:
+        """Run and persist the independent, offline Stage 1 corpus."""
+        product, _ = self.create("stage1-independent-benchmark", "Offline independent Ground Truth corpus")
+        return persist_corpus_run(self.store, product.product_id)
 
     def create_file_management_mutation_batch(
         self,

@@ -68,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     create_batch.add_argument("--product-id")
     run_batch = benchmark.add_parser("run")
     run_batch.add_argument("--batch-id", required=True)
+    benchmark.add_parser("stage1")
 
     assistant = commands.add_parser("assistant").add_subparsers(dest="subcommand", required=True)
     explain = assistant.add_parser("explain")
@@ -156,7 +157,11 @@ def main(argv: list[str] | None = None) -> int:
                 product_id=args.product_id,
             ).as_dict()
         elif args.command == "benchmark":
-            output = service.run_file_management_mutation_batch(args.batch_id).as_dict()
+            output = (
+                service.run_stage1_benchmark().model_dump()
+                if args.subcommand == "stage1"
+                else service.run_file_management_mutation_batch(args.batch_id).as_dict()
+            )
         elif args.command == "assistant" and args.subcommand == "explain":
             output = {"assistance": service.explain_failure(args.run_id).model_dump()}
         elif args.command == "assistant":
