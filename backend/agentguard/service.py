@@ -1089,6 +1089,37 @@ class Service:
         if spec.environment_fingerprint != ENVIRONMENT_FINGERPRINT:
             raise AssistantInputError("Runner environment changed; fixed-environment replay is invalid.")
 
+    def recompute_release_decision(self, harness_run_id: str) -> ReleaseDecision:
+        """Derive a release decision solely from durable Evidence and Findings."""
+        run = self._run(harness_run_id)
+        findings = [
+            finding
+            for finding in self.store.list("finding", Finding, run.product_id)
+            if finding.harness_run_id == run.harness_run_id
+        ]
+        evidence_by_id = {
+            evidence.evidence_id: evidence
+            for evidence in self.store.list("evidence", Evidence, run.product_id)
+            if evidence.harness_run_id == run.harness_run_id
+        }
+        for finding in findings:
+            if not finding.evidence_ids or any(evidence_id not in evidence_by_id for evidence_id in finding.evidence_ids):
+                raise AssistantInputError("Finding lacks durable evidence; release cannot be recomputed.")
+            if any(evidence_by_id[evidence_id].level != "verified" for evidence_id in finding.evidence_ids):
+                raise AssistantInputError("Release requires verified evidence.")
+        return ReleaseDecision(
+            product_id=run.product_id,
+            version_id=run.candidate_version_id or run.version_id,
+            harness_run_id=run.harness_run_id,
+            status="blocked" if findings else "ready",
+            rationale=(
+                "Verified persisted evidence supports one or more blocking findings."
+                if findings
+                else "No persisted blocking findings exist."
+            ),
+            finding_ids=[finding.finding_id for finding in findings],
+        )
+
     def _run(self, harness_run_id: str) -> HarnessRun:
         run = self.store.get("harness_run", harness_run_id, HarnessRun)
         if not run:

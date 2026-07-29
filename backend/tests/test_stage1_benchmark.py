@@ -100,3 +100,15 @@ raise SystemExit(99)
     assert resumed.release_decision.status == "blocked"
     assert len(resumed.operations) == 1
     assert resumed.operations[0].tool_call_count == 3
+
+
+def test_stage1_release_can_be_recomputed_from_persisted_evidence_only(tmp_path):
+    service = Service(str(tmp_path / "evidence.db"))
+    fixture = service.file_management_fixture()
+    original = service.start_file_management_run(
+        fixture.product.product_id, fixture.baseline.version_id, fixture.candidate.version_id
+    ).release_decision
+
+    recomputed = Service(str(tmp_path / "evidence.db")).recompute_release_decision(original.harness_run_id)
+    assert recomputed.status == original.status == "blocked"
+    assert recomputed.finding_ids == original.finding_ids
