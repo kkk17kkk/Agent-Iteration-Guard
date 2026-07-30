@@ -15,6 +15,7 @@ import sys
 from agentguard.domain import HarnessRun
 from agentguard.store import Store
 from agentguard.service import Service
+from agentguard.domain import RunnerFailure
 from agentguard.cli import main
 
 
@@ -121,3 +122,20 @@ def test_stage1_release_can_be_recomputed_from_persisted_evidence_only(tmp_path)
     recomputed = Service(str(tmp_path / "evidence.db")).recompute_release_decision(original.harness_run_id)
     assert recomputed.status == original.status == "blocked"
     assert recomputed.finding_ids == original.finding_ids
+
+
+def test_stage1_budget_exhaustion_is_visible_and_not_an_agent_regression(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    service = Service(str(tmp_path / "budget.db"))
+    fixture = service.file_management_fixture()
+    result = service.evaluate_file_management_external_trials(
+        fixture.product.product_id,
+        fixture.baseline.version_id,
+        fixture.candidate.version_id,
+        max_total_cost_usd=0.00000001,
+    )
+
+    assert result.run.status == "failed"
+    assert result.release_decision.status == "pending"
+    failures = service.store.list("runner_failure", RunnerFailure, fixture.product.product_id)
+    assert failures[0].category == "budget"
