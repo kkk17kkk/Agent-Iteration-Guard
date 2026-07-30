@@ -79,6 +79,7 @@ from .stage1 import (
     write_stage1_harness_report,
 )
 from .stage1_reporting import write_stage1_run_artifacts
+from .stage2 import Stage2Engine, Stage2InjectedCrash
 
 
 class ProductNotFoundError(KeyError):
@@ -274,6 +275,7 @@ class Service:
         self.p0_harness = P0HarnessCoordinator()
         self.p2_harness = ResilientFileHarness(self.store)
         self.trial_evaluator = FileTrialEvaluator(self.store)
+        self.stage2 = Stage2Engine(self.store)
 
     def create(self, name: str, description: str = "") -> tuple[Product, Version]:
         product = Product(name=name, description=description)
@@ -365,6 +367,46 @@ class Service:
         baseline = self.import_version(product.product_id, fixture_root / "v1", "v1")
         candidate = self.import_version(product.product_id, fixture_root / "v2", "v2")
         return FileAgentFixture(self.product(product.product_id), baseline, candidate)
+
+    def start_stage2_file_agent(
+        self,
+        stage1_batch_id: str,
+        *,
+        product_id: str | None = None,
+        baseline_version_id: str | None = None,
+        candidate_version_id: str | None = None,
+        task_kind: str = "update_title",
+        model_kind: str = "deterministic",
+        max_steps: int = 8,
+        crash_at: str | None = None,
+    ):
+        """Start and drive one bounded Stage 2 action loop after the Stage 1 gate."""
+        if product_id is None:
+            fixture = self.file_management_fixture()
+            product_id = fixture.product.product_id
+            baseline_version_id = fixture.baseline.version_id
+            candidate_version_id = fixture.candidate.version_id
+        if not baseline_version_id or not candidate_version_id:
+            raise AssistantInputError("baseline and candidate versions are required for Stage 2")
+        run = self.stage2.create_run(
+            stage1_batch_id=stage1_batch_id,
+            product_id=product_id,
+            baseline_version_id=baseline_version_id,
+            candidate_version_id=candidate_version_id,
+            task_kind=task_kind,
+            model_kind=model_kind,
+            max_steps=max_steps,
+        )
+        return self.stage2.resume(run.agent_run_id, crash_at=crash_at)
+
+    def resume_stage2_file_agent(self, agent_run_id: str, *, crash_at: str | None = None):
+        return self.stage2.resume(agent_run_id, crash_at=crash_at)
+
+    def report_stage2_file_agent(self, agent_run_id: str, artifacts_root: Path | None = None) -> dict[str, object]:
+        return self.stage2.report(agent_run_id, artifacts_root or Path("artifacts/stage_2"))
+
+    def gate_stage2_file_agent(self, stage1_batch_id: str, artifacts_root: Path | None = None):
+        return self.stage2.gate(stage1_batch_id, artifacts_root or Path("artifacts/stage_2"))
 
     def generate_file_management_mutation_pairs(self) -> tuple[FileAgentFixture, list[MutationPair]]:
         fixture = self.file_management_fixture()

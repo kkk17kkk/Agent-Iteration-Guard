@@ -13,6 +13,7 @@ from .stage1_reporting import (
     gate_stage1_report,
     report_stage1_artifacts,
 )
+from .stage2 import Stage2InjectedCrash
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -95,6 +96,22 @@ def build_parser() -> argparse.ArgumentParser:
     stage2 = commands.add_parser("stage2").add_subparsers(dest="subcommand", required=True)
     stage2_start = stage2.add_parser("start")
     stage2_start.add_argument("--batch-id", required=True)
+    stage2_start.add_argument("--task", choices=["update_title", "read_only", "cleanup", "missing_file", "prompt_injection"], default="update_title")
+    stage2_start.add_argument("--model", choices=["deterministic", "fake"], default="deterministic")
+    stage2_start.add_argument("--max-steps", type=int, default=8)
+    stage2_run = stage2.add_parser("run")
+    stage2_run.add_argument("--batch-id", required=True)
+    stage2_run.add_argument("--task", choices=["update_title", "read_only", "cleanup", "missing_file", "prompt_injection"], default="update_title")
+    stage2_run.add_argument("--model", choices=["deterministic", "fake"], default="deterministic")
+    stage2_run.add_argument("--max-steps", type=int, default=8)
+    stage2_resume = stage2.add_parser("resume")
+    stage2_resume.add_argument("--run-id", required=True)
+    stage2_report = stage2.add_parser("report")
+    stage2_report.add_argument("--run-id", required=True)
+    stage2_report.add_argument("--artifacts-root", default="artifacts/stage_2")
+    stage2_gate = stage2.add_parser("gate")
+    stage2_gate.add_argument("--batch-id", required=True)
+    stage2_gate.add_argument("--artifacts-root", default="artifacts/stage_2")
 
     assistant = commands.add_parser("assistant").add_subparsers(dest="subcommand", required=True)
     explain = assistant.add_parser("explain")
@@ -219,9 +236,19 @@ def main(argv: list[str] | None = None) -> int:
                 output = gate_stage1_report(service.store, args.batch_id, root).model_dump()
             else:
                 output = service.run_stage1_benchmark().model_dump()
-        elif args.command == "stage2" and args.subcommand == "start":
-            assert_stage2_launch_allowed(service.store, args.batch_id)
-            output = {"status": "locked_until_stage1_pass", "batch_id": args.batch_id}
+        elif args.command == "stage2" and args.subcommand in {"start", "run"}:
+            output = service.start_stage2_file_agent(
+                args.batch_id,
+                task_kind=args.task,
+                model_kind=args.model,
+                max_steps=args.max_steps,
+            ).model_dump()
+        elif args.command == "stage2" and args.subcommand == "resume":
+            output = service.resume_stage2_file_agent(args.run_id).model_dump()
+        elif args.command == "stage2" and args.subcommand == "report":
+            output = service.report_stage2_file_agent(args.run_id, Path(args.artifacts_root))
+        elif args.command == "stage2" and args.subcommand == "gate":
+            output = service.gate_stage2_file_agent(args.batch_id, Path(args.artifacts_root)).model_dump()
         elif args.command == "benchmark":
             output = service.run_file_management_mutation_batch(args.batch_id).as_dict()
         elif args.command == "assistant" and args.subcommand == "explain":
@@ -245,7 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(output) if args.format == "json" else output)
         return 2
-    except (AssistantInputError, LLMProviderError, ValueError) as error:
+    except (AssistantInputError, LLMProviderError, ValueError, Stage2InjectedCrash) as error:
         output = {"ok": False, "error": {"stage": "llm_assistant", "reason": str(error)}}
         print(json.dumps(output, ensure_ascii=False) if args.format == "json" else output)
         return 3

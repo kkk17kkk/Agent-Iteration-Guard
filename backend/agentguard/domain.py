@@ -24,6 +24,7 @@ RunEventType = Literal[
     "CHECKPOINT_COMMITTED", "OPERATION_STARTED", "OPERATION_COMPLETED", "FAILURE_TICKET_CREATED",
     "TRIAL_STARTED", "TRIAL_COMPLETED", "METRICS_RECORDED", "REPLAY_RECORDED", "ABLATION_RECORDED",
     "BATCH_CREATED", "BATCH_ITEM_COMPLETED", "BATCH_CHECKPOINT_COMMITTED", "BATCH_RECORDED",
+    "ACTION_PLANNED", "ACTION_COMPLETED", "OBSERVATION_RECORDED", "STAGE2_CHECKPOINT_COMMITTED",
 ]
 MutationKind = Literal["prompt", "skill", "tool_schema", "permission", "workflow"]
 
@@ -280,6 +281,115 @@ class ToolPolicy(BaseModel):
     allowed_write_paths: list[str]
     allow_delete: bool = False
     sandbox_kind: Literal["temporary_directory"] = "temporary_directory"
+    created_at: str = Field(default_factory=now)
+
+
+Stage2ActionKind = Literal["read_file", "write_file", "delete_file", "finish"]
+Stage2ActionStatus = Literal["planned", "running", "completed", "blocked", "failed"]
+Stage2RunStatus = Literal["created", "running", "blocked", "finished", "failed", "budget_exhausted"]
+
+
+class AgentAction(BaseModel):
+    """The only command a Stage 2 model may send to the Harness."""
+
+    action_id: str = Field(default_factory=lambda: ident("action"))
+    agent_run_id: str
+    step: int = Field(ge=1)
+    kind: Stage2ActionKind
+    path: str | None = None
+    content: str | None = None
+    expected_observation_fingerprint: str | None = None
+    approval_required: bool = False
+    approval_token: str | None = None
+    status: Stage2ActionStatus = "planned"
+    tool_calls: list[ToolCall] = Field(default_factory=list)
+    result: str | None = None
+    error: str | None = None
+    created_at: str = Field(default_factory=now)
+
+
+class AgentObservation(BaseModel):
+    observation_id: str = Field(default_factory=lambda: ident("observation"))
+    agent_run_id: str
+    step: int = Field(ge=0)
+    state_fingerprint: str
+    files: dict[str, str] = Field(default_factory=dict)
+    changed_paths: list[str] = Field(default_factory=list)
+    last_action_id: str | None = None
+    tool_result: str | None = None
+    error: str | None = None
+    created_at: str = Field(default_factory=now)
+
+
+class Stage2AgentRun(BaseModel):
+    agent_run_id: str = Field(default_factory=lambda: ident("stage2"))
+    product_id: str
+    harness_run_id: str
+    work_item_id: str
+    stage1_batch_id: str
+    task_kind: str
+    task: dict[str, object] = Field(default_factory=dict)
+    policy_id: str
+    sandbox_path: str
+    model_kind: Literal["deterministic", "fake", "json"] = "deterministic"
+    status: Stage2RunStatus = "created"
+    step_count: int = Field(default=0, ge=0)
+    max_steps: int = Field(default=8, ge=1, le=32)
+    action_ids: list[str] = Field(default_factory=list)
+    observation_ids: list[str] = Field(default_factory=list)
+    checkpoint_id: str | None = None
+    terminal_reason: str | None = None
+    duplicate_side_effect_count: int = Field(default=0, ge=0)
+    resumed_from_checkpoint: bool = False
+    created_at: str = Field(default_factory=now)
+
+
+class Stage2Checkpoint(BaseModel):
+    checkpoint_id: str = Field(default_factory=lambda: ident("stage2_checkpoint"))
+    agent_run_id: str
+    next_step: int = Field(default=1, ge=1)
+    pending_action_id: str | None = None
+    observation_id: str | None = None
+    committed_action_ids: list[str] = Field(default_factory=list)
+    state_fingerprint: str
+    created_at: str = Field(default_factory=now)
+
+
+class Stage2Operation(BaseModel):
+    operation_id: str = Field(default_factory=lambda: ident("stage2_operation"))
+    agent_run_id: str
+    action_id: str
+    side_effect_fingerprint: str = ""
+    status: Literal["running", "completed"] = "running"
+    side_effect_applied: bool = False
+    duplicate: bool = False
+    created_at: str = Field(default_factory=now)
+
+
+class Stage2OracleResult(BaseModel):
+    oracle_result_id: str = Field(default_factory=lambda: ident("stage2_oracle"))
+    agent_run_id: str
+    passed: bool
+    expected: str
+    observed: str
+    action_order: list[str] = Field(default_factory=list)
+    failure_reason: str | None = None
+    stale_observation_rejected: bool = True
+    created_at: str = Field(default_factory=now)
+
+
+class Stage2GateCriterion(BaseModel):
+    criterion: str
+    status: Literal["verified", "partial", "failed", "missing"]
+    supporting_artifact_ids: list[str] = Field(default_factory=list)
+    supporting_test: str
+    failure_reason: str | None = None
+
+
+class Stage2Gate(BaseModel):
+    stage1_batch_id: str
+    status: Literal["PASS", "PASS_WITH_LIMITATIONS", "BLOCKED"]
+    criteria: list[Stage2GateCriterion] = Field(default_factory=list)
     created_at: str = Field(default_factory=now)
 
 

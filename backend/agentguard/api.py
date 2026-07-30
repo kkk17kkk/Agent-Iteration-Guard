@@ -59,6 +59,16 @@ class RequirementMappingRequest(BaseModel):
     changeset_id: str
 
 
+class Stage2RunRequest(BaseModel):
+    stage1_batch_id: str
+    product_id: str | None = None
+    baseline_version_id: str | None = None
+    candidate_version_id: str | None = None
+    task_kind: str = "update_title"
+    model_kind: str = "deterministic"
+    max_steps: int = 8
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "product": "agent-iteration-guard"}
@@ -127,6 +137,30 @@ def resume_file_management_run(harness_run_id: str):
     try:
         return service().resume_file_management_run(harness_run_id).as_dict()
     except AssistantInputError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/stage2/runs")
+def start_stage2_run(body: Stage2RunRequest):
+    try:
+        return service().start_stage2_file_agent(
+            body.stage1_batch_id,
+            product_id=body.product_id,
+            baseline_version_id=body.baseline_version_id,
+            candidate_version_id=body.candidate_version_id,
+            task_kind=body.task_kind,
+            model_kind=body.model_kind,
+            max_steps=body.max_steps,
+        ).model_dump()
+    except (ProductNotFoundError, AssistantInputError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.post("/api/v1/stage2/runs/{agent_run_id}/resume")
+def resume_stage2_run(agent_run_id: str):
+    try:
+        return service().resume_stage2_file_agent(agent_run_id).model_dump()
+    except (AssistantInputError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
