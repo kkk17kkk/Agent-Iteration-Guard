@@ -332,7 +332,7 @@ class Stage2AgentRun(BaseModel):
     tool_manifest: dict[str, object] = Field(default_factory=dict)
     policy_id: str
     sandbox_path: str
-    model_kind: Literal["deterministic", "fake", "json"] = "deterministic"
+    model_kind: Literal["deterministic", "fake", "json", "http_json"] = "deterministic"
     status: Stage2RunStatus = "created"
     step_count: int = Field(default=0, ge=0)
     max_steps: int = Field(default=8, ge=1, le=32)

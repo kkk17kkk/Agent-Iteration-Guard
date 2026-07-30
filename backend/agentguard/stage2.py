@@ -14,6 +14,9 @@ import os
 from pathlib import Path
 from tempfile import mkdtemp
 from typing import Protocol
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from .domain import (
     AgentAction,
@@ -189,6 +192,57 @@ and finish. Never invent a path outside the task manifest.""",
             raise ValueError("external model returned an invalid AgentAction") from error
 
 
+class HttpJsonActionModel(JsonActionModel):
+    """HTTP Agent adapter used by the API acceptance path.
+
+    The endpoint is intentionally explicit and bounded. Its response is still
+    untrusted data and is validated as an ``AgentAction`` before execution.
+    """
+
+    model_kind = "http_json"
+
+    def __init__(self, endpoint: str, timeout: float = 10.0) -> None:
+        parsed = urlparse(endpoint)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Stage 2 model endpoint must be an absolute HTTP(S) URL")
+        self.endpoint = endpoint
+        self.timeout = timeout
+
+    def propose(self, run: Stage2AgentRun, observation: AgentObservation) -> AgentAction:
+        request_payload = {
+            "agent_run_id": run.agent_run_id,
+            "step": run.step_count + 1,
+            "task_kind": run.task_kind,
+            "task": run.task,
+            "tool_manifest": run.tool_manifest,
+            "observation": observation.model_dump(),
+        }
+        request = Request(
+            self.endpoint,
+            data=json.dumps(request_payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:  # noqa: S310 - endpoint is explicit configuration
+                payload = json.loads(response.read().decode("utf-8"))
+        except HTTPError as error:
+            raise ValueError(f"Stage 2 model HTTP error: {error.code}") from error
+        except (URLError, TimeoutError, json.JSONDecodeError) as error:
+            raise ValueError("Stage 2 model endpoint failed or returned invalid JSON") from error
+        if not isinstance(payload, dict):
+            raise ValueError("Stage 2 model response must be a JSON object")
+        try:
+            return AgentAction.model_validate({
+                **payload,
+                "agent_run_id": run.agent_run_id,
+                "step": run.step_count + 1,
+                "expected_observation_fingerprint": observation.state_fingerprint,
+            })
+        except (TypeError, ValueError) as error:
+            raise ValueError("Stage 2 HTTP model returned an invalid AgentAction") from error
+
+
 class Stage2Engine:
     def __init__(self, store: Store, data_root: Path | None = None, models: dict[str, ActionModel] | None = None) -> None:
         self.store = store
@@ -200,7 +254,7 @@ class Stage2Engine:
         }
 
     def register_model(self, model_kind: str, model: ActionModel) -> None:
-        if model_kind not in {"deterministic", "fake", "json"}:
+        if model_kind not in {"deterministic", "fake", "json", "http_json"}:
             raise ValueError(f"Unsupported Stage 2 model kind: {model_kind}")
         self.models[model_kind] = model
 

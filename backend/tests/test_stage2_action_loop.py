@@ -1,6 +1,8 @@
 import json
 import subprocess
 import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 
 import pytest
 
@@ -9,6 +11,8 @@ from agentguard.llm import Completion
 from agentguard.service import Service
 from agentguard.stage1 import Stage1AcceptanceGate
 from agentguard.stage2 import JsonActionModel, Stage2InjectedCrash
+from agentguard.api import app
+from fastapi.testclient import TestClient
 
 
 def allow_stage2(service: Service, batch_id: str = "stage1-pass") -> None:
@@ -178,3 +182,55 @@ def test_registered_json_model_can_drive_a_real_tool_run(tmp_path):
     )
     assert run.status == "finished"
     assert service.report_stage2_file_agent(run.agent_run_id, tmp_path / "artifacts")["action_kinds"] == ["read_file", "finish"]
+
+
+def test_http_api_drives_real_external_agent_process_into_harness(tmp_path, monkeypatch):
+    class AgentHandler(BaseHTTPRequestHandler):
+        calls = 0
+
+        def do_POST(self):  # noqa: N802 - stdlib handler API
+            length = int(self.headers["Content-Length"])
+            payload = json.loads(self.rfile.read(length))
+            AgentHandler.calls += 1
+            task = payload["task"]
+            planned = task.get("planned_kinds", [])
+            if not planned:
+                action = {"kind": "read_file", "path": "README.md"}
+            elif planned[-1] == "read_file" and len(planned) == 1:
+                action = {"kind": "write_file", "path": "README.md", "content": "# XXX\nManaged by the fixture.\n"}
+            elif planned[-1] == "write_file":
+                action = {"kind": "read_file", "path": "README.md"}
+            else:
+                action = {"kind": "finish"}
+            body = json.dumps(action).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, format, *args):  # noqa: A002 - stdlib handler API
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), AgentHandler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    db = str(tmp_path / "api-stage2.db")
+    allow_stage2(Service(db))
+    monkeypatch.setenv("AGENTGUARD_DB", db)
+    monkeypatch.setenv("AGENTGUARD_STAGE2_MODEL_URL", f"http://127.0.0.1:{server.server_port}/action")
+    try:
+        with TestClient(app) as client:
+            response = client.post("/api/v1/stage2/runs", json={"stage1_batch_id": "stage1-pass", "task_kind": "update_title", "model_kind": "http_json"})
+            assert response.status_code == 200, response.text
+            payload = response.json()
+            run_id = payload["agent_run_id"]
+            assert payload["status"] == "finished"
+            assert payload["model_kind"] == "http_json"
+            report = client.get(f"/api/v1/stage2/runs/{run_id}/report")
+            assert report.status_code == 200, report.text
+            assert report.json()["action_kinds"] == ["read_file", "write_file", "read_file", "finish"]
+        assert AgentHandler.calls == 4
+    finally:
+        server.shutdown()
+        server.server_close()

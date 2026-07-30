@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from .llm import LLMProviderError
 from .service import AssistantInputError, ProductNotFoundError, Service
+from .stage2 import HttpJsonActionModel
 
 
 app = FastAPI(title="Agent Iteration Guard", version="0.1.0")
@@ -143,6 +144,12 @@ def resume_file_management_run(harness_run_id: str):
 @app.post("/api/v1/stage2/runs")
 def start_stage2_run(body: Stage2RunRequest):
     try:
+        action_model = None
+        if body.model_kind == "http_json":
+            endpoint = os.getenv("AGENTGUARD_STAGE2_MODEL_URL")
+            if not endpoint:
+                raise HTTPException(status_code=422, detail="AGENTGUARD_STAGE2_MODEL_URL is required for http_json")
+            action_model = HttpJsonActionModel(endpoint)
         return service().start_stage2_file_agent(
             body.stage1_batch_id,
             product_id=body.product_id,
@@ -150,6 +157,7 @@ def start_stage2_run(body: Stage2RunRequest):
             candidate_version_id=body.candidate_version_id,
             task_kind=body.task_kind,
             model_kind=body.model_kind,
+            action_model=action_model,
             max_steps=body.max_steps,
         ).model_dump()
     except (ProductNotFoundError, AssistantInputError, ValueError) as error:
@@ -160,6 +168,22 @@ def start_stage2_run(body: Stage2RunRequest):
 def resume_stage2_run(agent_run_id: str):
     try:
         return service().resume_stage2_file_agent(agent_run_id).model_dump()
+    except (AssistantInputError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/v1/stage2/runs/{agent_run_id}/report")
+def report_stage2_run(agent_run_id: str):
+    try:
+        return service().report_stage2_file_agent(agent_run_id)
+    except (AssistantInputError, ValueError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@app.get("/api/v1/stage2/gates/{stage1_batch_id}")
+def gate_stage2_run(stage1_batch_id: str):
+    try:
+        return service().gate_stage2_file_agent(stage1_batch_id).model_dump()
     except (AssistantInputError, ValueError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 

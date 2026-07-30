@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from time import perf_counter
@@ -79,7 +80,7 @@ from .stage1 import (
     write_stage1_harness_report,
 )
 from .stage1_reporting import write_stage1_run_artifacts
-from .stage2 import ActionModel, Stage2Engine, Stage2InjectedCrash
+from .stage2 import ActionModel, HttpJsonActionModel, Stage2AgentRun, Stage2Engine, Stage2InjectedCrash
 
 
 class ProductNotFoundError(KeyError):
@@ -403,6 +404,12 @@ class Service:
         return self.stage2.resume(run.agent_run_id, crash_at=crash_at)
 
     def resume_stage2_file_agent(self, agent_run_id: str, *, crash_at: str | None = None):
+        persisted = self.store.get("stage2_agent_run", agent_run_id, Stage2AgentRun)
+        if persisted and persisted.model_kind == "http_json" and "http_json" not in self.stage2.models:
+            endpoint = os.getenv("AGENTGUARD_STAGE2_MODEL_URL")
+            if not endpoint:
+                raise AssistantInputError("AGENTGUARD_STAGE2_MODEL_URL is required to resume an http_json Stage 2 run")
+            self.stage2.register_model("http_json", HttpJsonActionModel(endpoint))
         return self.stage2.resume(agent_run_id, crash_at=crash_at)
 
     def report_stage2_file_agent(self, agent_run_id: str, artifacts_root: Path | None = None) -> dict[str, object]:

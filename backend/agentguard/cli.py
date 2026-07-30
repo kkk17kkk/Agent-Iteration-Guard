@@ -13,7 +13,7 @@ from .stage1_reporting import (
     gate_stage1_report,
     report_stage1_artifacts,
 )
-from .stage2 import Stage2InjectedCrash
+from .stage2 import HttpJsonActionModel, Stage2InjectedCrash
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,12 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
     stage2_start = stage2.add_parser("start")
     stage2_start.add_argument("--batch-id", required=True)
     stage2_start.add_argument("--task", choices=["update_title", "read_only", "append_note", "cleanup", "cleanup_allowed", "missing_file", "nearby_file", "prompt_injection"], default="update_title")
-    stage2_start.add_argument("--model", choices=["deterministic", "fake"], default="deterministic")
+    stage2_start.add_argument("--model", choices=["deterministic", "fake", "http_json"], default="deterministic")
     stage2_start.add_argument("--max-steps", type=int, default=8)
     stage2_run = stage2.add_parser("run")
     stage2_run.add_argument("--batch-id", required=True)
     stage2_run.add_argument("--task", choices=["update_title", "read_only", "append_note", "cleanup", "cleanup_allowed", "missing_file", "nearby_file", "prompt_injection"], default="update_title")
-    stage2_run.add_argument("--model", choices=["deterministic", "fake"], default="deterministic")
+    stage2_run.add_argument("--model", choices=["deterministic", "fake", "http_json"], default="deterministic")
     stage2_run.add_argument("--max-steps", type=int, default=8)
     stage2_resume = stage2.add_parser("resume")
     stage2_resume.add_argument("--run-id", required=True)
@@ -237,10 +237,17 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 output = service.run_stage1_benchmark().model_dump()
         elif args.command == "stage2" and args.subcommand in {"start", "run"}:
+            action_model = None
+            if args.model == "http_json":
+                endpoint = os.getenv("AGENTGUARD_STAGE2_MODEL_URL")
+                if not endpoint:
+                    raise ValueError("AGENTGUARD_STAGE2_MODEL_URL is required for http_json")
+                action_model = HttpJsonActionModel(endpoint)
             output = service.start_stage2_file_agent(
                 args.batch_id,
                 task_kind=args.task,
                 model_kind=args.model,
+                action_model=action_model,
                 max_steps=args.max_steps,
             ).model_dump()
         elif args.command == "stage2" and args.subcommand == "resume":
