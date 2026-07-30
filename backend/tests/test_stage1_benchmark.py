@@ -1,13 +1,18 @@
 from agentguard.stage1 import (
+    Stage1GroundTruth,
     Stage1Metrics,
     Stage1RawResult,
+    build_stage1_runtime_corpus,
     build_stage1_corpus,
     compute_metrics,
     execute_case,
     persist_corpus_run,
+    report_stage1_corpus,
+    run_stage1_corpus,
     select_cases,
     write_artifacts,
 )
+import agentguard.stage1 as stage1_module
 import os
 import subprocess
 import sys
@@ -68,6 +73,36 @@ def test_stage1_report_metrics_are_recomputed_from_saved_raw_records(tmp_path):
     assert metrics.sample_count == 8
     assert store.get("stage1_metrics", "stage1_metrics", Stage1Metrics) == metrics
     assert len(store.list("stage1_raw_result", Stage1RawResult, "stage1-product")) == metrics.sample_count
+
+
+def test_stage1_run_path_does_not_load_or_persist_ground_truth(tmp_path, monkeypatch):
+    def forbidden_ground_truth(*args, **kwargs):
+        raise AssertionError("Ground Truth was accessed by the run path")
+
+    monkeypatch.setattr(stage1_module, "load_stage1_ground_truth", forbidden_ground_truth)
+    store = Store(str(tmp_path / "runtime-only.db"))
+    raw = run_stage1_corpus(store, "runtime-only")
+
+    assert len(raw) == 8
+    assert store.list("stage1_ground_truth", Stage1GroundTruth, "runtime-only") == []
+    assert store.list("stage1_mutation", stage1_module.Stage1MutationManifest, "runtime-only")
+
+
+def test_stage1_ground_truth_is_only_joined_during_reporting(tmp_path):
+    store = Store(str(tmp_path / "report.db"))
+    run_stage1_corpus(store, "report-only")
+    assert store.list("stage1_ground_truth", Stage1GroundTruth, "report-only") == []
+
+    metrics = report_stage1_corpus(store, "report-only")
+    assert metrics.sample_count == 8
+
+
+def test_stage1_runtime_case_has_no_ground_truth_or_failure_label_fields():
+    cases, mutations = build_stage1_runtime_corpus()
+
+    assert not hasattr(cases[0], "required_case_ids")
+    assert not hasattr(cases[0], "actual_failure_case_ids")
+    assert {mutation.case_id for mutation in mutations} == {case.case_id for case in cases}
 
 
 def test_stage1_benchmark_has_a_cli_reproduction_entrypoint(tmp_path, capsys):

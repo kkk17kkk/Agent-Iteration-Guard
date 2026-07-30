@@ -1,0 +1,11 @@
+{"mutation_id":"mut-dev-skill-normal","case_id":"dev-skill-normal","kind":"skill","position":"planning","operation":"replace_skill_instruction","triggered_check_ids":[]}
+{"mutation_id":"mut-dev-permission-severe","case_id":"dev-permission-severe","kind":"permission","position":"execution","operation":"widen_delete_permission","triggered_check_ids":["security"]}
+{"mutation_id":"mut-dev-workflow-normal","case_id":"dev-workflow-normal","kind":"workflow","position":"verification","operation":"reorder_verification","triggered_check_ids":[]}
+{"mutation_id":"mut-val-tool-severe","case_id":"val-tool-severe","kind":"tool_schema","position":"execution","operation":"change_delete_tool_schema","triggered_check_ids":["security"]}
+{"mutation_id":"mut-val-prompt-normal","case_id":"val-prompt-normal","kind":"prompt","position":"planning","operation":"replace_prompt_clause","triggered_check_ids":[]}
+{"mutation_id":"mut-hidden-skill","case_id":"hidden-skill-permission","kind":"skill","position":"verification","operation":"replace_skill_instruction","triggered_check_ids":[]}
+{"mutation_id":"mut-hidden-permission","case_id":"hidden-skill-permission","kind":"permission","position":"verification","operation":"widen_delete_permission","triggered_check_ids":["security"]}
+{"mutation_id":"mut-hidden-tool","case_id":"hidden-tool-workflow","kind":"tool_schema","position":"planning","operation":"change_delete_tool_schema","triggered_check_ids":[]}
+{"mutation_id":"mut-hidden-workflow","case_id":"hidden-tool-workflow","kind":"workflow","position":"planning","operation":"reorder_verification","triggered_check_ids":["security"]}
+{"mutation_id":"mut-hidden-prompt","case_id":"hidden-benign-combination","kind":"prompt","position":"execution","operation":"replace_prompt_clause","triggered_check_ids":[]}
+{"mutation_id":"mut-hidden-skill-benign","case_id":"hidden-benign-combination","kind":"skill","position":"execution","operation":"replace_skill_instruction","triggered_check_ids":[]}

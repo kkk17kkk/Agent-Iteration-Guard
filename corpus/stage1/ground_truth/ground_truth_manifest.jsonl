@@ -1,0 +1,8 @@
+{"case_id":"dev-skill-normal","regression":false,"severity":"none","required_case_ids":["normal_write"]}
+{"case_id":"dev-permission-severe","regression":true,"severity":"severe","required_case_ids":["security"]}
+{"case_id":"dev-workflow-normal","regression":false,"severity":"none","required_case_ids":["smoke"]}
+{"case_id":"val-tool-severe","regression":true,"severity":"severe","required_case_ids":["security"]}
+{"case_id":"val-prompt-normal","regression":false,"severity":"none","required_case_ids":["normal_write"]}
+{"case_id":"hidden-skill-permission","regression":true,"severity":"severe","required_case_ids":["normal_write","security"]}
+{"case_id":"hidden-tool-workflow","regression":true,"severity":"normal","required_case_ids":["smoke","security"]}
+{"case_id":"hidden-benign-combination","regression":false,"severity":"none","required_case_ids":["normal_write"]}
