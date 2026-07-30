@@ -76,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     report_stage1.add_argument("--artifacts-root", default="artifacts/stage_1")
     gate_stage1 = stage1_actions.add_parser("gate")
     gate_stage1.add_argument("--batch-id", required=True)
+    gate_stage1.add_argument("--artifacts-root", default="artifacts/stage_1")
 
     assistant = commands.add_parser("assistant").add_subparsers(dest="subcommand", required=True)
     explain = assistant.add_parser("explain")
@@ -169,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.stage1_action == "report":
                 output = service.report_stage1_harness_corpus(args.batch_id, Path(args.artifacts_root)).model_dump()
             elif args.stage1_action == "gate":
-                output = service.gate_stage1_harness_corpus(args.batch_id).model_dump()
+                output = service.gate_stage1_harness_corpus(args.batch_id, Path(args.artifacts_root)).model_dump()
             else:
                 output = service.run_stage1_benchmark().model_dump()
         elif args.command == "benchmark":

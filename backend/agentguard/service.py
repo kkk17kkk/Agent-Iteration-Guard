@@ -706,8 +706,8 @@ class Service:
             return report_stage1_harness(self.store, batch_id)
         return write_stage1_harness_report(self.store, batch_id, artifact_root)
 
-    def gate_stage1_harness_corpus(self, batch_id: str) -> Stage1HarnessGate:
-        return gate_stage1_harness(self.store, batch_id)
+    def gate_stage1_harness_corpus(self, batch_id: str, artifact_root: Path | None = None) -> Stage1HarnessGate:
+        return gate_stage1_harness(self.store, batch_id, artifact_root)
 
     @staticmethod
     def _stage1_harness_artifact(

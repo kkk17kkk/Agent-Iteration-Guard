@@ -470,7 +470,7 @@ def report_stage1_harness(
     return metrics
 
 
-def gate_stage1_harness(store: Store, batch_id: str) -> Stage1HarnessGate:
+def gate_stage1_harness(store: Store, batch_id: str, root: Path | None = None) -> Stage1HarnessGate:
     """Gate the real Harness corpus using only persisted artifacts and metrics."""
     batch = _harness_batch(store, batch_id)
     metrics = store.get("stage1_harness_metrics", f"stage1_metrics__{batch_id}", Stage1HarnessMetrics)
@@ -540,6 +540,11 @@ def gate_stage1_harness(store: Store, batch_id: str) -> Stage1HarnessGate:
     status: HarnessGateStatus = "PASS" if all(item.status == "verified" for item in criteria) else "BLOCKED"
     gate = Stage1HarnessGate(batch_id=batch_id, status=status, criteria=criteria)
     store.save("stage1_harness_gate", f"stage1_gate__{batch_id}", "stage1", gate)
+    if root is not None:
+        (root / "gate").mkdir(parents=True, exist_ok=True)
+        (root / "gate" / "stage1_harness_gate.json").write_text(
+            json.dumps(gate.model_dump(), indent=2), encoding="utf-8"
+        )
     return gate
 
 
