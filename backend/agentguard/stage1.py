@@ -91,6 +91,32 @@ class Stage1RawResult(BaseModel):
     cost_usd: float = Field(ge=0)
 
 
+Stage1HarnessBranch = Literal["selected", "full_regression"]
+
+
+class Stage1HarnessArtifact(BaseModel):
+    """Stable binding between one case/branch and the real Harness artifacts."""
+
+    artifact_id: str
+    product_id: str
+    case_id: str
+    branch: Stage1HarnessBranch
+    baseline_ref: str
+    candidate_ref: str
+    environment_ref: str
+    harness_run_id: str
+    eval_plan_id: str
+    selected_case_ids: list[str]
+    work_item_ids: list[str]
+    execution_ids: list[str]
+    verification_ids: list[str]
+    evidence_ids: list[str]
+    finding_ids: list[str]
+    release_decision_id: str
+    run_status: str
+    release_status: Literal["ready", "blocked"]
+
+
 class Stage1Metrics(BaseModel):
     sample_count: int
     regression_precision: float

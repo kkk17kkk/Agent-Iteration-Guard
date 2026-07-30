@@ -61,7 +61,14 @@ from .trials import ENVIRONMENT_FINGERPRINT, FileTrialEvaluator, policy_fingerpr
 from .routing import build_file_management_plan
 from .mutations import FileManagementMutationFactory
 from .inspect_runner import ExternalRunnerError, InspectFileManagementRunner
-from .stage1 import Stage1Metrics, persist_corpus_run
+from .stage1 import (
+    Stage1HarnessArtifact,
+    Stage1HarnessBranch,
+    Stage1Case,
+    Stage1Metrics,
+    build_stage1_runtime_corpus,
+    persist_corpus_run,
+)
 
 
 class ProductNotFoundError(KeyError):
@@ -300,7 +307,7 @@ class Service:
         ])
         return version
 
-    def file_agent_fixture(self) -> FileAgentFixture:
+    def file_agent_fixture(self, candidate_label: str = "v2") -> FileAgentFixture:
         product, _ = self.create("File Agent", "Deterministic P0 permission-regression fixture")
         requirement = Requirement(product_id=product.product_id, title="Write reports without unauthorized paths", risk="critical")
         capability = Capability(product_id=product.product_id, name="Controlled file writes", requirement_ids=[requirement.requirement_id], risk="critical")
@@ -316,7 +323,7 @@ class Service:
         ])
         fixture_root = Path(__file__).parents[1] / "fixtures" / "file_agent"
         baseline = self.import_version(product.product_id, fixture_root / "v1", "v1")
-        candidate = self.import_version(product.product_id, fixture_root / "v2", "v2")
+        candidate = self.import_version(product.product_id, fixture_root / candidate_label, candidate_label)
         return FileAgentFixture(self.product(product.product_id), baseline, candidate)
 
     def file_management_fixture(self) -> FileAgentFixture:
@@ -539,7 +546,13 @@ class Service:
         ])
         return PreparedHarnessRun(run, handoffs, decision)
 
-    def run_file_agent(self, product_id: str, baseline_version_id: str, candidate_version_id: str) -> P0RunResult:
+    def run_file_agent(
+        self,
+        product_id: str,
+        baseline_version_id: str,
+        candidate_version_id: str,
+        requested_eval_case_ids: list[str] | None = None,
+    ) -> P0RunResult:
         product = self.product(product_id)
         if not product:
             raise ProductNotFoundError(product_id)
@@ -549,6 +562,7 @@ class Service:
             version_id=candidate_version_id,
             baseline_version_id=baseline_version_id,
             candidate_version_id=candidate_version_id,
+            changeset_id=changeset.changeset_id,
         )
         run.thread_id = run.harness_run_id
         state = self.p0_harness.run(
@@ -556,6 +570,7 @@ class Service:
             changeset,
             self.store.list("eval_case", EvalCase, product_id),
             changeset.candidate_snapshot,
+            requested_eval_case_ids=requested_eval_case_ids,
         )
         result = P0RunResult(state)
         self.store.save_many([
@@ -571,6 +586,71 @@ class Service:
             *[("run_event", item.event_id, product_id, item) for item in result.events],
         ])
         return result
+
+    def run_stage1_harness_pair(self, case_id: str) -> list[Stage1HarnessArtifact]:
+        """Run one Stage 1 case through selected and full real Harness branches.
+
+        Both branches share the same imported baseline/candidate snapshots and
+        registered local environment.  Only the EvalPlan selection override
+        differs: selected uses the normal Eval Router, while full explicitly
+        includes every registered case as the regression control.
+        """
+        cases, _ = build_stage1_runtime_corpus()
+        try:
+            case = next(item for item in cases if item.case_id == case_id)
+        except StopIteration as error:
+            raise AssistantInputError(f"Unknown Stage 1 case: {case_id}") from error
+        candidate_label = case.candidate_ref.rsplit(":", 1)[-1]
+        fixture = self.file_agent_fixture(candidate_label=candidate_label)
+        eval_case_ids = [item.eval_case_id for item in self.store.list("eval_case", EvalCase, fixture.product.product_id)]
+        selected = self.run_file_agent(
+            fixture.product.product_id,
+            fixture.baseline.version_id,
+            fixture.candidate.version_id,
+        )
+        full = self.run_file_agent(
+            fixture.product.product_id,
+            fixture.baseline.version_id,
+            fixture.candidate.version_id,
+            requested_eval_case_ids=eval_case_ids,
+        )
+        artifacts = [
+            self._stage1_harness_artifact(case, fixture, "selected", selected),
+            self._stage1_harness_artifact(case, fixture, "full_regression", full),
+        ]
+        self.store.save_many([
+            ("stage1_harness_artifact", artifact.artifact_id, fixture.product.product_id, artifact)
+            for artifact in artifacts
+        ])
+        return artifacts
+
+    @staticmethod
+    def _stage1_harness_artifact(
+        case: Stage1Case,
+        fixture: FileAgentFixture,
+        branch: Stage1HarnessBranch,
+        result: P0RunResult,
+    ) -> Stage1HarnessArtifact:
+        return Stage1HarnessArtifact(
+            artifact_id=f"stage1_harness__{result.run.harness_run_id}",
+            product_id=fixture.product.product_id,
+            case_id=case.case_id,
+            branch=branch,
+            baseline_ref=case.baseline_ref,
+            candidate_ref=case.candidate_ref,
+            environment_ref="fake-file-agent-v1",
+            harness_run_id=result.run.harness_run_id,
+            eval_plan_id=result.eval_plan.eval_plan_id,
+            selected_case_ids=result.eval_plan.selected_case_ids,
+            work_item_ids=[item.work_item_id for item in result.work_items],
+            execution_ids=[item.execution_id for item in result.executions],
+            verification_ids=[item.verification_id for item in result.verifications],
+            evidence_ids=[item.evidence_id for item in result.evidence],
+            finding_ids=[item.finding_id for item in result.findings],
+            release_decision_id=result.release_decision.decision_id,
+            run_status=result.run.status,
+            release_status=result.release_decision.status,
+        )
 
     def start_file_management_run(
         self,

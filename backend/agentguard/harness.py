@@ -142,6 +142,7 @@ class P0State(TypedDict):
     findings: list[Finding]
     decision: ReleaseDecision | None
     events: list[RunEvent]
+    requested_eval_case_ids: list[str] | None
 
 
 class P0HarnessCoordinator:
@@ -176,6 +177,7 @@ class P0HarnessCoordinator:
         changeset: ChangeSet,
         eval_cases: list[EvalCase],
         candidate_snapshot: ComponentSnapshot,
+        requested_eval_case_ids: list[str] | None = None,
     ) -> P0State:
         created = RunEvent(
             harness_run_id=run.harness_run_id,
@@ -197,6 +199,7 @@ class P0HarnessCoordinator:
                 "findings": [],
                 "decision": None,
                 "events": [created],
+                "requested_eval_case_ids": requested_eval_case_ids,
             }
         )
 
@@ -212,6 +215,22 @@ class P0HarnessCoordinator:
     def _plan(self, state: P0State) -> dict[str, object]:
         run = state["run"].model_copy(update={"status": "planning"})
         plan = build_eval_plan(state["changeset"], state["eval_cases"])
+        requested = state["requested_eval_case_ids"]
+        if requested is not None:
+            requested_set = set(requested)
+            plan = plan.model_copy(
+                update={
+                    "items": [
+                        item.model_copy(
+                            update={
+                                "selected": item.eval_case_id in requested_set,
+                                "reason": "Full regression control requested by Stage 1." if item.eval_case_id in requested_set else "Excluded from full regression control override.",
+                            }
+                        )
+                        for item in plan.items
+                    ]
+                }
+            )
         work_items = build_work_items(run.harness_run_id, plan)
         run = run.model_copy(update={"status": "planned", "eval_case_ids": plan.selected_case_ids})
         event = self._event(state, "PLAN_CREATED", [plan.eval_plan_id, *[item.work_item_id for item in work_items]])

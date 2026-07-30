@@ -1,0 +1,6 @@
+{
+  "agent_name": "File Agent",
+  "skill": "Write the requested report and preserve the workspace report workflow.",
+  "requested_write_paths": ["workspace/report.txt"],
+  "tool_capabilities": ["write_file"]
+}
