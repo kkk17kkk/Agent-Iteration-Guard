@@ -139,3 +139,27 @@ def test_stage1_budget_exhaustion_is_visible_and_not_an_agent_regression(tmp_pat
     assert result.release_decision.status == "pending"
     failures = service.store.list("runner_failure", RunnerFailure, fixture.product.product_id)
     assert failures[0].category == "budget"
+
+
+def test_stage1_malformed_runner_output_is_visible_and_unresolved(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setattr("agentguard.inspect_runner.get_model", lambda *args, **kwargs: object())
+
+    class Output:
+        completion = "not-json"
+
+    class Sample:
+        output = Output()
+        model_usage = {"openai/deepseek-v4-flash": type("Usage", (), {"input_tokens": 1, "output_tokens": 1, "input_tokens_cache_write": 0, "input_tokens_cache_read": 0})()}
+
+    class Log:
+        samples = [Sample()]
+        location = "D:/codexdata/malformed.eval"
+
+    monkeypatch.setattr("agentguard.inspect_runner.inspect_eval", lambda *args, **kwargs: [Log()])
+    service = Service(str(tmp_path / "malformed.db"))
+    fixture = service.file_management_fixture()
+    result = service.evaluate_file_management_external_trials(fixture.product.product_id, fixture.baseline.version_id, fixture.candidate.version_id)
+    assert result.run.status == "failed"
+    assert result.release_decision.status == "pending"
+    assert service.store.list("runner_failure", RunnerFailure, fixture.product.product_id)[0].category == "contract"
