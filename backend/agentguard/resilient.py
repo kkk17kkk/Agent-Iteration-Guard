@@ -25,7 +25,14 @@ from .store import Store
 
 
 Step = Literal["plan", "execute", "verify", "gate", "record", "completed"]
-CrashPoint = Literal["before_execute", "after_runner", "after_finding"]
+CrashPoint = Literal[
+    "before_execute",
+    "after_runner_before_execution_commit",
+    "after_runner",
+    "oracle_exception",
+    "after_evidence",
+    "after_finding",
+]
 
 
 class InjectedCrash(RuntimeError):
@@ -199,8 +206,15 @@ class ResilientFileHarness:
         if state["crash_at"] == "before_execute":
             raise InjectedCrash("Injected crash before the runner starts.")
         work_item = self._work_item(run)
+        uncommitted_runner = state["crash_at"] == "after_runner_before_execution_commit"
         try:
-            execution = self.runner.execute(run, work_item, self._candidate(self._changeset(run)), self._policy(run))
+            execution = self.runner.execute(
+                run,
+                work_item,
+                self._candidate(self._changeset(run)),
+                self._policy(run),
+                persist_execution=not uncommitted_runner,
+            )
         except RunnerInterrupted:
             failed = run.model_copy(update={"status": "failed", "blocked_reason": "runner_interrupted"})
             self._commit(
@@ -211,6 +225,8 @@ class ResilientFileHarness:
                 [("harness_run", failed.harness_run_id, failed.product_id, failed)],
             )
             return state
+        if uncommitted_runner:
+            raise InjectedCrash("Injected crash after runner output and before ExecutionResult commit.")
         if state["crash_at"] == "after_runner":
             raise InjectedCrash("Injected crash after durable runner result and before graph commit.")
         completed_item = work_item.model_copy(update={"status": "completed"})
@@ -230,6 +246,8 @@ class ResilientFileHarness:
     def _verify(self, state: DurableState) -> DurableState:
         run = self._load_run(state["harness_run_id"])
         execution = self._execution(run)
+        if state["crash_at"] == "oracle_exception":
+            raise InjectedCrash("Injected Oracle execution exception before verification commit.")
         verification = self.oracle.verify(run.harness_run_id, execution)
         evidence = Evidence(
             harness_run_id=run.harness_run_id,
@@ -252,6 +270,8 @@ class ResilientFileHarness:
                 ("evidence", evidence.evidence_id, updated.product_id, evidence),
             ],
         )
+        if state["crash_at"] == "after_evidence":
+            raise InjectedCrash("Injected crash after Evidence commit and before Finding.")
         return state
 
     def _gate(self, state: DurableState) -> DurableState:

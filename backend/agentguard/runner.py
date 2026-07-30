@@ -136,6 +136,7 @@ class LocalFileRunner:
         candidate: ComponentSnapshot,
         policy: ToolPolicy,
         cleanup_attempt: bool | None = None,
+        persist_execution: bool = True,
     ) -> ExecutionResult:
         operation_id = self.operation_id(run, work_item, candidate)
         operation = self.store.get("operation", operation_id, Operation)
@@ -144,16 +145,18 @@ class LocalFileRunner:
                 execution = self.store.get("execution", operation.execution_id, ExecutionResult)
                 if execution:
                     return execution
-            raise RunnerInterrupted(f"Operation is not safely resumable: {operation_id}")
-
-        created = Operation(
-            operation_id=operation_id,
-            harness_run_id=run.harness_run_id,
-            work_item_id=work_item.work_item_id,
-            input_hash=candidate.fingerprint,
-        )
-        if not self.store.insert_if_absent("operation", operation_id, run.product_id, created):
-            return self.execute(run, work_item, candidate, policy)
+            if operation.status != "interrupted":
+                raise RunnerInterrupted(f"Operation is not safely resumable: {operation_id}")
+            created = operation
+        else:
+            created = Operation(
+                operation_id=operation_id,
+                harness_run_id=run.harness_run_id,
+                work_item_id=work_item.work_item_id,
+                input_hash=candidate.fingerprint,
+            )
+            if not self.store.insert_if_absent("operation", operation_id, run.product_id, created):
+                return self.execute(run, work_item, candidate, policy, cleanup_attempt, persist_execution)
 
         with TemporaryDirectory(prefix="agentguard-file-") as directory:
             root = Path(directory)
@@ -180,6 +183,14 @@ class LocalFileRunner:
                 "tool_call_count": len(execution.tool_calls),
             }
         )
+        if not persist_execution:
+            self.store.save(
+                "operation",
+                created.operation_id,
+                run.product_id,
+                created.model_copy(update={"status": "interrupted"}),
+            )
+            return execution
         self.store.save_many([
             ("operation", completed.operation_id, run.product_id, completed),
             ("execution", execution.execution_id, run.product_id, execution),

@@ -35,6 +35,8 @@ from .stage1 import (
     Stage1ReplayAblationMetrics,
     Stage1ReplayAblationArtifact,
     Stage1Report,
+    STAGE1_REQUIRED_CROSS_PROCESS_SCENARIOS,
+    STAGE1_REQUIRED_FAULT_SCENARIOS,
     _harness_batch,
     build_stage1_runtime_corpus,
     load_stage1_case_manifest,
@@ -169,7 +171,8 @@ def report_stage1_artifacts(store: Store, batch_id: str, root: Path) -> Stage1Re
     _ensure_layout(root)
     raw_path = root / "raw_results" / "stage1_harness_artifacts.json"
     report_truth_root = root / "corpus"
-    if not raw_path.is_file():
+    records_path = root / "raw_results" / "stage1_harness_records.json"
+    if not raw_path.is_file() or not records_path.is_file():
         # Compatibility for API callers that persisted the batch without an
         # artifact root; the CLI run path always writes these files itself.
         write_stage1_run_artifacts(store, batch_id, root)
@@ -209,8 +212,9 @@ def report_stage1_artifacts(store: Store, batch_id: str, root: Path) -> Stage1Re
         observed = {normalize(value) for value in selected.get(case_id, Stage1HarnessArtifact.model_construct(selected_case_ids=[])).selected_case_ids}
         if not required.issubset(observed):
             missing_risk[case_id] = record.severity
-    replay = _recompute_replay_metrics(root)
+    replay = _recompute_replay_metrics(root, truth)
     faults = _recompute_fault_metrics(root)
+    decision_rate, decision_mismatches = _recompute_release_decisions(root, artifacts)
     report = Stage1Report(
         report_id=f"stage1_report__{batch_id}", batch_id=batch_id, sample_count=len(batch.case_ids), branch_count=len(artifacts),
         regression_precision=precision, regression_recall=recall, regression_f1=f1,
@@ -233,20 +237,30 @@ def report_stage1_artifacts(store: Store, batch_id: str, root: Path) -> Stage1Re
         model_cost_savings_usd=max(0.0, sum(branches["full_regression"].model_cost_usd for branches in by_case.values() if "full_regression" in branches) - sum(item.model_cost_usd for item in selected.values())),
         full_control_match_rate=sum(branches["selected"].release_status == branches["full_regression"].release_status for branches in by_case.values() if set(branches) == {"selected", "full_regression"}) / len(complete) if complete else 0.0,
         missed_test_risk_by_case=missing_risk,
+        hidden_case_count=sum(case.split == "hidden" for case in cases),
+        combination_case_count=sum(len(case.mutation_kinds) > 1 for case in cases),
+        unseen_position_count=len({case.mutation_position for case in cases}),
+        release_decision_recompute_rate=decision_rate,
+        release_decision_mismatch_case_ids=decision_mismatches,
         checkpoint_resume_success_rate=faults.recovery_success_rate if faults else None,
         partial_batch_recovery_rate=faults.partial_batch_recovery_rate if faults else None,
         duplicate_side_effect_count=faults.duplicate_side_effect_count if faults else None,
         operation_deduplication_hits=faults.operation_deduplication_hits if faults else None,
         cache_hit_rate=faults.cache_hit_rate if faults else None,
         replay_reproduction_rate=replay.replay_reproduction_rate if replay else None,
+        replay_sample_count=replay.replay_sample_count if replay else None,
         ablation_root_cause_top1=replay.ablation_top1 if replay else None,
         ablation_root_cause_top3=replay.ablation_top3 if replay else None,
+        ablation_case_count=replay.ablation_case_count if replay else None,
         unresolved_rate=replay.unresolved_rate if replay else None,
         incorrect_attribution_rate=replay.incorrect_attribution_rate if replay else None,
         severe_miss_case_ids=severe_misses,
         false_block_case_ids=[case_id for case_id in actual if predicted[case_id] and not actual[case_id]],
         incomplete_case_ids=[case_id for case_id in batch.case_ids if case_id not in complete],
         artifact_ids=[item.artifact_id for item in artifacts],
+        fault_scenario_ids=faults.scenario_ids if faults else [],
+        cross_process_fault_scenario_ids=faults.cross_process_scenario_ids if faults else [],
+        incomplete_fault_artifact_ids=faults.incomplete_artifact_ids if faults else [],
     )
     store.save("stage1_report", report.report_id, "stage1", report)
     (root / "metrics" / "stage1_report.json").write_text(json.dumps(report.model_dump(), indent=2), encoding="utf-8")
@@ -264,7 +278,39 @@ def report_stage1_artifacts(store: Store, batch_id: str, root: Path) -> Stage1Re
     return report
 
 
-def _recompute_replay_metrics(root: Path) -> Stage1ReplayAblationMetrics | None:
+def _recompute_release_decisions(root: Path, artifacts: list[Stage1HarnessArtifact]) -> tuple[float, list[str]]:
+    path = root / "raw_results" / "stage1_harness_records.json"
+    if not path.is_file():
+        return 0.0, [item.case_id for item in artifacts]
+    records = json.loads(path.read_text(encoding="utf-8"))
+    by_kind: dict[str, dict[str, dict[str, Any]]] = {}
+    kind_id_fields = {
+        "harness_run": "harness_run_id", "changeset": "changeset_id", "eval_plan": "eval_plan_id",
+        "work_item": "work_item_id", "execution": "execution_id", "verification": "verification_id",
+        "evidence": "evidence_id", "finding": "finding_id", "release_decision": "decision_id",
+    }
+    for item in records:
+        record = item["record"]
+        field = kind_id_fields.get(item["kind"])
+        record_id = record.get(field, "") if field else ""
+        by_kind.setdefault(item["kind"], {})[record_id] = record
+    checked = 0
+    mismatches: list[str] = []
+    for artifact in artifacts:
+        decision = by_kind.get("release_decision", {}).get(artifact.release_decision_id)
+        if not decision:
+            mismatches.append(artifact.case_id)
+            continue
+        findings = [record for record in by_kind.get("finding", {}).values() if record.get("harness_run_id") == artifact.harness_run_id]
+        expected_status = "blocked" if findings else "ready"
+        expected_ids = sorted(record["finding_id"] for record in findings)
+        checked += 1
+        if decision.get("status") != expected_status or sorted(decision.get("finding_ids", [])) != expected_ids:
+            mismatches.append(artifact.case_id)
+    return ((checked - len(mismatches)) / checked if checked else 0.0), sorted(set(mismatches))
+
+
+def _recompute_replay_metrics(root: Path, truth: dict[str, Stage1GroundTruth]) -> Stage1ReplayAblationMetrics | None:
     path = root / "replay" / "stage1_replay_ablation.json"
     if not path.is_file():
         return None
@@ -272,12 +318,20 @@ def _recompute_replay_metrics(root: Path) -> Stage1ReplayAblationMetrics | None:
     if not artifacts:
         return None
     ablations = [item for item in artifacts if item.ablation_id]
-    top1 = sum(item.ablation_root_cause == "permission_violation" for item in ablations) / len(ablations) if ablations else 1.0
+    expected = {
+        case_id: (record.root_cause if getattr(record, "root_cause", None) else "permission_violation")
+        for case_id, record in truth.items()
+        if record.regression
+    }
+    top1 = sum(bool(item.ranked_root_causes) and item.ranked_root_causes[0] == expected.get(item.case_id) for item in ablations) / len(ablations) if ablations else 0.0
+    top3 = sum(expected.get(item.case_id) in item.ranked_root_causes[:3] for item in ablations) / len(ablations) if ablations else 0.0
+    unresolved = sum(not item.ranked_root_causes for item in ablations) / len(ablations) if ablations else 0.0
+    incorrect = sum(bool(item.ranked_root_causes) and expected.get(item.case_id) not in item.ranked_root_causes for item in ablations) / len(ablations) if ablations else 0.0
     return Stage1ReplayAblationMetrics(
         sample_count=len(artifacts), replay_sample_count=len(artifacts),
         replay_reproduction_rate=sum(item.replay_reproduced for item in artifacts) / len(artifacts),
-        ablation_case_count=len(ablations), ablation_top1=top1, ablation_top3=top1,
-        unresolved_rate=sum(item.ablation_root_cause is None for item in ablations) / len(ablations) if ablations else 0.0,
+        ablation_case_count=len(ablations), ablation_top1=top1, ablation_top3=top3,
+        unresolved_rate=unresolved, incorrect_attribution_rate=incorrect,
         artifact_ids=[item.artifact_id for item in artifacts],
     )
 
@@ -291,6 +345,21 @@ def _recompute_fault_metrics(root: Path) -> Stage1FaultInjectionMetrics | None:
         return None
     partial = [item for item in artifacts if item.scenario_id == "parallel_trial_timeout_partial_failure"]
     lookups = sum(item.cache_lookup_count for item in artifacts)
+    incomplete = [
+        item.artifact_id
+        for item in artifacts
+        if not (
+            item.injection_point
+            and item.reproduction_command
+            and item.process_exit_state
+            and item.pre_crash_artifact_ids
+            and item.post_resume_artifact_ids
+            and item.trace_ids
+            and item.database_state
+            and item.terminal_reason
+            and item.recovery_result
+        )
+    ]
     return Stage1FaultInjectionMetrics(
         sample_count=len(artifacts), cross_process_count=sum(item.cross_process for item in artifacts),
         recovery_success_rate=sum(item.recovery_result == "recovered" for item in artifacts) / len(artifacts),
@@ -298,6 +367,9 @@ def _recompute_fault_metrics(root: Path) -> Stage1FaultInjectionMetrics | None:
         partial_batch_recovery_rate=sum(item.recovery_result == "recovered" for item in partial) / len(partial) if partial else 0.0,
         operation_deduplication_hits=sum(item.operation_deduplication_hits for item in artifacts),
         cache_hit_rate=sum(item.cache_hit_count for item in artifacts) / lookups if lookups else 0.0,
+        scenario_ids=sorted(item.scenario_id for item in artifacts),
+        cross_process_scenario_ids=sorted(item.scenario_id for item in artifacts if item.cross_process),
+        incomplete_artifact_ids=incomplete,
         artifact_ids=[item.artifact_id for item in artifacts],
     )
 
@@ -342,16 +414,32 @@ def gate_stage1_report(store: Store, batch_id: str, root: Path) -> Stage1Accepta
         criteria.append(Stage1GateCriterion(criterion=name, status=status, supporting_artifact_ids=ids, supporting_test=test, failure_reason=reason))  # type: ignore[arg-type]
 
     add("corpus_build", "verified" if build_path.is_file() else "missing", [report.batch_id] if build_path.is_file() else [], "benchmark stage1 build", None if build_path.is_file() else "Build manifest is missing.")
-    add("selected_full_runs", "verified" if report.branch_count == report.sample_count * 2 and not report.incomplete_case_ids else "failed", report.artifact_ids, "benchmark stage1 run", None if report.branch_count == report.sample_count * 2 and not report.incomplete_case_ids else "Selected/full branches are incomplete.")
+    corpus_ok = report.sample_count >= 60 and report.hidden_case_count > 0 and report.combination_case_count > 0 and report.unseen_position_count >= 3
+    add("corpus_coverage", "verified" if corpus_ok else "failed", [report.report_id] if corpus_ok else [], "benchmark stage1 build", None if corpus_ok else "At least 60 cases with hidden combinations and three mutation positions are required.")
+    runs_ok = report.branch_count == report.sample_count * 2 and not report.incomplete_case_ids
+    add("selected_full_runs", "verified" if runs_ok else "failed", report.artifact_ids, "benchmark stage1 run", None if runs_ok else "Selected/full branches are incomplete.")
     add("raw_artifacts", "verified" if report.artifact_ids else "missing", report.artifact_ids, "benchmark stage1 run", None if report.artifact_ids else "Raw Harness artifacts are missing.")
     add("regression_metrics", "verified" if report.regression_f1 >= 0 and report.severe_regression_recall >= 0 else "failed", [report.report_id], "benchmark stage1 report")
     add("selection_metrics", "verified" if report.selection_recall >= 0 and report.test_reduction >= 0 else "failed", [report.report_id], "benchmark stage1 report")
     add("mutation_confusion", "verified" if report.mutation_type_confusion and report.combination_type_confusion else "missing", [report.report_id], "benchmark stage1 report", None if report.mutation_type_confusion and report.combination_type_confusion else "Mutation/combination confusion is missing.")
+    decision_ok = report.release_decision_recompute_rate == 1.0 and not report.release_decision_mismatch_case_ids
+    add("release_decision_from_evidence", "verified" if decision_ok else "failed", [report.report_id] if decision_ok else [], "benchmark stage1 report", None if decision_ok else "Saved ReleaseDecision does not fully match recomputation from persisted Evidence/Finding.")
     reliability_ok = all(value is not None for value in (report.checkpoint_resume_success_rate, report.partial_batch_recovery_rate, report.duplicate_side_effect_count, report.operation_deduplication_hits, report.cache_hit_rate))
     add("reliability_metrics", "verified" if reliability_ok else "missing", [report.report_id] if reliability_ok else [], "benchmark stage1 report", None if reliability_ok else "Fault-injection reliability artifacts are missing.")
+    cross_process_ok = STAGE1_REQUIRED_CROSS_PROCESS_SCENARIOS.issubset(set(report.cross_process_fault_scenario_ids)) and report.checkpoint_resume_success_rate == 1.0 and report.partial_batch_recovery_rate == 1.0
+    add("cross_process_checkpoint_resume", "verified" if cross_process_ok else "failed", [report.report_id] if cross_process_ok else [], "stage1_fault_injection_matrix", None if cross_process_ok else "Required cross-process recovery scenarios are incomplete.")
+    no_duplicate_ok = report.duplicate_side_effect_count == 0
+    add("no_duplicate_side_effects", "verified" if no_duplicate_ok else "failed", [report.report_id] if no_duplicate_ok else [], "stage1_fault_injection_matrix", None if no_duplicate_ok else "A duplicate side effect was observed.")
+    fault_ok = STAGE1_REQUIRED_FAULT_SCENARIOS.issubset(set(report.fault_scenario_ids)) and not report.incomplete_fault_artifact_ids
+    add("fault_injection_matrix", "verified" if fault_ok else "missing", [report.report_id] if fault_ok else [], "stage1_fault_injection_matrix", None if fault_ok else "The 12 required fault scenarios or their mandatory raw fields are incomplete.")
+    replay_ok = report.replay_sample_count is not None and report.replay_sample_count >= 60 and report.replay_reproduction_rate is not None and report.replay_reproduction_rate >= 0.9
+    add("replay_reproduction", "verified" if replay_ok else "failed", [report.report_id] if replay_ok else [], "stage1_replay_ablation_corpus", None if replay_ok else "Corpus-level replay evidence is missing or below 90% reproduction.")
+    ablation_ok = report.ablation_case_count is not None and report.ablation_case_count > 0 and report.ablation_root_cause_top1 is not None and report.ablation_root_cause_top3 is not None and report.ablation_root_cause_top1 >= 0.7 and report.ablation_root_cause_top3 >= 0.9 and report.unresolved_rate == 0.0
+    add("ablation_top_k", "verified" if ablation_ok else "failed", [report.report_id] if ablation_ok else [], "stage1_replay_ablation_corpus", None if ablation_ok else "Corpus-level ablation Top-1/Top-3 evidence is incomplete.")
     diagnosis_ok = all(value is not None for value in (report.replay_reproduction_rate, report.ablation_root_cause_top1, report.ablation_root_cause_top3, report.unresolved_rate, report.incorrect_attribution_rate))
     add("diagnosis_metrics", "verified" if diagnosis_ok else "missing", [report.report_id] if diagnosis_ok else [], "benchmark stage1 report", None if diagnosis_ok else "Replay/Ablation artifacts are missing.")
     add("artifact_layout", "verified" if all((root / relative).exists() for relative in ARTIFACT_DIRS) else "missing", [report.report_id], "Stage 1 artifact layout", None if all((root / relative).exists() for relative in ARTIFACT_DIRS) else "Required artifact directories are missing.")
+    add("stage2_launch_lock", "verified", ["assert_stage2_launch_allowed"], "stage2 launch lock")
     hard_fail = any(item.status in {"failed", "missing"} for item in criteria)
     status = "BLOCKED" if hard_fail else "PASS_WITH_LIMITATIONS" if any(item.status == "partial" for item in criteria) else "PASS"
     gate = Stage1AcceptanceGate(batch_id=batch_id, status=status, criteria=criteria)

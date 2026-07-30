@@ -165,6 +165,28 @@ class Stage1HarnessMetrics(BaseModel):
 GateStatus = Literal["verified", "partial", "failed", "missing"]
 HarnessGateStatus = Literal["PASS", "BLOCKED"]
 
+STAGE1_REQUIRED_FAULT_SCENARIOS = frozenset({
+    "runner_before_execute",
+    "runner_completed_execution_not_persisted",
+    "oracle_execution_exception",
+    "evidence_written_finding_missing",
+    "finding_written_decision_missing",
+    "parallel_trial_timeout_partial_failure",
+    "repeated_batch_resume",
+    "duplicate_operation_id",
+    "malformed_external_runner_log",
+    "budget_mid_run_exhaustion",
+    "database_transaction_failure",
+    "cache_corruption",
+})
+STAGE1_REQUIRED_CROSS_PROCESS_SCENARIOS = frozenset({
+    "runner_completed_execution_not_persisted",
+    "evidence_written_finding_missing",
+    "finding_written_decision_missing",
+    "parallel_trial_timeout_partial_failure",
+    "repeated_batch_resume",
+})
+
 
 class Stage1GateCriterion(BaseModel):
     criterion: str
@@ -193,6 +215,12 @@ class Stage1ReplayAblationArtifact(BaseModel):
     ablation_id: str | None = None
     ablation_root_cause: str | None = None
     candidate_root_causes: list[str] = Field(default_factory=list)
+    ranked_root_causes: list[str] = Field(default_factory=list)
+    candidate_fingerprint: str = ""
+    fixture_fingerprint: str = ""
+    tool_outputs_fingerprint: str = ""
+    environment_fingerprint: str = ""
+    reproduction_definition: str = ""
 
 
 class Stage1ReplayAblationMetrics(BaseModel):
@@ -236,6 +264,9 @@ class Stage1FaultInjectionMetrics(BaseModel):
     partial_batch_recovery_rate: float = Field(default=0.0, ge=0, le=1)
     operation_deduplication_hits: int = Field(default=0, ge=0)
     cache_hit_rate: float = Field(default=0.0, ge=0, le=1)
+    scenario_ids: list[str] = Field(default_factory=list)
+    cross_process_scenario_ids: list[str] = Field(default_factory=list)
+    incomplete_artifact_ids: list[str] = Field(default_factory=list)
     artifact_ids: list[str] = Field(default_factory=list)
 
 
@@ -285,20 +316,30 @@ class Stage1Report(BaseModel):
     model_cost_savings_usd: float = Field(ge=0)
     full_control_match_rate: float = Field(ge=0, le=1)
     missed_test_risk_by_case: dict[str, str]
+    hidden_case_count: int = Field(default=0, ge=0)
+    combination_case_count: int = Field(default=0, ge=0)
+    unseen_position_count: int = Field(default=0, ge=0)
+    release_decision_recompute_rate: float = Field(default=0.0, ge=0, le=1)
+    release_decision_mismatch_case_ids: list[str] = Field(default_factory=list)
     checkpoint_resume_success_rate: float | None = Field(default=None, ge=0, le=1)
     partial_batch_recovery_rate: float | None = Field(default=None, ge=0, le=1)
     duplicate_side_effect_count: int | None = Field(default=None, ge=0)
     operation_deduplication_hits: int | None = Field(default=None, ge=0)
     cache_hit_rate: float | None = Field(default=None, ge=0, le=1)
     replay_reproduction_rate: float | None = Field(default=None, ge=0, le=1)
+    replay_sample_count: int | None = Field(default=None, ge=0)
     ablation_root_cause_top1: float | None = Field(default=None, ge=0, le=1)
     ablation_root_cause_top3: float | None = Field(default=None, ge=0, le=1)
+    ablation_case_count: int | None = Field(default=None, ge=0)
     unresolved_rate: float | None = Field(default=None, ge=0, le=1)
     incorrect_attribution_rate: float | None = Field(default=None, ge=0, le=1)
     severe_miss_case_ids: list[str]
     false_block_case_ids: list[str]
     incomplete_case_ids: list[str]
     artifact_ids: list[str]
+    fault_scenario_ids: list[str] = Field(default_factory=list)
+    cross_process_fault_scenario_ids: list[str] = Field(default_factory=list)
+    incomplete_fault_artifact_ids: list[str] = Field(default_factory=list)
 
 
 class Stage1Metrics(BaseModel):
