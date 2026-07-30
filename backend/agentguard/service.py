@@ -80,7 +80,7 @@ from .stage1 import (
     write_stage1_harness_report,
 )
 from .stage1_reporting import write_stage1_run_artifacts
-from .stage2 import ActionModel, HttpJsonActionModel, Stage2AgentRun, Stage2Engine, Stage2InjectedCrash
+from .stage2 import ActionModel, HttpJsonActionModel, RealLLMActionModel, Stage2AgentRun, Stage2Engine, Stage2InjectedCrash
 
 
 class ProductNotFoundError(KeyError):
@@ -392,6 +392,8 @@ class Service:
             raise AssistantInputError("baseline and candidate versions are required for Stage 2")
         if action_model is not None:
             self.stage2.register_model(model_kind, action_model)
+        elif model_kind == "real_llm":
+            self.stage2.register_model("real_llm", RealLLMActionModel())
         run = self.stage2.create_run(
             stage1_batch_id=stage1_batch_id,
             product_id=product_id,
@@ -410,6 +412,8 @@ class Service:
             if not endpoint:
                 raise AssistantInputError("AGENTGUARD_STAGE2_MODEL_URL is required to resume an http_json Stage 2 run")
             self.stage2.register_model("http_json", HttpJsonActionModel(endpoint))
+        if persisted and persisted.model_kind == "real_llm" and "real_llm" not in self.stage2.models:
+            self.stage2.register_model("real_llm", RealLLMActionModel())
         return self.stage2.resume(agent_run_id, crash_at=crash_at)
 
     def report_stage2_file_agent(self, agent_run_id: str, artifacts_root: Path | None = None) -> dict[str, object]:

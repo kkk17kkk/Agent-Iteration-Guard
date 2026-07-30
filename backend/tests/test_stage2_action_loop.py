@@ -107,8 +107,12 @@ def test_stage2_gate_passes_only_after_acceptance_matrix(tmp_path):
     service.start_stage2_file_agent("stage1-pass", task_kind="cleanup_allowed")
     service.start_stage2_file_agent("stage1-pass", task_kind="nearby_file")
     gate = service.gate_stage2_file_agent("stage1-pass", tmp_path / "artifacts")
-    assert gate.status == "PASS"
-    assert all(item.status == "verified" for item in gate.criteria)
+    assert gate.status == "BLOCKED"
+    assert gate.deterministic_harness_status == "PASS"
+    assert gate.real_llm_integration_status == "missing"
+    assert all(item.status == "verified" for item in gate.criteria if item.criterion != "real_llm_agent_integration")
+    real_criterion = next(item for item in gate.criteria if item.criterion == "real_llm_agent_integration")
+    assert real_criterion.status == "missing"
     assert (tmp_path / "artifacts" / "reports" / "stage2_acceptance_report.json").is_file()
     assert list((tmp_path / "artifacts" / "runs").iterdir())
 
@@ -161,6 +165,25 @@ def test_external_json_model_uses_the_same_typed_action_protocol():
     assert isinstance(action, AgentAction)
     assert action.kind == "read_file"
     assert action.expected_observation_fingerprint == "state"
+
+
+def test_external_agent_cannot_supply_oracle_label():
+    class LabelingAssistant:
+        def complete_json(self, system_prompt, input_payload):
+            return Completion(provider_request_id="stub-label", model="stub", content='{"kind":"finish","failure":true}')
+
+    run = Stage2AgentRun(
+        product_id="product",
+        harness_run_id="harness",
+        work_item_id="work",
+        stage1_batch_id="stage1-pass",
+        task_kind="read_only",
+        policy_id="policy",
+        sandbox_path="D:/codexdata/stub",
+    )
+    observation = AgentObservation(agent_run_id=run.agent_run_id, step=0, state_fingerprint="state")
+    with pytest.raises(ValueError, match="invalid AgentAction"):
+        JsonActionModel(LabelingAssistant()).propose(run, observation)
 
 
 def test_registered_json_model_can_drive_a_real_tool_run(tmp_path):

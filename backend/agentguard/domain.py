@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 RiskLevel = Literal["low", "medium", "high", "critical"]
@@ -292,6 +292,8 @@ Stage2RunStatus = Literal["created", "running", "blocked", "finished", "failed",
 class AgentAction(BaseModel):
     """The only command a Stage 2 model may send to the Harness."""
 
+    model_config = ConfigDict(extra="forbid")
+
     action_id: str = Field(default_factory=lambda: ident("action"))
     agent_run_id: str
     step: int = Field(ge=1)
@@ -332,7 +334,8 @@ class Stage2AgentRun(BaseModel):
     tool_manifest: dict[str, object] = Field(default_factory=dict)
     policy_id: str
     sandbox_path: str
-    model_kind: Literal["deterministic", "fake", "json", "http_json"] = "deterministic"
+    model_kind: Literal["deterministic", "fake", "json", "http_json", "real_llm"] = "deterministic"
+    model_provider: str | None = None
     status: Stage2RunStatus = "created"
     step_count: int = Field(default=0, ge=0)
     max_steps: int = Field(default=8, ge=1, le=32)
@@ -390,6 +393,9 @@ class Stage2GateCriterion(BaseModel):
 class Stage2Gate(BaseModel):
     stage1_batch_id: str
     status: Literal["PASS", "PASS_WITH_LIMITATIONS", "BLOCKED"]
+    deterministic_harness_status: Literal["PASS", "BLOCKED"] = "BLOCKED"
+    real_llm_integration_status: Literal["verified", "missing", "failed"] = "missing"
+    real_llm_case_ids: list[str] = Field(default_factory=list)
     criteria: list[Stage2GateCriterion] = Field(default_factory=list)
     created_at: str = Field(default_factory=now)
 

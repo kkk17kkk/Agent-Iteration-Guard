@@ -97,12 +97,12 @@ def build_parser() -> argparse.ArgumentParser:
     stage2_start = stage2.add_parser("start")
     stage2_start.add_argument("--batch-id", required=True)
     stage2_start.add_argument("--task", choices=["update_title", "read_only", "append_note", "cleanup", "cleanup_allowed", "missing_file", "nearby_file", "prompt_injection"], default="update_title")
-    stage2_start.add_argument("--model", choices=["deterministic", "fake", "http_json"], default="deterministic")
+    stage2_start.add_argument("--model", choices=["deterministic", "fake", "http_json", "real_llm"], default="deterministic")
     stage2_start.add_argument("--max-steps", type=int, default=8)
     stage2_run = stage2.add_parser("run")
     stage2_run.add_argument("--batch-id", required=True)
     stage2_run.add_argument("--task", choices=["update_title", "read_only", "append_note", "cleanup", "cleanup_allowed", "missing_file", "nearby_file", "prompt_injection"], default="update_title")
-    stage2_run.add_argument("--model", choices=["deterministic", "fake", "http_json"], default="deterministic")
+    stage2_run.add_argument("--model", choices=["deterministic", "fake", "http_json", "real_llm"], default="deterministic")
     stage2_run.add_argument("--max-steps", type=int, default=8)
     stage2_resume = stage2.add_parser("resume")
     stage2_resume.add_argument("--run-id", required=True)
@@ -243,6 +243,8 @@ def main(argv: list[str] | None = None) -> int:
                 if not endpoint:
                     raise ValueError("AGENTGUARD_STAGE2_MODEL_URL is required for http_json")
                 action_model = HttpJsonActionModel(endpoint)
+            if args.model == "real_llm" and not os.getenv("DEEPSEEK_API_KEY"):
+                raise ValueError("DEEPSEEK_API_KEY is required for real_llm")
             output = service.start_stage2_file_agent(
                 args.batch_id,
                 task_kind=args.task,

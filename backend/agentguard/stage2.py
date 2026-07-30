@@ -45,7 +45,7 @@ from .domain import (
 from .runner import ToolPolicyDenied
 from .stage1 import assert_stage2_launch_allowed
 from .store import Store
-from .llm import JsonAssistant
+from .llm import DeepSeekAssistant, JsonAssistant
 
 
 class Stage2InjectedCrash(RuntimeError):
@@ -164,6 +164,7 @@ class JsonActionModel:
 
     def __init__(self, assistant: JsonAssistant) -> None:
         self.assistant = assistant
+        self.provider = getattr(assistant, "provider", "external")
 
     def propose(self, run: Stage2AgentRun, observation: AgentObservation) -> AgentAction:
         completion = self.assistant.complete_json(
@@ -192,6 +193,22 @@ and finish. Never invent a path outside the task manifest.""",
             raise ValueError("external model returned an invalid AgentAction") from error
 
 
+class RealLLMActionModel(JsonActionModel):
+    """Production LLM adapter.
+
+    This is intentionally separate from ``json`` and ``http_json``.  A test
+    assistant or a local HTTP script can prove the Action Protocol, but only
+    this adapter (with an explicitly configured provider) is counted as a
+    Real LLM Agent Integration Test by the Stage 2 report.
+    """
+
+    model_kind = "real_llm"
+
+    def __init__(self, assistant: JsonAssistant | None = None) -> None:
+        self.assistant = assistant or DeepSeekAssistant()
+        self.provider = getattr(self.assistant, "provider", "unknown")
+
+
 class HttpJsonActionModel(JsonActionModel):
     """HTTP Agent adapter used by the API acceptance path.
 
@@ -207,6 +224,7 @@ class HttpJsonActionModel(JsonActionModel):
             raise ValueError("Stage 2 model endpoint must be an absolute HTTP(S) URL")
         self.endpoint = endpoint
         self.timeout = timeout
+        self.provider = "http_agent"
 
     def propose(self, run: Stage2AgentRun, observation: AgentObservation) -> AgentAction:
         request_payload = {
@@ -254,7 +272,7 @@ class Stage2Engine:
         }
 
     def register_model(self, model_kind: str, model: ActionModel) -> None:
-        if model_kind not in {"deterministic", "fake", "json", "http_json"}:
+        if model_kind not in {"deterministic", "fake", "json", "http_json", "real_llm"}:
             raise ValueError(f"Unsupported Stage 2 model kind: {model_kind}")
         self.models[model_kind] = model
 
@@ -327,6 +345,7 @@ class Stage2Engine:
             raise ValueError(f"Unsupported Stage 2 task kind: {task_kind}")
         if model_kind not in self.models:
             raise ValueError(f"Stage 2 model adapter is not registered: {model_kind}")
+        model = self.models[model_kind]
         harness_run_id = ident("harness")
         work_item = WorkItem(
             harness_run_id=harness_run_id,
@@ -385,6 +404,7 @@ class Stage2Engine:
             policy_id=policy.policy_id,
             sandbox_path=str(root),
             model_kind=model_kind,  # type: ignore[arg-type]
+            model_provider=getattr(model, "provider", None),
             max_steps=max_steps,
             status="running",
         )
@@ -774,8 +794,37 @@ class Stage2Engine:
         add("independent_oracle", oracle_ok, [run.agent_run_id for run in runs], "Stage2Engine._finalize", "No independently persisted Stage 2 Oracle result.")
         bounded_ok = all(run.step_count <= run.max_steps for run in runs) if runs else False
         add("bounded_loop", bounded_ok, [run.agent_run_id for run in runs], "Stage2Engine.resume", "An action loop exceeded its configured budget.")
-        status = "PASS" if all(item.status == "verified" for item in criteria) else "BLOCKED"
-        gate = Stage2Gate(stage1_batch_id=stage1_batch_id, status=status, criteria=criteria)
+        deterministic_status = "PASS" if all(item.status == "verified" for item in criteria) else "BLOCKED"
+        real_runs = [run for run in runs if run.model_kind == "real_llm" and run.model_provider == "deepseek"]
+        real_behavior_runs = []
+        for run in real_runs:
+            actions = [self.store.get("stage2_action", aid, AgentAction) for aid in run.action_ids]
+            kinds = [action.kind for action in actions if action]
+            if len(kinds) >= 2 and len(set(kinds)) > 1 and len(run.observation_ids) >= 2:
+                real_behavior_runs.append(run)
+        real_status = "verified" if real_behavior_runs else "missing" if not real_runs else "failed"
+        criteria.append(Stage2GateCriterion(
+            criterion="real_llm_agent_integration",
+            status="verified" if real_status == "verified" else real_status,
+            supporting_artifact_ids=[run.agent_run_id for run in real_behavior_runs],
+            supporting_test="real_llm integration command with DeepSeek provider",
+            failure_reason=None if real_status == "verified" else (
+                "No persisted DeepSeek real_llm run with observation-dependent action change."
+                if real_status == "missing" else "Persisted real_llm runs did not produce a multi-step behavior change."
+            ),
+        ))
+        # The deterministic track is the existing Stage 2 Harness acceptance.
+        # Real LLM evidence is reported independently and never inferred from
+        # deterministic, fake, JSON-stub, or scripted HTTP runs.
+        status = "PASS" if deterministic_status == "PASS" and real_status == "verified" else "BLOCKED"
+        gate = Stage2Gate(
+            stage1_batch_id=stage1_batch_id,
+            status=status,
+            deterministic_harness_status=deterministic_status,
+            real_llm_integration_status=real_status,
+            real_llm_case_ids=[run.agent_run_id for run in real_behavior_runs],
+            criteria=criteria,
+        )
         self.store.save("stage2_gate", f"stage2_gate__{stage1_batch_id}", "stage2", gate)
         artifacts_root.mkdir(parents=True, exist_ok=True)
         run_reports = [self.report(run.agent_run_id, artifacts_root) for run in runs]

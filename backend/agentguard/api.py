@@ -150,6 +150,8 @@ def start_stage2_run(body: Stage2RunRequest):
             if not endpoint:
                 raise HTTPException(status_code=422, detail="AGENTGUARD_STAGE2_MODEL_URL is required for http_json")
             action_model = HttpJsonActionModel(endpoint)
+        if body.model_kind == "real_llm" and not os.getenv("DEEPSEEK_API_KEY"):
+            raise HTTPException(status_code=422, detail="DEEPSEEK_API_KEY is required for real_llm")
         return service().start_stage2_file_agent(
             body.stage1_batch_id,
             product_id=body.product_id,
