@@ -5,8 +5,14 @@ from pathlib import Path
 
 from .llm import LLMProviderError
 from .service import AssistantInputError, ProductNotFoundError, Service
-from .stage1 import assert_stage2_launch_allowed, build_stage1_runtime_corpus, gate_stage1_acceptance
+from .stage1 import Stage1HarnessBatch, assert_stage2_launch_allowed
 from .stage1_acceptance import run_stage1_fault_injection_matrix, run_stage1_replay_ablation_corpus
+from .stage1_reporting import (
+    build_stage1_artifacts,
+    corpus_root_for_artifacts,
+    gate_stage1_report,
+    report_stage1_artifacts,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -72,13 +78,15 @@ def build_parser() -> argparse.ArgumentParser:
     run_batch.add_argument("--batch-id", required=True)
     stage1 = benchmark.add_parser("stage1")
     stage1_actions = stage1.add_subparsers(dest="stage1_action")
-    stage1_actions.add_parser("build")
-    stage1_actions.add_parser("run")
+    build_stage1 = stage1_actions.add_parser("build")
+    build_stage1.add_argument("--artifacts-root", default="artifacts/stage_1")
+    run_stage1 = stage1_actions.add_parser("run")
+    run_stage1.add_argument("--artifacts-root", default="artifacts/stage_1")
     report_stage1 = stage1_actions.add_parser("report")
-    report_stage1.add_argument("--batch-id", required=True)
+    report_stage1.add_argument("--batch-id")
     report_stage1.add_argument("--artifacts-root", default="artifacts/stage_1")
     gate_stage1 = stage1_actions.add_parser("gate")
-    gate_stage1.add_argument("--batch-id", required=True)
+    gate_stage1.add_argument("--batch-id")
     gate_stage1.add_argument("--artifacts-root", default="artifacts/stage_1")
     accept_stage1 = stage1_actions.add_parser("accept")
     accept_stage1.add_argument("--batch-id", required=True)
@@ -114,6 +122,20 @@ def parse_cleanup_attempts(value: str) -> list[bool]:
             raise ValueError("cleanup attempts must be comma-separated true or false values")
         attempts.append(normalized == "true")
     return attempts
+
+
+def resolve_stage1_batch_id(service: Service, artifacts_root: Path, batch_id: str | None) -> str:
+    if batch_id:
+        return batch_id
+    report_path = artifacts_root / "metrics" / "stage1_report.json"
+    if report_path.is_file():
+        payload = json.loads(report_path.read_text(encoding="utf-8"))
+        if payload.get("batch_id"):
+            return str(payload["batch_id"])
+    batches = service.store.list("stage1_harness_batch", Stage1HarnessBatch, "stage1")
+    if batches:
+        return batches[-1].batch_id
+    raise ValueError("stage1 report/gate requires --batch-id when no completed harness batch exists")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -176,19 +198,25 @@ def main(argv: list[str] | None = None) -> int:
             ).as_dict()
         elif args.command == "benchmark" and args.subcommand == "stage1":
             if args.stage1_action == "build":
-                cases, mutations = build_stage1_runtime_corpus()
-                output = {"case_count": len(cases), "mutation_count": len(mutations), "ground_truth_loaded": False}
+                output = build_stage1_artifacts(Path(args.artifacts_root)).model_dump()
             elif args.stage1_action == "run":
-                output = service.run_stage1_harness_corpus().model_dump()
+                root = Path(args.artifacts_root)
+                corpus_root = corpus_root_for_artifacts(root)
+                output = service.run_stage1_harness_corpus(corpus_root=corpus_root, artifacts_root=root).model_dump()
             elif args.stage1_action == "report":
-                output = service.report_stage1_harness_corpus(args.batch_id, Path(args.artifacts_root)).model_dump()
+                root = Path(args.artifacts_root)
+                batch_id = resolve_stage1_batch_id(service, root, args.batch_id)
+                output = report_stage1_artifacts(service.store, batch_id, root).model_dump()
             elif args.stage1_action == "gate":
-                output = service.gate_stage1_harness_corpus(args.batch_id, Path(args.artifacts_root)).model_dump()
+                root = Path(args.artifacts_root)
+                batch_id = resolve_stage1_batch_id(service, root, args.batch_id)
+                output = gate_stage1_report(service.store, batch_id, root).model_dump()
             elif args.stage1_action == "accept":
                 root = Path(args.artifacts_root)
                 run_stage1_replay_ablation_corpus(service, root)
                 run_stage1_fault_injection_matrix(service, root)
-                output = gate_stage1_acceptance(service.store, args.batch_id, root).model_dump()
+                report_stage1_artifacts(service.store, args.batch_id, root)
+                output = gate_stage1_report(service.store, args.batch_id, root).model_dump()
             else:
                 output = service.run_stage1_benchmark().model_dump()
         elif args.command == "stage2" and args.subcommand == "start":

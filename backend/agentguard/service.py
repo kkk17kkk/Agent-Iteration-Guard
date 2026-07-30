@@ -2,6 +2,7 @@ import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from time import perf_counter
 
 from pydantic import ValidationError
 
@@ -70,12 +71,14 @@ from .stage1 import (
     Stage1HarnessMetrics,
     Stage1Case,
     Stage1Metrics,
+    DEFAULT_STAGE1_CORPUS_ROOT,
     build_stage1_runtime_corpus,
     gate_stage1_harness,
     persist_corpus_run,
     report_stage1_harness,
     write_stage1_harness_report,
 )
+from .stage1_reporting import write_stage1_run_artifacts
 
 
 class ProductNotFoundError(KeyError):
@@ -649,7 +652,11 @@ class Service:
         ])
         return FileAgentFixture(product, baseline, candidate)
 
-    def run_stage1_harness_pair(self, case_id: str) -> list[Stage1HarnessArtifact]:
+    def run_stage1_harness_pair(
+        self,
+        case_id: str,
+        corpus_root: Path = DEFAULT_STAGE1_CORPUS_ROOT,
+    ) -> list[Stage1HarnessArtifact]:
         """Run one Stage 1 case through selected and full real Harness branches.
 
         Both branches share the same imported baseline/candidate snapshots and
@@ -657,27 +664,31 @@ class Service:
         differs: selected uses the normal Eval Router, while full explicitly
         includes every registered case as the regression control.
         """
-        cases, _ = build_stage1_runtime_corpus()
+        cases, _ = build_stage1_runtime_corpus(corpus_root)
         try:
             case = next(item for item in cases if item.case_id == case_id)
         except StopIteration as error:
             raise AssistantInputError(f"Unknown Stage 1 case: {case_id}") from error
         fixture = self._stage1_fixture_for_case(case)
         eval_case_ids = [item.eval_case_id for item in self.store.list("eval_case", EvalCase, fixture.product.product_id)]
+        selected_started = perf_counter()
         selected = self.run_file_agent(
             fixture.product.product_id,
             fixture.baseline.version_id,
             fixture.candidate.version_id,
         )
+        selected_elapsed = (perf_counter() - selected_started) * 1000
+        full_started = perf_counter()
         full = self.run_file_agent(
             fixture.product.product_id,
             fixture.baseline.version_id,
             fixture.candidate.version_id,
             requested_eval_case_ids=eval_case_ids,
         )
+        full_elapsed = (perf_counter() - full_started) * 1000
         artifacts = [
-            self._stage1_harness_artifact(case, fixture, "selected", selected),
-            self._stage1_harness_artifact(case, fixture, "full_regression", full),
+            self._stage1_harness_artifact(case, fixture, "selected", selected, selected_elapsed),
+            self._stage1_harness_artifact(case, fixture, "full_regression", full, full_elapsed),
         ]
         self.store.save_many([
             ("stage1_harness_artifact", artifact.artifact_id, fixture.product.product_id, artifact)
@@ -685,13 +696,18 @@ class Service:
         ])
         return artifacts
 
-    def run_stage1_harness_corpus(self, case_ids: list[str] | None = None) -> Stage1HarnessBatch:
-        cases, _ = build_stage1_runtime_corpus()
+    def run_stage1_harness_corpus(
+        self,
+        case_ids: list[str] | None = None,
+        corpus_root: Path = DEFAULT_STAGE1_CORPUS_ROOT,
+        artifacts_root: Path | None = None,
+    ) -> Stage1HarnessBatch:
+        cases, _ = build_stage1_runtime_corpus(corpus_root)
         selected_case_ids = case_ids or [case.case_id for case in cases]
         artifacts = [
             artifact
             for case_id in selected_case_ids
-            for artifact in self.run_stage1_harness_pair(case_id)
+            for artifact in self.run_stage1_harness_pair(case_id, corpus_root)
         ]
         batch = Stage1HarnessBatch(
             batch_id=ident("stage1_batch"),
@@ -699,6 +715,8 @@ class Service:
             artifact_ids=[artifact.artifact_id for artifact in artifacts],
         )
         self.store.save("stage1_harness_batch", f"stage1_batch__{batch.batch_id}", "stage1", batch)
+        if artifacts_root is not None:
+            write_stage1_run_artifacts(self.store, batch.batch_id, artifacts_root)
         return batch
 
     def report_stage1_harness_corpus(self, batch_id: str, artifact_root: Path | None = None) -> Stage1HarnessMetrics:
@@ -715,6 +733,7 @@ class Service:
         fixture: FileAgentFixture,
         branch: Stage1HarnessBranch,
         result: P0RunResult,
+        latency_ms: float = 0.0,
     ) -> Stage1HarnessArtifact:
         return Stage1HarnessArtifact(
             artifact_id=f"stage1_harness__{result.run.harness_run_id}",
@@ -737,6 +756,9 @@ class Service:
             release_decision_id=result.release_decision.decision_id,
             run_status=result.run.status,
             release_status=result.release_decision.status,
+            latency_ms=latency_ms,
+            token_count=sum(len(item.tool_calls) for item in result.executions),
+            model_cost_usd=sum(item.external_cost_usd for item in result.executions),
         )
 
     def start_file_management_run(

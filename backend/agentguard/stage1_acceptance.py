@@ -150,6 +150,9 @@ def run_stage1_fault_injection_matrix(service: Service, artifacts_root: Path) ->
         cross_process_count=sum(item.cross_process for item in artifacts),
         recovery_success_rate=sum(item.recovery_result == "recovered" for item in artifacts) / len(artifacts),
         duplicate_side_effect_count=sum(item.duplicate_side_effect_count for item in artifacts),
+        partial_batch_recovery_rate=sum(item.recovery_result == "recovered" for item in artifacts if item.scenario_id == "parallel_trial_timeout_partial_failure") / max(1, sum(item.scenario_id == "parallel_trial_timeout_partial_failure" for item in artifacts)),
+        operation_deduplication_hits=sum(item.operation_deduplication_hits for item in artifacts),
+        cache_hit_rate=sum(item.cache_hit_count for item in artifacts) / sum(item.cache_lookup_count for item in artifacts) if sum(item.cache_lookup_count for item in artifacts) else 0.0,
         artifact_ids=[item.artifact_id for item in artifacts],
     )
     service.store.save("stage1_fault_injection_metrics", "stage1_fault_injection_metrics", "stage1", metrics)
@@ -311,6 +314,7 @@ def _duplicate_operation_case(service: Service) -> Stage1FaultInjectionArtifact:
         reproduction_command="resume_file_management_run(<completed-run>)", cross_process=True,
         process_exit_state="normal_then_new_service", pre_crash_artifact_ids=[first.run.harness_run_id], post_resume_artifact_ids=[second.run.harness_run_id], trace_ids=[],
         database_state="single durable Operation", terminal_reason=second.run.status, duplicate_side_effect_count=max(0, len(second.operations) - 1), recovery_result="recovered",
+        operation_deduplication_hits=1,
     )
 
 
@@ -399,11 +403,13 @@ def _cache_damage_case(service: Service) -> Stage1FaultInjectionArtifact:
         if cache:
             connection.execute("DELETE FROM records WHERE id=?", (cache[0],))
     rerun = Service(service.store.path.as_posix()).run_file_management_mutation_batch(rerun_created.batch.batch_id)
+    cache_hits = sum(item.status == "cached" for item in rerun.items)
     return Stage1FaultInjectionArtifact(
         artifact_id="stage1_fault__cache_damage", scenario_id="cache_corruption", injection_point="trial_cache record",
         reproduction_command="delete one trial_cache record; rerun batch", cross_process=True, process_exit_state="cache miss recomputed",
         pre_crash_artifact_ids=[completed.batch.batch_id], post_resume_artifact_ids=[rerun.batch.batch_id], trace_ids=[],
         database_state=f"{len(rerun.items)} items terminal", terminal_reason=rerun.batch.status, duplicate_side_effect_count=0, recovery_result="recovered",
+        cache_hit_count=cache_hits, cache_lookup_count=len(rerun.items),
     )
 
 
@@ -415,6 +421,9 @@ def report_stage1_fault_injection(store: Store, artifacts_root: Path) -> Stage1F
         sample_count=len(artifacts), cross_process_count=sum(item.cross_process for item in artifacts),
         recovery_success_rate=sum(item.recovery_result == "recovered" for item in artifacts) / len(artifacts),
         duplicate_side_effect_count=sum(item.duplicate_side_effect_count for item in artifacts),
+        partial_batch_recovery_rate=sum(item.recovery_result == "recovered" for item in artifacts if item.scenario_id == "parallel_trial_timeout_partial_failure") / max(1, sum(item.scenario_id == "parallel_trial_timeout_partial_failure" for item in artifacts)),
+        operation_deduplication_hits=sum(item.operation_deduplication_hits for item in artifacts),
+        cache_hit_rate=sum(item.cache_hit_count for item in artifacts) / sum(item.cache_lookup_count for item in artifacts) if sum(item.cache_lookup_count for item in artifacts) else 0.0,
         artifact_ids=[item.artifact_id for item in artifacts],
     )
     store.save("stage1_fault_injection_metrics", "stage1_fault_injection_metrics", "stage1", metrics)

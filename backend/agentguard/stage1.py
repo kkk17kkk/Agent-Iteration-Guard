@@ -131,6 +131,9 @@ class Stage1HarnessArtifact(BaseModel):
     release_decision_id: str
     run_status: str
     release_status: Literal["ready", "blocked"]
+    latency_ms: float = Field(default=0.0, ge=0)
+    token_count: int = Field(default=0, ge=0)
+    model_cost_usd: float = Field(default=0.0, ge=0)
 
 
 class Stage1HarnessBatch(BaseModel):
@@ -200,6 +203,7 @@ class Stage1ReplayAblationMetrics(BaseModel):
     ablation_top1: float = Field(ge=0, le=1)
     ablation_top3: float = Field(ge=0, le=1)
     unresolved_rate: float = Field(ge=0, le=1)
+    incorrect_attribution_rate: float = Field(default=0.0, ge=0, le=1)
     artifact_ids: list[str] = Field(default_factory=list)
 
 
@@ -218,6 +222,9 @@ class Stage1FaultInjectionArtifact(BaseModel):
     database_state: str
     terminal_reason: str
     duplicate_side_effect_count: int = Field(ge=0)
+    operation_deduplication_hits: int = Field(default=0, ge=0)
+    cache_hit_count: int = Field(default=0, ge=0)
+    cache_lookup_count: int = Field(default=0, ge=0)
     recovery_result: Literal["recovered", "unresolved", "failed"]
 
 
@@ -226,6 +233,9 @@ class Stage1FaultInjectionMetrics(BaseModel):
     cross_process_count: int
     recovery_success_rate: float = Field(ge=0, le=1)
     duplicate_side_effect_count: int = Field(ge=0)
+    partial_batch_recovery_rate: float = Field(default=0.0, ge=0, le=1)
+    operation_deduplication_hits: int = Field(default=0, ge=0)
+    cache_hit_rate: float = Field(default=0.0, ge=0, le=1)
     artifact_ids: list[str] = Field(default_factory=list)
 
 
@@ -233,6 +243,62 @@ class Stage1AcceptanceGate(BaseModel):
     batch_id: str
     status: Literal["PASS", "PASS_WITH_LIMITATIONS", "BLOCKED"]
     criteria: list[Stage1GateCriterion]
+
+
+class Stage1BuildArtifact(BaseModel):
+    build_id: str
+    corpus_root: str
+    case_count: int = Field(ge=0)
+    mutation_count: int = Field(ge=0)
+    split_counts: dict[str, int]
+    case_ids: list[str]
+    created_at: str
+
+
+class Stage1Report(BaseModel):
+    report_id: str
+    batch_id: str
+    sample_count: int
+    branch_count: int
+    regression_precision: float = Field(ge=0, le=1)
+    regression_recall: float = Field(ge=0, le=1)
+    regression_f1: float = Field(ge=0, le=1)
+    severe_regression_recall: float = Field(ge=0, le=1)
+    false_block_rate: float = Field(ge=0, le=1)
+    false_ready_rate: float = Field(ge=0, le=1)
+    mutation_type_confusion: dict[str, dict[str, int]]
+    combination_type_confusion: dict[str, dict[str, int]]
+    selection_precision: float = Field(ge=0, le=1)
+    selection_recall: float = Field(ge=0, le=1)
+    test_reduction: float = Field(ge=0, le=1)
+    selected_trial_count: int = Field(ge=0)
+    full_trial_count: int = Field(ge=0)
+    trial_savings: int = Field(ge=0)
+    selected_time_ms: float = Field(ge=0)
+    full_time_ms: float = Field(ge=0)
+    time_delta_ms: float
+    selected_token_count: int = Field(ge=0)
+    full_token_count: int = Field(ge=0)
+    token_savings: int = Field(ge=0)
+    selected_model_cost_usd: float = Field(ge=0)
+    full_model_cost_usd: float = Field(ge=0)
+    model_cost_savings_usd: float = Field(ge=0)
+    full_control_match_rate: float = Field(ge=0, le=1)
+    missed_test_risk_by_case: dict[str, str]
+    checkpoint_resume_success_rate: float | None = Field(default=None, ge=0, le=1)
+    partial_batch_recovery_rate: float | None = Field(default=None, ge=0, le=1)
+    duplicate_side_effect_count: int | None = Field(default=None, ge=0)
+    operation_deduplication_hits: int | None = Field(default=None, ge=0)
+    cache_hit_rate: float | None = Field(default=None, ge=0, le=1)
+    replay_reproduction_rate: float | None = Field(default=None, ge=0, le=1)
+    ablation_root_cause_top1: float | None = Field(default=None, ge=0, le=1)
+    ablation_root_cause_top3: float | None = Field(default=None, ge=0, le=1)
+    unresolved_rate: float | None = Field(default=None, ge=0, le=1)
+    incorrect_attribution_rate: float | None = Field(default=None, ge=0, le=1)
+    severe_miss_case_ids: list[str]
+    false_block_case_ids: list[str]
+    incomplete_case_ids: list[str]
+    artifact_ids: list[str]
 
 
 class Stage1Metrics(BaseModel):
