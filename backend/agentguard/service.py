@@ -79,7 +79,7 @@ from .stage1 import (
     write_stage1_harness_report,
 )
 from .stage1_reporting import write_stage1_run_artifacts
-from .stage2 import Stage2Engine, Stage2InjectedCrash
+from .stage2 import ActionModel, Stage2Engine, Stage2InjectedCrash
 
 
 class ProductNotFoundError(KeyError):
@@ -377,6 +377,7 @@ class Service:
         candidate_version_id: str | None = None,
         task_kind: str = "update_title",
         model_kind: str = "deterministic",
+        action_model: ActionModel | None = None,
         max_steps: int = 8,
         crash_at: str | None = None,
     ):
@@ -388,6 +389,8 @@ class Service:
             candidate_version_id = fixture.candidate.version_id
         if not baseline_version_id or not candidate_version_id:
             raise AssistantInputError("baseline and candidate versions are required for Stage 2")
+        if action_model is not None:
+            self.stage2.register_model(model_kind, action_model)
         run = self.stage2.create_run(
             stage1_batch_id=stage1_batch_id,
             product_id=product_id,

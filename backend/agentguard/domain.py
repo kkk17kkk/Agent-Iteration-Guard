@@ -329,6 +329,7 @@ class Stage2AgentRun(BaseModel):
     stage1_batch_id: str
     task_kind: str
     task: dict[str, object] = Field(default_factory=dict)
+    tool_manifest: dict[str, object] = Field(default_factory=dict)
     policy_id: str
     sandbox_path: str
     model_kind: Literal["deterministic", "fake", "json"] = "deterministic"
