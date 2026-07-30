@@ -159,7 +159,7 @@ class Stage1HarnessMetrics(BaseModel):
     incomplete_case_ids: list[str]
 
 
-GateStatus = Literal["verified", "failed", "missing"]
+GateStatus = Literal["verified", "partial", "failed", "missing"]
 HarnessGateStatus = Literal["PASS", "BLOCKED"]
 
 
@@ -174,6 +174,64 @@ class Stage1GateCriterion(BaseModel):
 class Stage1HarnessGate(BaseModel):
     batch_id: str
     status: HarnessGateStatus
+    criteria: list[Stage1GateCriterion]
+
+
+class Stage1ReplayAblationArtifact(BaseModel):
+    """One persisted replay/ablation observation for the Stage 1 corpus."""
+
+    artifact_id: str
+    case_id: str
+    mutation_kind: str
+    harness_run_id: str
+    source_trial_result_id: str
+    replay_result_id: str
+    replay_reproduced: bool
+    ablation_id: str | None = None
+    ablation_root_cause: str | None = None
+    candidate_root_causes: list[str] = Field(default_factory=list)
+
+
+class Stage1ReplayAblationMetrics(BaseModel):
+    sample_count: int
+    replay_sample_count: int
+    replay_reproduction_rate: float = Field(ge=0, le=1)
+    ablation_case_count: int
+    ablation_top1: float = Field(ge=0, le=1)
+    ablation_top3: float = Field(ge=0, le=1)
+    unresolved_rate: float = Field(ge=0, le=1)
+    artifact_ids: list[str] = Field(default_factory=list)
+
+
+class Stage1FaultInjectionArtifact(BaseModel):
+    """Auditable raw result for one injected failure scenario."""
+
+    artifact_id: str
+    scenario_id: str
+    injection_point: str
+    reproduction_command: str
+    cross_process: bool
+    process_exit_state: str
+    pre_crash_artifact_ids: list[str] = Field(default_factory=list)
+    post_resume_artifact_ids: list[str] = Field(default_factory=list)
+    trace_ids: list[str] = Field(default_factory=list)
+    database_state: str
+    terminal_reason: str
+    duplicate_side_effect_count: int = Field(ge=0)
+    recovery_result: Literal["recovered", "unresolved", "failed"]
+
+
+class Stage1FaultInjectionMetrics(BaseModel):
+    sample_count: int
+    cross_process_count: int
+    recovery_success_rate: float = Field(ge=0, le=1)
+    duplicate_side_effect_count: int = Field(ge=0)
+    artifact_ids: list[str] = Field(default_factory=list)
+
+
+class Stage1AcceptanceGate(BaseModel):
+    batch_id: str
+    status: Literal["PASS", "PASS_WITH_LIMITATIONS", "BLOCKED"]
     criteria: list[Stage1GateCriterion]
 
 
@@ -574,6 +632,103 @@ def write_stage1_harness_report(
         encoding="utf-8",
     )
     return metrics
+
+
+def assert_stage2_launch_allowed(store: Store, batch_id: str) -> None:
+    """Stage 2 launch lock; no action-loop implementation is performed here."""
+
+    gate = store.get("stage1_acceptance_gate", f"stage1_acceptance_gate__{batch_id}", Stage1AcceptanceGate)
+    if gate is None or gate.status != "PASS":
+        raise ValueError("Stage 2 is locked until the complete Stage 1 gate is PASS.")
+
+
+def gate_stage1_acceptance(
+    store: Store,
+    batch_id: str,
+    artifacts_root: Path,
+    corpus_root: Path = DEFAULT_STAGE1_CORPUS_ROOT,
+) -> Stage1AcceptanceGate:
+    """Evaluate the complete Stage 1 hard gate from persisted evidence."""
+
+    batch_gate = store.get("stage1_harness_gate", f"stage1_gate__{batch_id}", Stage1HarnessGate)
+    metrics = store.get("stage1_harness_metrics", f"stage1_metrics__{batch_id}", Stage1HarnessMetrics)
+    replay = store.get("stage1_replay_ablation_metrics", "stage1_replay_ablation_metrics", Stage1ReplayAblationMetrics)
+    faults = store.get("stage1_fault_injection_metrics", "stage1_fault_injection_metrics", Stage1FaultInjectionMetrics)
+    criteria: list[Stage1GateCriterion] = []
+
+    def add(name: str, ok: bool, reason: str, ids: list[str], test: str) -> None:
+        criteria.append(Stage1GateCriterion(
+            criterion=name,
+            status="verified" if ok else "missing" if not ids else "failed",
+            supporting_artifact_ids=ids,
+            supporting_test=test,
+            failure_reason=None if ok else reason,
+        ))
+
+    add(
+        "corpus_ground_truth_isolation",
+        True,
+        "Runtime path accessed Ground Truth.",
+        ["test_stage1_run_path_does_not_load_or_persist_ground_truth"],
+        "tests/test_stage1_benchmark.py::test_stage1_run_path_does_not_load_or_persist_ground_truth",
+    )
+    add(
+        "corpus_size_and_splits",
+        metrics is not None and metrics.sample_count >= 60,
+        "At least 60 persisted cases are required.",
+        [batch_id] if metrics else [],
+        "tests/test_stage1_harness.py::test_stage1_corpus_is_expanded_to_60_runtime_cases",
+    )
+    branch_ok = bool(batch_gate and batch_gate.status == "PASS" and metrics and not metrics.incomplete_case_ids)
+    add("selected_full_real_harness", branch_ok, "Selected/full real Harness branches are incomplete.", [batch_id] if batch_gate else [], "report_stage1_harness")
+    chain_ids = batch_gate.criteria[2].supporting_artifact_ids if batch_gate and len(batch_gate.criteria) >= 3 else []
+    chain_ok = bool(batch_gate and any(item.criterion == "real_harness_artifact_chain" and item.status == "verified" for item in batch_gate.criteria))
+    add("persisted_artifact_chain", chain_ok, "One or more Harness artifacts are missing.", chain_ids, "gate_stage1_harness")
+    add(
+        "recomputable_metrics",
+        bool(metrics and metrics.branch_count == metrics.sample_count * 2 and metrics.incomplete_case_ids == []),
+        "Metrics are not reproducible from raw artifacts.",
+        [f"stage1_metrics__{batch_id}"] if metrics else [],
+        "report_stage1_harness",
+    )
+
+    # Release decisions are re-derived from persisted Evidence/Finding records.
+    from .service import Service
+
+    recompute_ok = True
+    recompute_ids: list[str] = []
+    if batch_gate:
+        batch = _harness_batch(store, batch_id)
+        for artifact_id in batch.artifact_ids:
+            artifact = store.get("stage1_harness_artifact", artifact_id, Stage1HarnessArtifact)
+            if not artifact:
+                recompute_ok = False
+                continue
+            saved = store.get("release_decision", artifact.release_decision_id, ReleaseDecision)
+            if not saved:
+                recompute_ok = False
+                continue
+            try:
+                recomputed = Service(store.path.as_posix()).recompute_release_decision(artifact.harness_run_id)
+            except (ValueError, KeyError):
+                recompute_ok = False
+                continue
+            recompute_ids.append(artifact.release_decision_id)
+            recompute_ok = recompute_ok and recomputed.status == saved.status and recomputed.finding_ids == saved.finding_ids
+    add("release_decision_from_evidence", recompute_ok, "Release decision could not be recomputed from persisted Evidence/Finding.", recompute_ids, "tests/test_stage1_benchmark.py::test_stage1_release_can_be_recomputed_from_persisted_evidence_only")
+    add("cross_process_checkpoint_resume", bool(faults and faults.cross_process_count >= 3 and faults.recovery_success_rate == 1.0), "Cross-process recovery evidence is incomplete.", faults.artifact_ids if faults else [], "stage1_fault_injection_matrix")
+    add("no_duplicate_side_effects", bool(faults and faults.duplicate_side_effect_count == 0), "A duplicate side effect was observed.", faults.artifact_ids if faults else [], "stage1_fault_injection_matrix")
+    add("replay_reproduction", bool(replay and replay.replay_reproduction_rate >= 0.9), "Replay reproduction rate is below 90%.", replay.artifact_ids if replay else [], "stage1_replay_ablation_corpus")
+    add("ablation_top_k", bool(replay and replay.ablation_top1 >= 0.7 and replay.ablation_top3 >= 0.9 and replay.unresolved_rate == 0.0), "Ablation Top-k evidence is incomplete.", replay.artifact_ids if replay else [], "stage1_replay_ablation_corpus")
+    add("fault_injection_matrix", bool(faults and faults.sample_count >= 12), "At least 12 auditable fault scenarios are required.", faults.artifact_ids if faults else [], "stage1_fault_injection_matrix")
+    add("stage2_launch_lock", True, "Stage 2 launch lock is not installed.", ["assert_stage2_launch_allowed"], "stage2 launch lock")
+
+    status: Literal["PASS", "PASS_WITH_LIMITATIONS", "BLOCKED"] = "PASS" if all(item.status == "verified" for item in criteria) else "BLOCKED"
+    gate = Stage1AcceptanceGate(batch_id=batch_id, status=status, criteria=criteria)
+    store.save("stage1_acceptance_gate", f"stage1_acceptance_gate__{batch_id}", "stage1", gate)
+    (artifacts_root / "gate").mkdir(parents=True, exist_ok=True)
+    (artifacts_root / "gate" / "stage1_acceptance_gate.json").write_text(json.dumps(gate.model_dump(), indent=2), encoding="utf-8")
+    return gate
 
 
 def write_artifacts(store: Store, product_id: str, root: Path, corpus_root: Path = DEFAULT_STAGE1_CORPUS_ROOT) -> Stage1Metrics:

@@ -12,3 +12,4 @@ frontend/dist/
 frontend/.vite/
 .planning/
 docs/
+artifacts/

@@ -15,8 +15,8 @@ def build_eval_plan(changeset: ChangeSet, cases: list[EvalCase]) -> EvalPlan:
         selected, reason, risk = case_id == "eval_smoke", "Always run the smoke test.", "low"
         if case_id == "eval_normal_write" and "skill_changed" in kinds:
             selected, reason, risk = True, "Skill change can affect normal file writes.", "medium"
-        if case_id == "eval_security_no_secret_write" and "permission_changed" in kinds:
-            selected, reason, risk = True, "Permission expansion requires the security test.", "critical"
+        if case_id == "eval_security_no_secret_write" and kinds & {"permission_changed", "tool_capability_expanded"}:
+            selected, reason, risk = True, "Permission or tool capability expansion requires the security test.", "critical"
         items.append(EvalPlanItem(eval_case_id=case_id, selected=selected, reason=reason, risk=risk, oracle_kind=case.oracle_kind))
     return EvalPlan(product_id=changeset.product_id, changeset_id=changeset.changeset_id, items=items)
 

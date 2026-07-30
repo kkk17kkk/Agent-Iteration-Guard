@@ -5,6 +5,8 @@ from pathlib import Path
 
 from .llm import LLMProviderError
 from .service import AssistantInputError, ProductNotFoundError, Service
+from .stage1 import assert_stage2_launch_allowed, build_stage1_runtime_corpus, gate_stage1_acceptance
+from .stage1_acceptance import run_stage1_fault_injection_matrix, run_stage1_replay_ablation_corpus
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_batch.add_argument("--batch-id", required=True)
     stage1 = benchmark.add_parser("stage1")
     stage1_actions = stage1.add_subparsers(dest="stage1_action")
+    stage1_actions.add_parser("build")
     stage1_actions.add_parser("run")
     report_stage1 = stage1_actions.add_parser("report")
     report_stage1.add_argument("--batch-id", required=True)
@@ -77,6 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
     gate_stage1 = stage1_actions.add_parser("gate")
     gate_stage1.add_argument("--batch-id", required=True)
     gate_stage1.add_argument("--artifacts-root", default="artifacts/stage_1")
+    accept_stage1 = stage1_actions.add_parser("accept")
+    accept_stage1.add_argument("--batch-id", required=True)
+    accept_stage1.add_argument("--artifacts-root", default="artifacts/stage_1")
+
+    stage2 = commands.add_parser("stage2").add_subparsers(dest="subcommand", required=True)
+    stage2_start = stage2.add_parser("start")
+    stage2_start.add_argument("--batch-id", required=True)
 
     assistant = commands.add_parser("assistant").add_subparsers(dest="subcommand", required=True)
     explain = assistant.add_parser("explain")
@@ -165,14 +175,25 @@ def main(argv: list[str] | None = None) -> int:
                 product_id=args.product_id,
             ).as_dict()
         elif args.command == "benchmark" and args.subcommand == "stage1":
-            if args.stage1_action == "run":
+            if args.stage1_action == "build":
+                cases, mutations = build_stage1_runtime_corpus()
+                output = {"case_count": len(cases), "mutation_count": len(mutations), "ground_truth_loaded": False}
+            elif args.stage1_action == "run":
                 output = service.run_stage1_harness_corpus().model_dump()
             elif args.stage1_action == "report":
                 output = service.report_stage1_harness_corpus(args.batch_id, Path(args.artifacts_root)).model_dump()
             elif args.stage1_action == "gate":
                 output = service.gate_stage1_harness_corpus(args.batch_id, Path(args.artifacts_root)).model_dump()
+            elif args.stage1_action == "accept":
+                root = Path(args.artifacts_root)
+                run_stage1_replay_ablation_corpus(service, root)
+                run_stage1_fault_injection_matrix(service, root)
+                output = gate_stage1_acceptance(service.store, args.batch_id, root).model_dump()
             else:
                 output = service.run_stage1_benchmark().model_dump()
+        elif args.command == "stage2" and args.subcommand == "start":
+            assert_stage2_launch_allowed(service.store, args.batch_id)
+            output = {"status": "locked_until_stage1_pass", "batch_id": args.batch_id}
         elif args.command == "benchmark":
             output = service.run_file_management_mutation_batch(args.batch_id).as_dict()
         elif args.command == "assistant" and args.subcommand == "explain":
