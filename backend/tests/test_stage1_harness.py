@@ -1,4 +1,5 @@
 from collections import defaultdict
+import json
 
 from agentguard.domain import (
     ChangeSet,
@@ -12,8 +13,9 @@ from agentguard.domain import (
     VerificationResult,
     WorkItem,
 )
+from agentguard.cli import main
 from agentguard.service import Service
-from agentguard.stage1 import Stage1HarnessArtifact
+from agentguard.stage1 import Stage1HarnessArtifact, build_stage1_runtime_corpus
 
 
 REPRESENTATIVE_CASES = (
@@ -21,6 +23,15 @@ REPRESENTATIVE_CASES = (
     "dev-skill-normal",
     "dev-permission-severe",
 )
+
+
+def test_stage1_corpus_is_expanded_to_60_runtime_cases():
+    cases, mutations = build_stage1_runtime_corpus()
+
+    assert len(cases) == 60
+    assert len({case.case_id for case in cases}) == 60
+    assert len(mutations) >= 60
+    assert {case.split for case in cases} == {"development", "validation", "hidden"}
 
 
 def test_three_stage1_cases_run_selected_and_full_real_harness_chains(tmp_path):
@@ -92,3 +103,37 @@ def test_three_stage1_cases_run_selected_and_full_real_harness_chains(tmp_path):
     ]
     assert grouped["dev-permission-severe"]["selected"].release_status == "blocked"
     assert grouped["dev-permission-severe"]["full_regression"].release_status == "blocked"
+
+
+def test_stage1_report_and_gate_read_persisted_harness_artifacts(tmp_path):
+    service = Service(str(tmp_path / "stage1-report.db"))
+    batch = service.run_stage1_harness_corpus(list(REPRESENTATIVE_CASES))
+
+    metrics = service.report_stage1_harness_corpus(batch.batch_id)
+    gate = service.gate_stage1_harness_corpus(batch.batch_id)
+
+    assert metrics.sample_count == 3
+    assert metrics.branch_count == 6
+    assert metrics.incomplete_case_ids == []
+    assert gate.status == "BLOCKED"
+    assert next(item for item in gate.criteria if item.criterion == "corpus_size").status == "failed"
+
+
+def test_stage1_report_and_gate_cli_use_batch_artifacts(tmp_path, capsys):
+    db = str(tmp_path / "stage1-cli.db")
+    service = Service(db)
+    batch = service.run_stage1_harness_corpus(list(REPRESENTATIVE_CASES))
+
+    assert main([
+        "--db", db, "--format", "json", "benchmark", "stage1", "report",
+        "--batch-id", batch.batch_id, "--artifacts-root", str(tmp_path / "artifacts"),
+    ]) == 0
+    report = json.loads(capsys.readouterr().out)["data"]
+    assert report["sample_count"] == 3
+
+    assert main([
+        "--db", db, "--format", "json", "benchmark", "stage1", "gate",
+        "--batch-id", batch.batch_id,
+    ]) == 0
+    gate = json.loads(capsys.readouterr().out)["data"]
+    assert gate["status"] == "BLOCKED"

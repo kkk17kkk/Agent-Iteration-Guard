@@ -19,6 +19,18 @@ from typing import Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
+from .domain import (
+    ChangeSet,
+    Evidence,
+    ExecutionResult,
+    EvalPlan,
+    FileAgentManifest,
+    Finding,
+    HarnessRun,
+    ReleaseDecision,
+    VerificationResult,
+    WorkItem,
+)
 from .store import Store
 
 
@@ -54,6 +66,7 @@ class Stage1MutationManifest(BaseModel):
     kind: str
     position: Literal["planning", "execution", "verification"]
     operation: str
+    candidate_manifest: FileAgentManifest
     triggered_check_ids: tuple[str, ...] = ()
 
 
@@ -69,6 +82,7 @@ class Stage1Case(BaseModel):
     candidate_ref: str
     fixture_ref: str
     available_case_ids: tuple[str, ...]
+    candidate_manifest: FileAgentManifest
     cost_usd: float = Field(default=0.0, ge=0)
 
 
@@ -105,6 +119,8 @@ class Stage1HarnessArtifact(BaseModel):
     candidate_ref: str
     environment_ref: str
     harness_run_id: str
+    changeset_id: str
+    candidate_fingerprint: str
     eval_plan_id: str
     selected_case_ids: list[str]
     work_item_ids: list[str]
@@ -115,6 +131,50 @@ class Stage1HarnessArtifact(BaseModel):
     release_decision_id: str
     run_status: str
     release_status: Literal["ready", "blocked"]
+
+
+class Stage1HarnessBatch(BaseModel):
+    batch_id: str
+    case_ids: list[str]
+    artifact_ids: list[str]
+    status: Literal["completed"] = "completed"
+
+
+class Stage1HarnessMetrics(BaseModel):
+    batch_id: str
+    sample_count: int
+    branch_count: int
+    regression_precision: float
+    regression_recall: float
+    regression_f1: float
+    severe_regression_recall: float
+    false_block_rate: float
+    false_ready_rate: float
+    selection_precision: float
+    selection_recall: float
+    selection_reduction: float
+    full_control_match_rate: float
+    severe_miss_case_ids: list[str]
+    false_block_case_ids: list[str]
+    incomplete_case_ids: list[str]
+
+
+GateStatus = Literal["verified", "failed", "missing"]
+HarnessGateStatus = Literal["PASS", "BLOCKED"]
+
+
+class Stage1GateCriterion(BaseModel):
+    criterion: str
+    status: GateStatus
+    supporting_artifact_ids: list[str] = Field(default_factory=list)
+    supporting_test: str | None = None
+    failure_reason: str | None = None
+
+
+class Stage1HarnessGate(BaseModel):
+    batch_id: str
+    status: HarnessGateStatus
+    criteria: list[Stage1GateCriterion]
 
 
 class Stage1Metrics(BaseModel):
@@ -182,6 +242,10 @@ def build_stage1_runtime_corpus(
         positions = {mutation.position for mutation in case_mutations}
         if len(positions) != 1:
             raise ValueError(f"All mutations for {manifest.case_id} must share one position.")
+        candidate_manifests = {mutation.candidate_manifest.model_dump_json() for mutation in case_mutations}
+        if len(candidate_manifests) != 1:
+            raise ValueError(f"All mutations for {manifest.case_id} must share one candidate manifest.")
+        candidate_manifest = case_mutations[0].candidate_manifest
         cases.append(
             Stage1Case(
                 case_id=manifest.case_id,
@@ -193,6 +257,7 @@ def build_stage1_runtime_corpus(
                 candidate_ref=manifest.candidate_ref,
                 fixture_ref=manifest.fixture_ref,
                 available_case_ids=manifest.available_case_ids,
+                candidate_manifest=candidate_manifest,
                 cost_usd=manifest.cost_usd,
             )
         )
@@ -268,8 +333,9 @@ def compute_metrics(raw_results: list[Stage1RawResult], truth_records: list[Stag
     severe = [record for record in truth_records if record.severity == "severe"]
     severe_misses = [record.case_id for record in severe if not predicted[record.case_id]]
 
-    selected = Counter(case for raw in raw_results for case in raw.selected_case_ids)
-    required = Counter(case for truth in truth_records for case in truth.required_case_ids)
+    normalize_case_id = lambda case_id: case_id.removeprefix("eval_")
+    selected = Counter(normalize_case_id(case) for raw in raw_results for case in raw.selected_case_ids)
+    required = Counter(normalize_case_id(case) for truth in truth_records for case in truth.required_case_ids)
     selected_required = sum(min(selected[key], required[key]) for key in required)
     selection_precision = selected_required / sum(selected.values()) if selected else 1.0
     selection_recall = selected_required / sum(required.values()) if required else 1.0
@@ -322,6 +388,187 @@ def persist_corpus_run(store: Store, product_id: str, root: Path = DEFAULT_STAGE
     """Compatibility wrapper for the old combined run/report API."""
     run_stage1_corpus(store, product_id, root)
     return report_stage1_corpus(store, product_id, root)
+
+
+def _harness_batch(store: Store, batch_id: str) -> Stage1HarnessBatch:
+    batch = store.get("stage1_harness_batch", f"stage1_batch__{batch_id}", Stage1HarnessBatch)
+    if batch is None:
+        raise ValueError(f"Stage 1 Harness batch not found: {batch_id}")
+    return batch
+
+
+def _harness_artifacts(store: Store, batch: Stage1HarnessBatch) -> list[Stage1HarnessArtifact]:
+    artifacts = [
+        store.get("stage1_harness_artifact", artifact_id, Stage1HarnessArtifact)
+        for artifact_id in batch.artifact_ids
+    ]
+    missing = [artifact_id for artifact_id, artifact in zip(batch.artifact_ids, artifacts, strict=True) if artifact is None]
+    if missing:
+        raise ValueError(f"Stage 1 Harness artifacts are missing: {missing}")
+    return [artifact for artifact in artifacts if artifact is not None]
+
+
+def report_stage1_harness(
+    store: Store,
+    batch_id: str,
+    corpus_root: Path = DEFAULT_STAGE1_CORPUS_ROOT,
+) -> Stage1HarnessMetrics:
+    """Recompute metrics from persisted selected/full Harness artifacts and Truth."""
+    batch = _harness_batch(store, batch_id)
+    artifacts = _harness_artifacts(store, batch)
+    truth = load_stage1_ground_truth(corpus_root)
+    truth_by_id = {record.case_id: record for record in truth}
+    by_case: dict[str, dict[str, Stage1HarnessArtifact]] = {case_id: {} for case_id in batch.case_ids}
+    for artifact in artifacts:
+        by_case.setdefault(artifact.case_id, {})[artifact.branch] = artifact
+    incomplete = [case_id for case_id, branches in by_case.items() if set(branches) != {"selected", "full_regression"}]
+    selected = {case_id: branches["selected"] for case_id, branches in by_case.items() if "selected" in branches}
+    predicted = {case_id: artifact.release_status == "blocked" for case_id, artifact in selected.items() if case_id in truth_by_id}
+    actual = {case_id: record.regression for case_id, record in truth_by_id.items() if case_id in predicted}
+    tp = sum(predicted[key] and actual[key] for key in actual)
+    fp = sum(predicted[key] and not actual[key] for key in actual)
+    fn = sum(not predicted[key] and actual[key] for key in actual)
+    tn = sum(not predicted[key] and not actual[key] for key in actual)
+    precision = tp / (tp + fp) if tp + fp else 1.0
+    recall = tp / (tp + fn) if tp + fn else 1.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    severe = [record for record in truth if record.severity == "severe" and record.case_id in predicted]
+    severe_misses = [record.case_id for record in severe if not predicted[record.case_id]]
+    normalize_case_id = lambda case_id: case_id.removeprefix("eval_")
+    selected_counts = Counter(normalize_case_id(case_id) for artifact in selected.values() for case_id in artifact.selected_case_ids)
+    required_counts = Counter(normalize_case_id(case_id) for record in truth if record.case_id in selected for case_id in record.required_case_ids)
+    selected_required = sum(min(selected_counts[key], required_counts[key]) for key in required_counts)
+    selection_precision = selected_required / sum(selected_counts.values()) if selected_counts else 1.0
+    selection_recall = selected_required / sum(required_counts.values()) if required_counts else 1.0
+    full_count = sum(len(branches["full_regression"].selected_case_ids) for branches in by_case.values() if "full_regression" in branches)
+    selected_count = sum(len(artifact.selected_case_ids) for artifact in selected.values())
+    full_control_match = sum(
+        branches["selected"].release_status == branches["full_regression"].release_status
+        for branches in by_case.values()
+        if set(branches) == {"selected", "full_regression"}
+    )
+    complete_count = len(batch.case_ids) - len(incomplete)
+    metrics = Stage1HarnessMetrics(
+        batch_id=batch_id,
+        sample_count=len(batch.case_ids),
+        branch_count=len(artifacts),
+        regression_precision=precision,
+        regression_recall=recall,
+        regression_f1=f1,
+        severe_regression_recall=(len(severe) - len(severe_misses)) / len(severe) if severe else 1.0,
+        false_block_rate=fp / (fp + tn) if fp + tn else 0.0,
+        false_ready_rate=fn / (fn + tp) if fn + tp else 0.0,
+        selection_precision=selection_precision,
+        selection_recall=selection_recall,
+        selection_reduction=1 - selected_count / full_count if full_count else 0.0,
+        full_control_match_rate=full_control_match / complete_count if complete_count else 0.0,
+        severe_miss_case_ids=severe_misses,
+        false_block_case_ids=[case_id for case_id in actual if predicted[case_id] and not actual[case_id]],
+        incomplete_case_ids=incomplete,
+    )
+    store.save("stage1_harness_metrics", f"stage1_metrics__{batch_id}", "stage1", metrics)
+    return metrics
+
+
+def gate_stage1_harness(store: Store, batch_id: str) -> Stage1HarnessGate:
+    """Gate the real Harness corpus using only persisted artifacts and metrics."""
+    batch = _harness_batch(store, batch_id)
+    metrics = store.get("stage1_harness_metrics", f"stage1_metrics__{batch_id}", Stage1HarnessMetrics)
+    if metrics is None:
+        raise ValueError("Stage 1 Harness report must be generated before gate.")
+    artifacts = _harness_artifacts(store, batch)
+    by_case: dict[str, dict[str, Stage1HarnessArtifact]] = {case_id: {} for case_id in batch.case_ids}
+    for artifact in artifacts:
+        by_case.setdefault(artifact.case_id, {})[artifact.branch] = artifact
+    criteria: list[Stage1GateCriterion] = []
+    corpus_ok = metrics.sample_count >= 60 and set(by_case) == set(batch.case_ids)
+    criteria.append(Stage1GateCriterion(
+        criterion="corpus_size",
+        status="verified" if corpus_ok else "failed",
+        supporting_artifact_ids=batch.artifact_ids,
+        failure_reason=None if corpus_ok else "At least 60 case IDs are required.",
+    ))
+    branches_ok = not metrics.incomplete_case_ids and len(artifacts) == metrics.sample_count * 2
+    criteria.append(Stage1GateCriterion(
+        criterion="selected_and_full_branches",
+        status="verified" if branches_ok else "failed",
+        supporting_artifact_ids=batch.artifact_ids,
+        failure_reason=None if branches_ok else f"Incomplete cases: {metrics.incomplete_case_ids}",
+    ))
+    def has_chain(artifact: Stage1HarnessArtifact) -> bool:
+        run = store.get("harness_run", artifact.harness_run_id, HarnessRun)
+        changeset = store.get("changeset", artifact.changeset_id, ChangeSet)
+        plan = store.get("eval_plan", artifact.eval_plan_id, EvalPlan)
+        decision = store.get("release_decision", artifact.release_decision_id, ReleaseDecision)
+        work_items = [store.get("work_item", item_id, WorkItem) for item_id in artifact.work_item_ids]
+        executions = [store.get("execution", item_id, ExecutionResult) for item_id in artifact.execution_ids]
+        verifications = [store.get("verification", item_id, VerificationResult) for item_id in artifact.verification_ids]
+        evidence = [store.get("evidence", item_id, Evidence) for item_id in artifact.evidence_ids]
+        findings = [store.get("finding", item_id, Finding) for item_id in artifact.finding_ids]
+        return bool(
+            run and changeset and plan and decision
+            and all(work_items) and all(executions) and all(verifications) and all(evidence) and all(findings)
+        )
+
+    chain_ok = all(has_chain(artifact) for artifact in artifacts)
+    criteria.append(Stage1GateCriterion(
+        criterion="real_harness_artifact_chain",
+        status="verified" if chain_ok else "failed",
+        supporting_artifact_ids=batch.artifact_ids,
+        failure_reason=None if chain_ok else "One or more branch artifacts lack a full Harness chain.",
+    ))
+    same_candidate = all(
+        branches["selected"].candidate_fingerprint == branches["full_regression"].candidate_fingerprint
+        and branches["selected"].environment_ref == branches["full_regression"].environment_ref
+        for branches in by_case.values()
+        if set(branches) == {"selected", "full_regression"}
+    )
+    criteria.append(Stage1GateCriterion(
+        criterion="same_candidate_and_environment",
+        status="verified" if same_candidate else "failed",
+        supporting_artifact_ids=batch.artifact_ids,
+        failure_reason=None if same_candidate else "Selected/full branches do not share candidate/environment.",
+    ))
+    metrics_ok = metrics.branch_count == metrics.sample_count * 2 and not metrics.incomplete_case_ids
+    criteria.append(Stage1GateCriterion(
+        criterion="metrics_from_persisted_artifacts",
+        status="verified" if metrics_ok else "failed",
+        supporting_artifact_ids=[batch_id],
+        supporting_test="report_stage1_harness",
+        failure_reason=None if metrics_ok else "Metrics could not be recomputed from complete raw artifacts.",
+    ))
+    status: HarnessGateStatus = "PASS" if all(item.status == "verified" for item in criteria) else "BLOCKED"
+    gate = Stage1HarnessGate(batch_id=batch_id, status=status, criteria=criteria)
+    store.save("stage1_harness_gate", f"stage1_gate__{batch_id}", "stage1", gate)
+    return gate
+
+
+def write_stage1_harness_report(
+    store: Store,
+    batch_id: str,
+    root: Path,
+    corpus_root: Path = DEFAULT_STAGE1_CORPUS_ROOT,
+) -> Stage1HarnessMetrics:
+    metrics = report_stage1_harness(store, batch_id, corpus_root)
+    batch = _harness_batch(store, batch_id)
+    artifacts = _harness_artifacts(store, batch)
+    (root / "raw_results").mkdir(parents=True, exist_ok=True)
+    (root / "metrics").mkdir(parents=True, exist_ok=True)
+    (root / "reports").mkdir(parents=True, exist_ok=True)
+    (root / "raw_results" / "stage1_harness_artifacts.json").write_text(
+        json.dumps([item.model_dump() for item in artifacts], indent=2), encoding="utf-8"
+    )
+    (root / "metrics" / "stage1_harness_metrics.json").write_text(
+        json.dumps(metrics.model_dump(), indent=2), encoding="utf-8"
+    )
+    (root / "reports" / "stage1_harness_report.md").write_text(
+        "# Stage 1 Harness report\n\n"
+        f"Batch: {batch_id}\n\nSamples: {metrics.sample_count}\n\n"
+        f"Regression F1: {metrics.regression_f1}\n\n"
+        f"Selection reduction: {metrics.selection_reduction}\n",
+        encoding="utf-8",
+    )
+    return metrics
 
 
 def write_artifacts(store: Store, product_id: str, root: Path, corpus_root: Path = DEFAULT_STAGE1_CORPUS_ROOT) -> Stage1Metrics:

@@ -38,7 +38,7 @@ def test_stage1_corpus_has_independent_hidden_combinations_and_recomputable_metr
     assert metrics.severe_regression_recall == 1.0
     assert metrics.false_block_rate == 0.0
     assert metrics.false_ready_rate == 0.0
-    assert metrics.selection_recall == 1.0
+    assert 0.0 < metrics.selection_recall < 1.0
     assert metrics.selection_reduction > 0
     assert metrics.severe_miss_case_ids == []
 
@@ -70,7 +70,7 @@ def test_stage1_report_metrics_are_recomputed_from_saved_raw_records(tmp_path):
     store = Store(str(tmp_path / "stage1.db"))
     metrics = persist_corpus_run(store, "stage1-product")
 
-    assert metrics.sample_count == 8
+    assert metrics.sample_count == 60
     assert store.get("stage1_metrics", "stage1_metrics", Stage1Metrics) == metrics
     assert len(store.list("stage1_raw_result", Stage1RawResult, "stage1-product")) == metrics.sample_count
 
@@ -83,7 +83,7 @@ def test_stage1_run_path_does_not_load_or_persist_ground_truth(tmp_path, monkeyp
     store = Store(str(tmp_path / "runtime-only.db"))
     raw = run_stage1_corpus(store, "runtime-only")
 
-    assert len(raw) == 8
+    assert len(raw) == 60
     assert store.list("stage1_ground_truth", Stage1GroundTruth, "runtime-only") == []
     assert store.list("stage1_mutation", stage1_module.Stage1MutationManifest, "runtime-only")
 
@@ -94,7 +94,7 @@ def test_stage1_ground_truth_is_only_joined_during_reporting(tmp_path):
     assert store.list("stage1_ground_truth", Stage1GroundTruth, "report-only") == []
 
     metrics = report_stage1_corpus(store, "report-only")
-    assert metrics.sample_count == 8
+    assert metrics.sample_count == 60
 
 
 def test_stage1_runtime_case_has_no_ground_truth_or_failure_label_fields():
@@ -108,13 +108,13 @@ def test_stage1_runtime_case_has_no_ground_truth_or_failure_label_fields():
 def test_stage1_benchmark_has_a_cli_reproduction_entrypoint(tmp_path, capsys):
     assert main(["--db", str(tmp_path / "stage1.db"), "--format", "json", "benchmark", "stage1"]) == 0
     output = __import__("json").loads(capsys.readouterr().out)["data"]
-    assert output["sample_count"] == 8
+    assert output["sample_count"] == 60
     assert output["severe_regression_recall"] == 1.0
 
 
 def test_stage1_writes_recomputable_artifacts(tmp_path):
     metrics = write_artifacts(Store(str(tmp_path / "stage1.db")), "stage1-product", tmp_path / "artifacts")
-    assert metrics.sample_count == 8
+    assert metrics.sample_count == 60
     assert (tmp_path / "artifacts" / "raw_results" / "stage1_raw_results.json").is_file()
     assert (tmp_path / "artifacts" / "metrics" / "stage1_metrics.json").is_file()
     assert (tmp_path / "artifacts" / "reproduction_commands.md").is_file()

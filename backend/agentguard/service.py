@@ -16,6 +16,7 @@ from .domain import (
     ExecutionResult,
     FailureTicket,
     FailureExplanation,
+    FileAgentManifest,
     Finding,
     Handoff,
     HarnessRun,
@@ -63,11 +64,17 @@ from .mutations import FileManagementMutationFactory
 from .inspect_runner import ExternalRunnerError, InspectFileManagementRunner
 from .stage1 import (
     Stage1HarnessArtifact,
+    Stage1HarnessBatch,
     Stage1HarnessBranch,
+    Stage1HarnessGate,
+    Stage1HarnessMetrics,
     Stage1Case,
     Stage1Metrics,
     build_stage1_runtime_corpus,
+    gate_stage1_harness,
     persist_corpus_run,
+    report_stage1_harness,
+    write_stage1_harness_report,
 )
 
 
@@ -587,6 +594,61 @@ class Service:
         ])
         return result
 
+    @staticmethod
+    def _stage1_snapshot(
+        product_id: str,
+        version_id: str,
+        source_ref: str,
+        manifest: FileAgentManifest,
+    ) -> ComponentSnapshot:
+        fingerprint = hashlib.sha256(manifest.model_dump_json().encode()).hexdigest()
+        return ComponentSnapshot(
+            product_id=product_id,
+            version_id=version_id,
+            source_ref=source_ref,
+            fingerprint=fingerprint,
+            manifest=manifest,
+        )
+
+    def _stage1_fixture_for_case(self, case: Stage1Case) -> FileAgentFixture:
+        product, _ = self.create(f"Stage 1 {case.case_id}", "Remediation 2 real Harness corpus case")
+        requirement = Requirement(
+            product_id=product.product_id,
+            title="Write reports without unauthorized paths",
+            risk="critical",
+        )
+        capability = Capability(
+            product_id=product.product_id,
+            name="Controlled file writes",
+            requirement_ids=[requirement.requirement_id],
+            risk="critical",
+        )
+        eval_cases = [
+            EvalCase(eval_case_id="eval_normal_write", product_id=product.product_id, name="Normal report write", capability_ids=[capability.capability_id], oracle_kind="path_policy"),
+            EvalCase(eval_case_id="eval_security_no_secret_write", product_id=product.product_id, name="No secret write", capability_ids=[capability.capability_id], oracle_kind="path_policy"),
+            EvalCase(eval_case_id="eval_smoke", product_id=product.product_id, name="Smoke write", capability_ids=[capability.capability_id], oracle_kind="path_policy"),
+        ]
+        fixture_root = Path(__file__).parents[1] / "fixtures" / "file_agent"
+        baseline_manifest = FileAgentManifest.model_validate_json(
+            (fixture_root / "v1" / "agent_manifest.json").read_text(encoding="utf-8")
+        )
+        baseline = Version(product_id=product.product_id, label="baseline", source_ref=case.baseline_ref)
+        candidate = Version(product_id=product.product_id, label="candidate", source_ref=case.candidate_ref)
+        baseline_snapshot = self._stage1_snapshot(product.product_id, baseline.version_id, case.baseline_ref, baseline_manifest)
+        candidate_snapshot = self._stage1_snapshot(product.product_id, candidate.version_id, case.candidate_ref, case.candidate_manifest)
+        product.current_version_id = candidate.version_id
+        self.store.save_many([
+            ("requirement", requirement.requirement_id, product.product_id, requirement),
+            ("capability", capability.capability_id, product.product_id, capability),
+            *[("eval_case", item.eval_case_id, product.product_id, item) for item in eval_cases],
+            ("version", baseline.version_id, product.product_id, baseline),
+            ("version", candidate.version_id, product.product_id, candidate),
+            ("snapshot", baseline_snapshot.snapshot_id, product.product_id, baseline_snapshot),
+            ("snapshot", candidate_snapshot.snapshot_id, product.product_id, candidate_snapshot),
+            ("product", product.product_id, product.product_id, product),
+        ])
+        return FileAgentFixture(product, baseline, candidate)
+
     def run_stage1_harness_pair(self, case_id: str) -> list[Stage1HarnessArtifact]:
         """Run one Stage 1 case through selected and full real Harness branches.
 
@@ -600,8 +662,7 @@ class Service:
             case = next(item for item in cases if item.case_id == case_id)
         except StopIteration as error:
             raise AssistantInputError(f"Unknown Stage 1 case: {case_id}") from error
-        candidate_label = case.candidate_ref.rsplit(":", 1)[-1]
-        fixture = self.file_agent_fixture(candidate_label=candidate_label)
+        fixture = self._stage1_fixture_for_case(case)
         eval_case_ids = [item.eval_case_id for item in self.store.list("eval_case", EvalCase, fixture.product.product_id)]
         selected = self.run_file_agent(
             fixture.product.product_id,
@@ -624,6 +685,30 @@ class Service:
         ])
         return artifacts
 
+    def run_stage1_harness_corpus(self, case_ids: list[str] | None = None) -> Stage1HarnessBatch:
+        cases, _ = build_stage1_runtime_corpus()
+        selected_case_ids = case_ids or [case.case_id for case in cases]
+        artifacts = [
+            artifact
+            for case_id in selected_case_ids
+            for artifact in self.run_stage1_harness_pair(case_id)
+        ]
+        batch = Stage1HarnessBatch(
+            batch_id=ident("stage1_batch"),
+            case_ids=selected_case_ids,
+            artifact_ids=[artifact.artifact_id for artifact in artifacts],
+        )
+        self.store.save("stage1_harness_batch", f"stage1_batch__{batch.batch_id}", "stage1", batch)
+        return batch
+
+    def report_stage1_harness_corpus(self, batch_id: str, artifact_root: Path | None = None) -> Stage1HarnessMetrics:
+        if artifact_root is None:
+            return report_stage1_harness(self.store, batch_id)
+        return write_stage1_harness_report(self.store, batch_id, artifact_root)
+
+    def gate_stage1_harness_corpus(self, batch_id: str) -> Stage1HarnessGate:
+        return gate_stage1_harness(self.store, batch_id)
+
     @staticmethod
     def _stage1_harness_artifact(
         case: Stage1Case,
@@ -640,6 +725,8 @@ class Service:
             candidate_ref=case.candidate_ref,
             environment_ref="fake-file-agent-v1",
             harness_run_id=result.run.harness_run_id,
+            changeset_id=result.changeset.changeset_id,
+            candidate_fingerprint=result.changeset.candidate_snapshot.fingerprint,
             eval_plan_id=result.eval_plan.eval_plan_id,
             selected_case_ids=result.eval_plan.selected_case_ids,
             work_item_ids=[item.work_item_id for item in result.work_items],

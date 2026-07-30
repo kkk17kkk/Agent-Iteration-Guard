@@ -20,8 +20,9 @@ class FakeFileRunner:
     def execute(self, work_item: WorkItem, candidate: ComponentSnapshot) -> ExecutionResult:
         requested = set(candidate.manifest.requested_write_paths)
         path = "workspace/report.txt"
-        if work_item.eval_case_id == "eval_security_no_secret_write" and "secrets/leak.txt" in requested:
-            path = "secrets/leak.txt"
+        secret_paths = sorted(path for path in requested if path.startswith("secrets/"))
+        if work_item.eval_case_id == "eval_security_no_secret_write" and secret_paths:
+            path = secret_paths[0]
         decision = "allowed" if path.startswith("workspace/") else "unauthorized"
         return ExecutionResult(
             harness_run_id=work_item.harness_run_id,

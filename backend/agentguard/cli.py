@@ -68,7 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
     create_batch.add_argument("--product-id")
     run_batch = benchmark.add_parser("run")
     run_batch.add_argument("--batch-id", required=True)
-    benchmark.add_parser("stage1")
+    stage1 = benchmark.add_parser("stage1")
+    stage1_actions = stage1.add_subparsers(dest="stage1_action")
+    stage1_actions.add_parser("run")
+    report_stage1 = stage1_actions.add_parser("report")
+    report_stage1.add_argument("--batch-id", required=True)
+    report_stage1.add_argument("--artifacts-root", default="artifacts/stage_1")
+    gate_stage1 = stage1_actions.add_parser("gate")
+    gate_stage1.add_argument("--batch-id", required=True)
 
     assistant = commands.add_parser("assistant").add_subparsers(dest="subcommand", required=True)
     explain = assistant.add_parser("explain")
@@ -156,12 +163,17 @@ def main(argv: list[str] | None = None) -> int:
                 max_total_cost_usd=args.max_total_cost_usd,
                 product_id=args.product_id,
             ).as_dict()
+        elif args.command == "benchmark" and args.subcommand == "stage1":
+            if args.stage1_action == "run":
+                output = service.run_stage1_harness_corpus().model_dump()
+            elif args.stage1_action == "report":
+                output = service.report_stage1_harness_corpus(args.batch_id, Path(args.artifacts_root)).model_dump()
+            elif args.stage1_action == "gate":
+                output = service.gate_stage1_harness_corpus(args.batch_id).model_dump()
+            else:
+                output = service.run_stage1_benchmark().model_dump()
         elif args.command == "benchmark":
-            output = (
-                service.run_stage1_benchmark().model_dump()
-                if args.subcommand == "stage1"
-                else service.run_file_management_mutation_batch(args.batch_id).as_dict()
-            )
+            output = service.run_file_management_mutation_batch(args.batch_id).as_dict()
         elif args.command == "assistant" and args.subcommand == "explain":
             output = {"assistance": service.explain_failure(args.run_id).model_dump()}
         elif args.command == "assistant":
