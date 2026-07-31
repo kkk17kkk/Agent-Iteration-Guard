@@ -71,3 +71,42 @@ def build_file_management_work_items(run_id: str, plan: EvalPlan) -> list[WorkIt
         for item in plan.items
         if item.selected
     ]
+
+
+def build_ticket_plan(changeset: ChangeSet, cases: list[EvalCase], requested_case_ids: list[str]) -> EvalPlan:
+    requested = set(requested_case_ids)
+    if len(requested) != 1:
+        raise ValueError("Ticket runtime requires exactly one explicitly selected evaluation case.")
+    kinds = {change.kind for change in changeset.changes}
+    items = [
+        EvalPlanItem(
+            eval_case_id=case.eval_case_id,
+            selected=case.eval_case_id in requested,
+            reason=(
+                "Ticket workflow change requires this selected lifecycle invariant."
+                if "workflow_changed" in kinds else "Explicit Ticket lifecycle case requested."
+            ),
+            risk="critical",
+            oracle_kind=case.oracle_kind,
+        )
+        for case in cases
+        if case.eval_case_id in requested
+    ]
+    if len(items) != 1:
+        raise ValueError("Requested Ticket evaluation case is not registered for this product.")
+    return EvalPlan(product_id=changeset.product_id, changeset_id=changeset.changeset_id, items=items)
+
+
+def build_ticket_work_items(run_id: str, plan: EvalPlan) -> list[WorkItem]:
+    return [
+        WorkItem(
+            harness_run_id=run_id,
+            eval_case_id=item.eval_case_id,
+            objective="Execute one controlled Ticket lifecycle through the normalized tool interface.",
+            input_artifact_ids=[plan.eval_plan_id],
+            acceptance_criteria="Persist a Ticket state snapshot and normalized tool trace for deterministic verification.",
+            allowed_tools=["create_ticket", "add_comment", "assign_ticket", "start_ticket", "approve_ticket", "close_ticket"],
+        )
+        for item in plan.items
+        if item.selected
+    ]

@@ -4,7 +4,11 @@ import json
 from .domain import ComponentSnapshot, FileAgentManifest, MutationKind, MutationPair, Version
 
 
-MUTATION_KINDS: tuple[MutationKind, ...] = ("prompt", "skill", "tool_schema", "permission", "workflow")
+# The product supports six mutation dimensions.  Retry/idempotency is intentionally
+# executed in the Stage 2 persistent runtime corpus, rather than fabricated by a
+# static FileAgentManifest edit with a pre-labelled expected result.
+MUTATION_KINDS: tuple[MutationKind, ...] = ("prompt", "skill", "tool_schema", "permission", "workflow", "retry_idempotency")
+FILE_MANIFEST_MUTATION_KINDS: tuple[MutationKind, ...] = ("prompt", "skill", "tool_schema", "permission", "workflow")
 
 
 def _fingerprint(manifest: FileAgentManifest) -> str:
@@ -28,7 +32,7 @@ class FileManagementMutationFactory:
         snapshots: list[ComponentSnapshot] = []
         pairs: list[MutationPair] = []
         for ordinal in range(1, total_pairs + 1):
-            kind = MUTATION_KINDS[(ordinal - 1) % len(MUTATION_KINDS)]
+            kind = FILE_MANIFEST_MUTATION_KINDS[(ordinal - 1) % len(FILE_MANIFEST_MUTATION_KINDS)]
             cleanup = ordinal % 2 == 0
             manifest = self._mutate(baseline_snapshot.manifest, kind, ordinal, cleanup)
             version = Version(product_id=product_id, label=f"mutation-{kind}-{ordinal:02d}", source_ref=f"mutation:{kind}:{ordinal}")

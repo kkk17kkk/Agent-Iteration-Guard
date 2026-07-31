@@ -6,12 +6,13 @@ from threading import Thread
 
 import pytest
 
-from agentguard.domain import AgentAction, AgentObservation, ExecutionResult, Stage2AgentRun, Stage2Operation
+from agentguard.domain import AgentAction, AgentObservation, ExecutionResult, Stage2AgentRun, Stage2ModelCall, Stage2Operation
 from agentguard.llm import Completion
 from agentguard.service import Service
 from agentguard.stage1 import Stage1AcceptanceGate
 from agentguard.stage2 import JsonActionModel, Stage2InjectedCrash
 from agentguard.api import app
+from agentguard.cli import main
 from fastapi.testclient import TestClient
 
 
@@ -110,7 +111,7 @@ def test_stage2_gate_passes_only_after_acceptance_matrix(tmp_path):
     assert gate.status == "BLOCKED"
     assert gate.deterministic_harness_status == "PASS"
     assert gate.real_llm_integration_status == "missing"
-    assert all(item.status == "verified" for item in gate.criteria if item.criterion != "real_llm_agent_integration")
+    assert all(item.status == "verified" for item in gate.criteria if not item.criterion.startswith("real_llm_"))
     real_criterion = next(item for item in gate.criteria if item.criterion == "real_llm_agent_integration")
     assert real_criterion.status == "missing"
     assert (tmp_path / "artifacts" / "reports" / "stage2_acceptance_report.json").is_file()
@@ -161,7 +162,7 @@ def test_external_json_model_uses_the_same_typed_action_protocol():
         tool_manifest={"read_file": {"required": ["path"]}},
     )
     observation = AgentObservation(agent_run_id=run.agent_run_id, step=0, state_fingerprint="state", files={"README.md": "# Original\n"})
-    action = JsonActionModel(StubAssistant()).propose(run, observation)
+    action = JsonActionModel(StubAssistant()).propose(run, observation).action
     assert isinstance(action, AgentAction)
     assert action.kind == "read_file"
     assert action.expected_observation_fingerprint == "state"
@@ -186,10 +187,31 @@ def test_external_agent_cannot_supply_oracle_label():
         JsonActionModel(LabelingAssistant()).propose(run, observation)
 
 
+def test_invalid_external_action_is_persisted_as_model_failure_not_agent_regression(tmp_path):
+    class InvalidAssistant:
+        provider = "external"
+
+        def complete_json(self, system_prompt, input_payload):
+            return Completion(provider_request_id="invalid-1", model="invalid", content='{"kind":"finish","failure":true}')
+
+    service = Service(str(tmp_path / "stage2.db"))
+    allow_stage2(service)
+    run = service.start_stage2_file_agent(
+        "stage1-pass", task_kind="read_only", model_kind="json", action_model=JsonActionModel(InvalidAssistant())
+    )
+    calls = [item for item in service.store.list("stage2_model_call", Stage2ModelCall, run.product_id) if item.agent_run_id == run.agent_run_id]
+
+    assert run.status == "failed"
+    assert run.terminal_reason == "model_invalid_response"
+    assert len(calls) == 1
+    assert calls[0].outcome == "invalid_response"
+    assert calls[0].provider_request_id == "invalid-1"
+
+
 def test_registered_json_model_can_drive_a_real_tool_run(tmp_path):
     class ScriptedAssistant:
         def complete_json(self, system_prompt, input_payload):
-            if input_payload["task"].get("last_kind") == "read_file":
+            if input_payload["observation"].get("last_action_kind") == "read_file":
                 content = '{"kind":"finish"}'
             else:
                 content = '{"kind":"read_file","path":"README.md"}'
@@ -215,13 +237,16 @@ def test_http_api_drives_real_external_agent_process_into_harness(tmp_path, monk
             length = int(self.headers["Content-Length"])
             payload = json.loads(self.rfile.read(length))
             AgentHandler.calls += 1
-            task = payload["task"]
-            planned = task.get("planned_kinds", [])
-            if not planned:
+            observation = payload["observation"]
+            previous = observation.get("last_action_kind")
+            if previous is None:
                 action = {"kind": "read_file", "path": "README.md"}
-            elif planned[-1] == "read_file" and len(planned) == 1:
-                action = {"kind": "write_file", "path": "README.md", "content": "# XXX\nManaged by the fixture.\n"}
-            elif planned[-1] == "write_file":
+            elif previous == "read_file":
+                if observation["files"].get("README.md") == "# XXX\nManaged by the fixture.\n":
+                    action = {"kind": "finish"}
+                else:
+                    action = {"kind": "write_file", "path": "README.md", "content": "# XXX\nManaged by the fixture.\n"}
+            elif previous == "write_file":
                 action = {"kind": "read_file", "path": "README.md"}
             else:
                 action = {"kind": "finish"}
@@ -257,3 +282,129 @@ def test_http_api_drives_real_external_agent_process_into_harness(tmp_path, monk
     finally:
         server.shutdown()
         server.server_close()
+
+
+def test_ensure_title_pair_is_observation_driven_and_oracle_checked(tmp_path):
+    service = Service(str(tmp_path / "stage2.db"))
+    allow_stage2(service)
+    needs_update = service.start_stage2_file_agent(
+        "stage1-pass", task_kind="ensure_title", fixture_variant="needs_update"
+    )
+    already_satisfied = service.start_stage2_file_agent(
+        "stage1-pass", task_kind="ensure_title", fixture_variant="already_satisfied"
+    )
+    needs_report = service.report_stage2_file_agent(needs_update.agent_run_id, tmp_path / "artifacts")
+    satisfied_report = service.report_stage2_file_agent(already_satisfied.agent_run_id, tmp_path / "artifacts")
+
+    assert needs_update.status == "finished"
+    assert already_satisfied.status == "finished"
+    assert needs_report["action_kinds"] == ["read_file", "write_file", "read_file", "finish"]
+    assert satisfied_report["action_kinds"] == ["read_file", "finish"]
+    assert needs_report["observation_fingerprints"][1] != satisfied_report["observation_fingerprints"][1]
+    assert needs_report["model_calls"]
+
+
+def test_native_tool_runtime_batch_persists_usage_trace_and_budget_gate(tmp_path, monkeypatch):
+    responses = iter([
+        ("read_file", {"path": "README.md"}),
+        ("write_file", {"path": "README.md", "content": "# XXX\nManaged by the fixture.\n"}),
+        ("read_file", {"path": "README.md"}),
+        ("finish_task", {}),
+        ("read_file", {"path": "temporary.txt"}),
+        ("delete_file", {"path": "temporary.txt"}),
+    ])
+
+    class Response:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def read(self):
+            return json.dumps(self.payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def fake_urlopen(request, timeout):
+        name, arguments = next(responses)
+        return Response({
+            "id": f"provider-{name}",
+            "choices": [{"finish_reason": "tool_calls", "message": {"tool_calls": [{
+                "id": f"tool-{name}", "type": "function", "function": {"name": name, "arguments": json.dumps(arguments)},
+            }]}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        })
+
+    monkeypatch.setattr("agentguard.stage2.urlopen", fake_urlopen)
+    service = Service(str(tmp_path / "stage2.db"))
+    allow_stage2(service)
+    batch, runs, gate = service.run_stage2_native_runtime_batch("stage1-pass", budget_limit_usd=0.01, max_steps_per_run=6)
+
+    assert [run.status for run in runs] == ["finished", "blocked"]
+    assert gate.status == "PASS"
+    assert gate.observed_cost_usd > 0
+    assert len(gate.provider_usage_ids) == 6
+    assert len(gate.native_trace_call_ids) == 6
+    assert service.stage2.gate_runtime_batch(batch.runtime_batch_id).status == "PASS"
+    report = service.stage2.report_runtime_batch(batch.runtime_batch_id, tmp_path / "artifacts")
+    assert report["budget_gate"]["status"] == "PASS"
+    assert (tmp_path / "artifacts" / "runtime_batches" / batch.runtime_batch_id / "runtime_batch_report.json").is_file()
+
+
+def test_native_tool_runtime_refuses_request_before_batch_budget_is_exceeded(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setattr("agentguard.stage2.urlopen", lambda *args, **kwargs: pytest.fail("budget gate must run before provider request"))
+    service = Service(str(tmp_path / "stage2.db"))
+    allow_stage2(service)
+    batch, runs, gate = service.run_stage2_native_runtime_batch("stage1-pass", budget_limit_usd=1e-8, max_steps_per_run=6)
+
+    assert all(run.status == "budget_exhausted" for run in runs)
+    assert gate.status == "BLOCKED"
+    assert gate.observed_cost_usd == 0
+    assert service.stage2.gate_runtime_batch(batch.runtime_batch_id).status == "BLOCKED"
+
+
+def test_retry_idempotency_runtime_corpus_replays_and_ablates_actual_side_effects(tmp_path):
+    service = Service(str(tmp_path / "stage2.db"))
+    allow_stage2(service)
+
+    corpus, gate = service.run_stage2_retry_idempotency_corpus("stage1-pass")
+    report = service.stage2.report_retry_idempotency_corpus(corpus.corpus_id, tmp_path / "artifacts")
+
+    assert corpus.mutation_kind == "retry_idempotency"
+    assert corpus.trial_count == 3
+    assert gate.status == "PASS_WITH_LIMITATIONS"
+    assert all(item["verified"] for item in gate.criteria)
+    trials = report["trials"]
+    stable = [item for item in trials if item["retry_mode"] == "stable_operation_id"]
+    mutant = [item for item in trials if item["retry_mode"] == "regenerate_operation_id"]
+    assert len(stable) == len(mutant) == 3
+    assert all(item["duplicate_side_effect_count"] == 0 and item["release_status"] == "ready" for item in stable)
+    assert all(item["duplicate_side_effect_count"] == 1 and item["release_status"] == "blocked" for item in mutant)
+    assert report["replay"]["trace_matches"] is True
+    assert report["replay"]["duplicate_side_effect_count"] == 1
+    assert report["ablation"]["trace_matches"] is True
+    assert report["ablation"]["duplicate_side_effect_count"] == 0
+    assert (tmp_path / "artifacts" / "reliability_corpora" / corpus.corpus_id / "retry_idempotency_report.json").is_file()
+
+
+def test_retry_idempotency_corpus_cli_has_json_success_and_visible_invalid_trial_failure(tmp_path, capsys):
+    db = str(tmp_path / "stage2-cli.db")
+    allow_stage2(Service(db))
+
+    assert main([
+        "--db", db, "--format", "json", "stage2", "reliability-corpus",
+        "--batch-id", "stage1-pass", "--model", "deterministic", "--trials", "3",
+        "--artifacts-root", str(tmp_path / "artifacts"),
+    ]) == 0
+    success = json.loads(capsys.readouterr().out)
+    assert success["data"]["gate"]["status"] == "PASS_WITH_LIMITATIONS"
+
+    assert main([
+        "--db", db, "--format", "json", "stage2", "reliability-corpus",
+        "--batch-id", "stage1-pass", "--model", "deterministic", "--trials", "2",
+    ]) == 3
+    failure = json.loads(capsys.readouterr().out)
+    assert "at least three trials" in failure["error"]["reason"]

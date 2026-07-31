@@ -118,5 +118,7 @@ def policy_fingerprint(policy: ToolPolicy) -> str:
         "allowed_read_paths": policy.allowed_read_paths,
         "allowed_write_paths": policy.allowed_write_paths,
         "allow_delete": policy.allow_delete,
+        "allowed_actions": policy.allowed_actions,
+        "constraints": policy.constraints,
         "sandbox_kind": policy.sandbox_kind,
     })

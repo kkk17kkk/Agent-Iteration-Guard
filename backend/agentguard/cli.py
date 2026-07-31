@@ -5,6 +5,14 @@ from pathlib import Path
 
 from .llm import LLMProviderError
 from .service import AssistantInputError, ProductNotFoundError, Service
+from .evolution import EvolutionIntakeError
+from .domain import (
+    HistoricalReplayEvidence,
+    NativeHarnessContract,
+    RuntimeEnvironmentContract,
+    RuntimeEnvironmentPreflight,
+    TaskVerifierContract,
+)
 from .stage1 import Stage1HarnessBatch, assert_stage2_launch_allowed
 from .stage1_acceptance import run_stage1_fault_injection_matrix, run_stage1_replay_ablation_corpus
 from .stage1_reporting import (
@@ -32,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     get.add_argument("product_id")
 
     fixture = commands.add_parser("fixture").add_subparsers(dest="subcommand", required=True)
-    fixture.add_parser("load").add_argument("name", choices=["minimal", "file-agent", "file-management-agent"])
+    fixture.add_parser("load").add_argument("name", choices=["minimal", "file-agent", "file-management-agent", "ticket-agent"])
 
     version = commands.add_parser("version").add_subparsers(dest="subcommand", required=True)
     import_version = version.add_parser("import")
@@ -49,8 +57,15 @@ def build_parser() -> argparse.ArgumentParser:
     start_file_management.add_argument("--product-id", required=True)
     start_file_management.add_argument("--baseline", required=True)
     start_file_management.add_argument("--candidate", required=True)
+    start_ticket = run.add_parser("start-ticket")
+    start_ticket.add_argument("--product-id", required=True)
+    start_ticket.add_argument("--baseline", required=True)
+    start_ticket.add_argument("--candidate", required=True)
+    start_ticket.add_argument("--case", required=True)
     resume = run.add_parser("resume")
     resume.add_argument("--run-id", required=True)
+    resume_ticket = run.add_parser("resume-ticket")
+    resume_ticket.add_argument("--run-id", required=True)
     evaluate = run.add_parser("evaluate")
     evaluate.add_argument("--product-id", required=True)
     evaluate.add_argument("--baseline", required=True)
@@ -68,6 +83,10 @@ def build_parser() -> argparse.ArgumentParser:
     ablate = run.add_parser("ablate-cleanup")
     ablate.add_argument("--run-id", required=True)
     ablate.add_argument("--source-trial-result-id", required=True)
+    replan = run.add_parser("replan")
+    replan.add_argument("--run-id", required=True)
+    replan.add_argument("--additional-trial-budget", type=int, default=1)
+    replan.add_argument("--allow-runner-switch", action="store_true")
 
     benchmark = commands.add_parser("benchmark").add_subparsers(dest="subcommand", required=True)
     create_batch = benchmark.add_parser("create-file-management")
@@ -96,14 +115,27 @@ def build_parser() -> argparse.ArgumentParser:
     stage2 = commands.add_parser("stage2").add_subparsers(dest="subcommand", required=True)
     stage2_start = stage2.add_parser("start")
     stage2_start.add_argument("--batch-id", required=True)
-    stage2_start.add_argument("--task", choices=["update_title", "read_only", "append_note", "cleanup", "cleanup_allowed", "missing_file", "nearby_file", "prompt_injection"], default="update_title")
+    stage2_start.add_argument("--task", choices=["update_title", "ensure_title", "read_only", "append_note", "cleanup", "cleanup_allowed", "missing_file", "nearby_file", "prompt_injection"], default="update_title")
+    stage2_start.add_argument("--fixture-variant", choices=["default", "needs_update", "already_satisfied"], default="default")
     stage2_start.add_argument("--model", choices=["deterministic", "fake", "http_json", "real_llm"], default="deterministic")
     stage2_start.add_argument("--max-steps", type=int, default=8)
     stage2_run = stage2.add_parser("run")
     stage2_run.add_argument("--batch-id", required=True)
-    stage2_run.add_argument("--task", choices=["update_title", "read_only", "append_note", "cleanup", "cleanup_allowed", "missing_file", "nearby_file", "prompt_injection"], default="update_title")
+    stage2_run.add_argument("--task", choices=["update_title", "ensure_title", "read_only", "append_note", "cleanup", "cleanup_allowed", "missing_file", "nearby_file", "prompt_injection"], default="update_title")
+    stage2_run.add_argument("--fixture-variant", choices=["default", "needs_update", "already_satisfied"], default="default")
     stage2_run.add_argument("--model", choices=["deterministic", "fake", "http_json", "real_llm"], default="deterministic")
     stage2_run.add_argument("--max-steps", type=int, default=8)
+    stage2_runtime = stage2.add_parser("runtime-batch")
+    stage2_runtime.add_argument("--batch-id", required=True)
+    stage2_runtime.add_argument("--budget-usd", type=float, default=0.02)
+    stage2_runtime.add_argument("--max-steps", type=int, default=6)
+    stage2_runtime.add_argument("--artifacts-root", default="artifacts/stage_2_runtime")
+    stage2_reliability = stage2.add_parser("reliability-corpus")
+    stage2_reliability.add_argument("--batch-id", required=True)
+    stage2_reliability.add_argument("--model", choices=["deterministic", "deepseek_tools"], default="deterministic")
+    stage2_reliability.add_argument("--trials", type=int, default=3)
+    stage2_reliability.add_argument("--budget-usd", type=float, default=0.02)
+    stage2_reliability.add_argument("--artifacts-root", default="artifacts/stage_2_reliability")
     stage2_resume = stage2.add_parser("resume")
     stage2_resume.add_argument("--run-id", required=True)
     stage2_report = stage2.add_parser("report")
@@ -124,6 +156,29 @@ def build_parser() -> argparse.ArgumentParser:
     report = commands.add_parser("report").add_subparsers(dest="subcommand", required=True)
     prepare = report.add_parser("prepare")
     prepare.add_argument("--product-id", required=True)
+
+    evolution = commands.add_parser("evolution").add_subparsers(dest="subcommand", required=True)
+    intake = evolution.add_parser("intake")
+    intake.add_argument("--project-id", required=True)
+    intake.add_argument("--source", required=True)
+    intake.add_argument("--baseline", required=True)
+    intake.add_argument("--candidate", required=True)
+    intake.add_argument("--repository-url")
+    intake.add_argument("--entrypoint")
+    stale = evolution.add_parser("propagate-stale")
+    stale.add_argument("--project-id", required=True)
+    stale.add_argument("--changeset-id", required=True)
+    evolution_report = evolution.add_parser("report")
+    evolution_report.add_argument("--project-id", required=True)
+    evolution_report.add_argument("--report-id", required=True)
+    register = evolution.add_parser("register")
+    register.add_argument("--project-id", required=True)
+    register.add_argument("--case-id", required=True)
+    register.add_argument("--kind", required=True, choices=["native-harness", "environment", "task-verifier", "preflight", "replay-evidence"])
+    register.add_argument("--input", required=True, help="Path to a JSON contract/evidence payload; secrets are not accepted.")
+    assess = evolution.add_parser("assess")
+    assess.add_argument("--project-id", required=True)
+    assess.add_argument("--case-id", required=True)
     return parser
 
 
@@ -176,6 +231,8 @@ def main(argv: list[str] | None = None) -> int:
                 output = {"fixture": service.file_agent_fixture().as_dict()}
             elif args.name == "file-management-agent":
                 output = {"fixture": service.file_management_fixture().as_dict()}
+            elif args.name == "ticket-agent":
+                output = {"fixture": service.ticket_agent_fixture().as_dict()}
             else:
                 output = {"product": service.fixture().model_dump()}
         elif args.command == "version":
@@ -185,6 +242,8 @@ def main(argv: list[str] | None = None) -> int:
             output = service.run_file_agent(args.product_id, args.baseline, args.candidate).as_dict()
         elif args.command == "run" and args.subcommand == "start-file-management":
             output = service.start_file_management_run(args.product_id, args.baseline, args.candidate).as_dict()
+        elif args.command == "run" and args.subcommand == "start-ticket":
+            output = service.start_ticket_agent_run(args.product_id, args.baseline, args.candidate, args.case).as_dict()
         elif args.command == "run" and args.subcommand == "evaluate":
             output = service.evaluate_file_management_trials(
                 args.product_id,
@@ -204,6 +263,14 @@ def main(argv: list[str] | None = None) -> int:
             output = service.replay_file_management_trial(args.run_id, args.source_trial_result_id).as_dict()
         elif args.command == "run" and args.subcommand == "ablate-cleanup":
             output = service.ablate_file_management_cleanup(args.run_id, args.source_trial_result_id).as_dict()
+        elif args.command == "run" and args.subcommand == "replan":
+            output = service.controlled_replan_file_management(
+                args.run_id,
+                additional_trial_budget=args.additional_trial_budget,
+                allow_runner_switch=args.allow_runner_switch,
+            ).as_dict()
+        elif args.command == "run" and args.subcommand == "resume-ticket":
+            output = service.resume_ticket_agent_run(args.run_id).as_dict()
         elif args.command == "run":
             output = service.resume_file_management_run(args.run_id).as_dict()
         elif args.command == "benchmark" and args.subcommand == "create-file-management":
@@ -243,17 +310,29 @@ def main(argv: list[str] | None = None) -> int:
                 if not endpoint:
                     raise ValueError("AGENTGUARD_STAGE2_MODEL_URL is required for http_json")
                 action_model = HttpJsonActionModel(endpoint)
-            if args.model == "real_llm" and not os.getenv("DEEPSEEK_API_KEY"):
-                raise ValueError("DEEPSEEK_API_KEY is required for real_llm")
             output = service.start_stage2_file_agent(
                 args.batch_id,
                 task_kind=args.task,
+                fixture_variant=args.fixture_variant,
                 model_kind=args.model,
                 action_model=action_model,
                 max_steps=args.max_steps,
             ).model_dump()
         elif args.command == "stage2" and args.subcommand == "resume":
             output = service.resume_stage2_file_agent(args.run_id).model_dump()
+        elif args.command == "stage2" and args.subcommand == "runtime-batch":
+            batch, runs, gate = service.run_stage2_native_runtime_batch(
+                args.batch_id, budget_limit_usd=args.budget_usd, max_steps_per_run=args.max_steps
+            )
+            output = service.stage2.report_runtime_batch(batch.runtime_batch_id, Path(args.artifacts_root))
+        elif args.command == "stage2" and args.subcommand == "reliability-corpus":
+            corpus, gate = service.run_stage2_retry_idempotency_corpus(
+                args.batch_id,
+                model_kind=args.model,
+                trial_count=args.trials,
+                budget_limit_usd=args.budget_usd,
+            )
+            output = service.stage2.report_retry_idempotency_corpus(corpus.corpus_id, Path(args.artifacts_root))
         elif args.command == "stage2" and args.subcommand == "report":
             output = service.report_stage2_file_agent(args.run_id, Path(args.artifacts_root))
         elif args.command == "stage2" and args.subcommand == "gate":
@@ -268,6 +347,36 @@ def main(argv: list[str] | None = None) -> int:
                     args.product_id, args.requirement_id, args.changeset_id
                 ).model_dump()
             }
+        elif args.command == "evolution" and args.subcommand == "intake":
+            output = service.intake_agent_evolution(
+                args.project_id,
+                Path(args.source),
+                args.baseline,
+                args.candidate,
+                repository_url=args.repository_url,
+                declared_entrypoint=args.entrypoint,
+            ).as_dict()
+        elif args.command == "evolution" and args.subcommand == "propagate-stale":
+            output = service.propagate_evolution_stale(args.project_id, args.changeset_id).model_dump()
+        elif args.command == "evolution" and args.subcommand == "register":
+            payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("evolution register input must be a JSON object")
+            payload.update({"project_id": args.project_id, "evolution_case_id": args.case_id})
+            if args.kind == "native-harness":
+                output = service.record_native_harness_contract(args.project_id, NativeHarnessContract.model_validate(payload)).model_dump()
+            elif args.kind == "environment":
+                output = service.record_runtime_environment_contract(args.project_id, RuntimeEnvironmentContract.model_validate(payload)).model_dump()
+            elif args.kind == "task-verifier":
+                output = service.record_task_verifier_contract(args.project_id, TaskVerifierContract.model_validate(payload)).model_dump()
+            elif args.kind == "preflight":
+                output = service.record_runtime_preflight(args.project_id, RuntimeEnvironmentPreflight.model_validate(payload)).model_dump()
+            else:
+                output = service.record_historical_replay_evidence(args.project_id, HistoricalReplayEvidence.model_validate(payload)).model_dump()
+        elif args.command == "evolution" and args.subcommand == "assess":
+            output = service.assess_evolution_admission(args.project_id, args.case_id).as_dict()
+        elif args.command == "evolution":
+            output = service.evolution_report(args.project_id, args.report_id).model_dump()
         else:
             output = serialize_prepared_run(service, args.product_id)
     except ProductNotFoundError:
@@ -281,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(output) if args.format == "json" else output)
         return 2
-    except (AssistantInputError, LLMProviderError, ValueError, Stage2InjectedCrash) as error:
+    except (AssistantInputError, EvolutionIntakeError, LLMProviderError, ValueError, Stage2InjectedCrash) as error:
         output = {"ok": False, "error": {"stage": "llm_assistant", "reason": str(error)}}
         print(json.dumps(output, ensure_ascii=False) if args.format == "json" else output)
         return 3

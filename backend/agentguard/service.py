@@ -19,6 +19,7 @@ from .domain import (
     FailureTicket,
     FailureExplanation,
     FileAgentManifest,
+    TicketAgentManifest,
     Finding,
     Handoff,
     HarnessRun,
@@ -44,6 +45,19 @@ from .domain import (
     ProviderUsage,
     RunnerFailure,
     RunnerTrace,
+    ReplanBudget,
+    ReplanRecord,
+    EnvironmentCapture,
+    IntakeReviewReport,
+    MemoryDependency,
+    MemoryEntry,
+    ProductContractRevision,
+    ProviderBinding,
+    NativeHarnessContract,
+    RuntimeEnvironmentContract,
+    RuntimeEnvironmentPreflight,
+    HistoricalReplayEvidence,
+    TaskVerifierContract,
     ToolPolicy,
     VerificationResult,
     Version,
@@ -59,11 +73,14 @@ from .llm import (
     JsonAssistant,
 )
 from .store import Store
-from .resilient import CrashPoint, ResilientFileHarness
+from .resilient import CrashPoint, FileRuntimeAdapter, ResilientHarness
+from .ticket import TICKET_CASE_IDS, TicketRuntimeAdapter
 from .trials import ENVIRONMENT_FINGERPRINT, FileTrialEvaluator, policy_fingerprint
 from .routing import build_file_management_plan
 from .mutations import FileManagementMutationFactory
 from .inspect_runner import ExternalRunnerError, InspectFileManagementRunner
+from .replan import ControlledReplanEngine
+from .evolution import EvaluationAdmissionResult, EvolutionIntakeError, EvolutionIntakeResult, EvolutionService
 from .stage1 import (
     Stage1HarnessArtifact,
     Stage1HarnessBatch,
@@ -80,7 +97,7 @@ from .stage1 import (
     write_stage1_harness_report,
 )
 from .stage1_reporting import write_stage1_run_artifacts
-from .stage2 import ActionModel, HttpJsonActionModel, RealLLMActionModel, Stage2AgentRun, Stage2Engine, Stage2InjectedCrash
+from .stage2 import ActionModel, DeepSeekToolAgentRuntime, HttpJsonActionModel, RealLLMActionModel, Stage2AgentRun, Stage2Engine, Stage2InjectedCrash
 
 
 class ProductNotFoundError(KeyError):
@@ -244,6 +261,31 @@ class P3RunResult:
         }
 
 
+class ControlledReplanResult:
+    def __init__(
+        self,
+        run: HarnessRun,
+        record: ReplanRecord,
+        work_items: list[WorkItem],
+        trial_results: list[TrialResult],
+        environment_capture: EnvironmentCapture | None,
+    ) -> None:
+        self.run = run
+        self.record = record
+        self.work_items = work_items
+        self.trial_results = trial_results
+        self.environment_capture = environment_capture
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "harness_run": self.run.model_dump(),
+            "replan": self.record.model_dump(),
+            "work_items": [item.model_dump() for item in self.work_items],
+            "trial_results": [item.model_dump() for item in self.trial_results],
+            "environment_capture": self.environment_capture.model_dump() if self.environment_capture else None,
+        }
+
+
 class BatchRunResult:
     def __init__(self, service: "Service", batch: BatchRun) -> None:
         self.batch = batch
@@ -274,9 +316,12 @@ class Service:
         self.store = Store(db)
         self.harness = HarnessCoordinator()
         self.p0_harness = P0HarnessCoordinator()
-        self.p2_harness = ResilientFileHarness(self.store)
+        self.p2_harness = ResilientHarness(self.store, FileRuntimeAdapter(self.store))
+        self.ticket_harness = ResilientHarness(self.store, TicketRuntimeAdapter(self.store))
         self.trial_evaluator = FileTrialEvaluator(self.store)
+        self.replan_engine = ControlledReplanEngine()
         self.stage2 = Stage2Engine(self.store)
+        self.evolution = EvolutionService(self.store)
 
     def create(self, name: str, description: str = "") -> tuple[Product, Version]:
         product = Product(name=name, description=description)
@@ -293,6 +338,89 @@ class Service:
 
     def product(self, product_id: str) -> Product | None:
         return self.store.get("product", product_id, Product)
+
+    def intake_agent_evolution(
+        self,
+        project_id: str,
+        source: Path,
+        baseline_ref: str,
+        candidate_ref: str,
+        *,
+        repository_url: str | None = None,
+        declared_entrypoint: str | None = None,
+    ) -> EvolutionIntakeResult:
+        if not self.product(project_id):
+            raise ProductNotFoundError(project_id)
+        return self.evolution.intake(
+            project_id=project_id,
+            source_path=source,
+            baseline_ref=baseline_ref,
+            candidate_ref=candidate_ref,
+            repository_url=repository_url,
+            declared_entrypoint=declared_entrypoint,
+        )
+
+    def evolution_report(self, project_id: str, report_id: str) -> IntakeReviewReport:
+        report = self.store.get("intake_review_report", report_id, IntakeReviewReport)
+        if not report or report.project_id != project_id:
+            raise AssistantInputError("Intake review report not found in this project.")
+        return report
+
+    def record_product_contract_revision(self, project_id: str, contract: ProductContractRevision) -> ProductContractRevision:
+        if not self.product(project_id) or contract.project_id != project_id:
+            raise ProductNotFoundError(project_id)
+        return self.evolution.record_product_contract(contract)
+
+    def record_memory_entry(self, project_id: str, memory: MemoryEntry) -> MemoryEntry:
+        if not self.product(project_id) or memory.project_id != project_id:
+            raise ProductNotFoundError(project_id)
+        return self.evolution.record_memory(memory)
+
+    def record_memory_dependency(self, project_id: str, dependency: MemoryDependency) -> MemoryDependency:
+        if not self.product(project_id) or dependency.project_id != project_id:
+            raise ProductNotFoundError(project_id)
+        return self.evolution.record_dependency(dependency)
+
+    def record_provider_binding(self, project_id: str, binding: ProviderBinding) -> ProviderBinding:
+        if not self.product(project_id) or binding.project_id != project_id:
+            raise ProductNotFoundError(project_id)
+        self.store.save("provider_binding", binding.provider_binding_id, project_id, binding)
+        return binding
+
+    def record_native_harness_contract(self, project_id: str, contract: NativeHarnessContract) -> NativeHarnessContract:
+        if not self.product(project_id) or contract.project_id != project_id:
+            raise ProductNotFoundError(project_id)
+        return self.evolution.record_native_harness_contract(contract)
+
+    def record_runtime_environment_contract(self, project_id: str, contract: RuntimeEnvironmentContract) -> RuntimeEnvironmentContract:
+        if not self.product(project_id) or contract.project_id != project_id:
+            raise ProductNotFoundError(project_id)
+        return self.evolution.record_runtime_environment_contract(contract)
+
+    def record_task_verifier_contract(self, project_id: str, contract: TaskVerifierContract) -> TaskVerifierContract:
+        if not self.product(project_id) or contract.project_id != project_id:
+            raise ProductNotFoundError(project_id)
+        return self.evolution.record_task_verifier_contract(contract)
+
+    def record_runtime_preflight(self, project_id: str, preflight: RuntimeEnvironmentPreflight) -> RuntimeEnvironmentPreflight:
+        if not self.product(project_id) or preflight.project_id != project_id:
+            raise ProductNotFoundError(project_id)
+        return self.evolution.record_runtime_preflight(preflight)
+
+    def record_historical_replay_evidence(self, project_id: str, evidence: HistoricalReplayEvidence) -> HistoricalReplayEvidence:
+        if not self.product(project_id) or evidence.project_id != project_id:
+            raise ProductNotFoundError(project_id)
+        return self.evolution.record_historical_replay_evidence(evidence)
+
+    def assess_evolution_admission(self, project_id: str, evolution_case_id: str) -> EvaluationAdmissionResult:
+        if not self.product(project_id):
+            raise ProductNotFoundError(project_id)
+        return self.evolution.assess_evaluation_admission(project_id, evolution_case_id)
+
+    def propagate_evolution_stale(self, project_id: str, evolution_changeset_id: str):
+        if not self.product(project_id):
+            raise ProductNotFoundError(project_id)
+        return self.evolution.propagate_stale(project_id, evolution_changeset_id)
 
     def fixture(self) -> Product:
         product, _ = self.create("Iteration Guard Demo", "Fixed Phase 1 fixture")
@@ -369,6 +497,67 @@ class Service:
         candidate = self.import_version(product.product_id, fixture_root / "v2", "v2")
         return FileAgentFixture(self.product(product.product_id), baseline, candidate)
 
+    def ticket_agent_fixture(self, faults: list[str] | None = None) -> FileAgentFixture:
+        """Create a Ticket lifecycle fixture without reusing file-agent semantics."""
+        product, _ = self.create("Ticket Agent", "Controlled Ticket lifecycle and policy fixture")
+        requirement = Requirement(
+            product_id=product.product_id,
+            title="Maintain an approved, assigned and commented Ticket lifecycle",
+            risk="critical",
+        )
+        capability = Capability(
+            product_id=product.product_id,
+            name="Controlled Ticket workflow",
+            requirement_ids=[requirement.requirement_id],
+            risk="critical",
+        )
+        cases = [
+            EvalCase(
+                eval_case_id=case_id,
+                product_id=product.product_id,
+                name=case_id.replace("ticket_", "").replace("_", " "),
+                capability_ids=[capability.capability_id],
+                oracle_kind="ticket_policy",
+            )
+            for case_id in TICKET_CASE_IDS
+        ]
+        baseline = Version(product_id=product.product_id, label="ticket-v1", source_ref="fixture:ticket:v1")
+        candidate = Version(product_id=product.product_id, label="ticket-v2", source_ref="fixture:ticket:v2")
+        baseline_manifest = TicketAgentManifest(
+            agent_name="ticket-agent", skill="ticket-lifecycle-v1",
+            tool_capabilities=["create_ticket", "add_comment", "assign_ticket", "start_ticket", "approve_ticket", "close_ticket"],
+        )
+        candidate_manifest = baseline_manifest.model_copy(update={
+            "skill": "ticket-lifecycle-v2",
+            "faults": faults if faults is not None else [
+                "duplicate_create", "illegal_close", "unauthorized_assign", "missing_comment",
+                "wrong_owner", "missing_transition", "retry_duplicate_comment", "skip_approval",
+            ],
+        })
+
+        def snapshot(version: Version, manifest: TicketAgentManifest) -> ComponentSnapshot:
+            fingerprint = hashlib.sha256(json.dumps(manifest.model_dump(), sort_keys=True).encode()).hexdigest()
+            return ComponentSnapshot(
+                product_id=product.product_id, version_id=version.version_id,
+                component_type="ticket_agent_manifest", name="ticket_agent_manifest.json",
+                fingerprint=fingerprint, source_ref=version.source_ref, manifest=manifest,
+            )
+
+        baseline_snapshot = snapshot(baseline, baseline_manifest)
+        candidate_snapshot = snapshot(candidate, candidate_manifest)
+        updated_product = product.model_copy(update={"current_version_id": candidate.version_id})
+        self.store.save_many([
+            ("product", updated_product.product_id, updated_product.product_id, updated_product),
+            ("version", baseline.version_id, product.product_id, baseline),
+            ("version", candidate.version_id, product.product_id, candidate),
+            ("snapshot", baseline_snapshot.snapshot_id, product.product_id, baseline_snapshot),
+            ("snapshot", candidate_snapshot.snapshot_id, product.product_id, candidate_snapshot),
+            ("requirement", requirement.requirement_id, product.product_id, requirement),
+            ("capability", capability.capability_id, product.product_id, capability),
+            *[("eval_case", case.eval_case_id, product.product_id, case) for case in cases],
+        ])
+        return FileAgentFixture(updated_product, baseline, candidate)
+
     def start_stage2_file_agent(
         self,
         stage1_batch_id: str,
@@ -377,6 +566,7 @@ class Service:
         baseline_version_id: str | None = None,
         candidate_version_id: str | None = None,
         task_kind: str = "update_title",
+        fixture_variant: str = "default",
         model_kind: str = "deterministic",
         action_model: ActionModel | None = None,
         max_steps: int = 8,
@@ -400,6 +590,7 @@ class Service:
             baseline_version_id=baseline_version_id,
             candidate_version_id=candidate_version_id,
             task_kind=task_kind,
+            fixture_variant=fixture_variant,
             model_kind=model_kind,
             max_steps=max_steps,
         )
@@ -421,6 +612,73 @@ class Service:
 
     def gate_stage2_file_agent(self, stage1_batch_id: str, artifacts_root: Path | None = None):
         return self.stage2.gate(stage1_batch_id, artifacts_root or Path("artifacts/stage_2"))
+
+    def run_stage2_native_runtime_batch(self, stage1_batch_id: str, *, budget_limit_usd: float = 0.02, max_steps_per_run: int = 6):
+        """Execute the smallest real provider-native tool-calling acceptance batch."""
+        fixture = self.file_management_fixture()
+        runtime = DeepSeekToolAgentRuntime(self.store)
+        self.stage2.register_model("deepseek_tools", runtime)
+        batch = self.stage2.create_runtime_batch(
+            stage1_batch_id=stage1_batch_id,
+            product_id=fixture.product.product_id,
+            budget_limit_usd=budget_limit_usd,
+            max_steps_per_run=max_steps_per_run,
+        )
+        runs = []
+        for task_kind in ("runtime_title_update", "cleanup"):
+            run = self.stage2.create_run(
+                stage1_batch_id=stage1_batch_id,
+                product_id=fixture.product.product_id,
+                baseline_version_id=fixture.baseline.version_id,
+                candidate_version_id=fixture.candidate.version_id,
+                task_kind=task_kind,
+                model_kind="deepseek_tools",
+                runtime_batch_id=batch.runtime_batch_id,
+                max_steps=max_steps_per_run,
+            )
+            self.stage2.attach_runtime_run(batch.runtime_batch_id, run)
+            runs.append(self.stage2.resume(run.agent_run_id))
+        gate = self.stage2.gate_runtime_batch(batch.runtime_batch_id)
+        persisted = self.store.get("stage2_runtime_batch", batch.runtime_batch_id, type(batch))
+        return persisted or batch, runs, gate
+
+    def run_stage2_retry_idempotency_corpus(
+        self,
+        stage1_batch_id: str,
+        *,
+        model_kind: str = "deterministic",
+        trial_count: int = 3,
+        budget_limit_usd: float = 0.02,
+    ):
+        """Exercise retry identity against a persistent Stage 2 sandbox.
+
+        Deterministic runs are intentionally labelled as offline runtime evidence.
+        The native provider mode has a separately persisted batch budget and usage ledger.
+        """
+        fixture = self.file_management_fixture()
+        runtime_batch_id = None
+        if model_kind == "deepseek_tools":
+            runtime = DeepSeekToolAgentRuntime(self.store)
+            self.stage2.register_model("deepseek_tools", runtime)
+            batch = self.stage2.create_runtime_batch(
+                stage1_batch_id=stage1_batch_id,
+                product_id=fixture.product.product_id,
+                budget_limit_usd=budget_limit_usd,
+                max_steps_per_run=8,
+            )
+            runtime_batch_id = batch.runtime_batch_id
+        elif model_kind != "deterministic":
+            raise AssistantInputError("retry/idempotency corpus supports deterministic or deepseek_tools model generation")
+        corpus, gate = self.stage2.run_retry_idempotency_corpus(
+            stage1_batch_id=stage1_batch_id,
+            product_id=fixture.product.product_id,
+            baseline_version_id=fixture.baseline.version_id,
+            candidate_version_id=fixture.candidate.version_id,
+            model_kind=model_kind,
+            trial_count=trial_count,
+            runtime_batch_id=runtime_batch_id,
+        )
+        return corpus, gate
 
     def generate_file_management_mutation_pairs(self) -> tuple[FileAgentFixture, list[MutationPair]]:
         fixture = self.file_management_fixture()
@@ -878,6 +1136,51 @@ class Service:
             run = self.p2_harness.advance(run, crash_at)
         return P2RunResult(self, run)
 
+    def start_ticket_agent_run(
+        self,
+        product_id: str,
+        baseline_version_id: str,
+        candidate_version_id: str,
+        case_id: str,
+        crash_at: CrashPoint | None = None,
+    ) -> P2RunResult:
+        product = self.product(product_id)
+        if not product:
+            raise ProductNotFoundError(product_id)
+        if case_id not in TICKET_CASE_IDS:
+            raise AssistantInputError(f"Unknown Ticket evaluation case: {case_id}")
+        changeset = self.compare_versions(product_id, baseline_version_id, candidate_version_id)
+        run = HarnessRun(
+            product_id=product_id, version_id=candidate_version_id,
+            baseline_version_id=baseline_version_id, candidate_version_id=candidate_version_id,
+            changeset_id=changeset.changeset_id, eval_case_ids=[case_id],
+        )
+        run.thread_id = run.harness_run_id
+        policy = ToolPolicy(
+            product_id=product_id, harness_run_id=run.harness_run_id,
+            allowed_actions=["create_ticket", "add_comment", "assign_ticket", "start_ticket", "approve_ticket", "close_ticket"],
+            constraints={"allowed_assignees": ["primary-owner", "secondary-owner"]},
+            sandbox_kind="in_memory_ticket",
+        )
+        created = RunEvent(harness_run_id=run.harness_run_id, sequence=1, event_type="RUN_CREATED", artifact_ids=[changeset.changeset_id, policy.policy_id])
+        checkpoint = RunCheckpoint(harness_run_id=run.harness_run_id, next_step="plan", event_sequence=2)
+        checkpoint_event = RunEvent(harness_run_id=run.harness_run_id, sequence=2, event_type="CHECKPOINT_COMMITTED", artifact_ids=[checkpoint.checkpoint_id])
+        self.store.save_many([
+            ("harness_run", run.harness_run_id, product_id, run),
+            ("changeset", changeset.changeset_id, product_id, changeset),
+            ("tool_policy", policy.policy_id, product_id, policy),
+            ("run_event", created.event_id, product_id, created),
+            ("checkpoint", checkpoint.checkpoint_id, product_id, checkpoint),
+            ("run_event", checkpoint_event.event_id, product_id, checkpoint_event),
+        ])
+        return self.resume_ticket_agent_run(run.harness_run_id, crash_at)
+
+    def resume_ticket_agent_run(self, harness_run_id: str, crash_at: CrashPoint | None = None) -> P2RunResult:
+        run = self._run(harness_run_id)
+        while self.ticket_harness.checkpoint(run).next_step != "completed":
+            run = self.ticket_harness.advance(run, crash_at)
+        return P2RunResult(self, run)
+
     def evaluate_file_management_trials(
         self,
         product_id: str,
@@ -1192,6 +1495,157 @@ class Service:
         records.extend([("harness_run", completed.harness_run_id, run.product_id, completed), ("release_decision", decision.decision_id, run.product_id, decision)])
         self.store.save_many(records)  # type: ignore[arg-type]
         return P3RunResult(self, completed)
+
+    def controlled_replan_file_management(
+        self,
+        harness_run_id: str,
+        *,
+        additional_trial_budget: int = 1,
+        allow_runner_switch: bool = False,
+    ) -> ControlledReplanResult:
+        """Apply one persisted Stage 5 rule; this is intentionally not a planning loop."""
+        if additional_trial_budget < 0:
+            raise AssistantInputError("Additional trial budget must be non-negative.")
+        run = self._run(harness_run_id)
+        plan = self._current_replan_plan(run)
+        records = [
+            record for record in self.store.list("replan", ReplanRecord, run.product_id)
+            if record.harness_run_id == run.harness_run_id
+        ]
+        last = max(records, key=lambda record: record.created_at, default=None)
+        budget = last.budget_after if last else ReplanBudget(additional_trial_limit=additional_trial_budget)
+        handled = {artifact_id for record in records for artifact_id in record.source_artifact_ids}
+        executions = [
+            item for item in self.store.list("execution", ExecutionResult, run.product_id)
+            if item.harness_run_id == run.harness_run_id
+        ]
+        metrics = [
+            item for item in self.store.list("trial_metrics", TrialMetrics, run.product_id)
+            if item.harness_run_id == run.harness_run_id
+        ]
+        verifications = [
+            item for item in self.store.list("verification", VerificationResult, run.product_id)
+            if item.harness_run_id == run.harness_run_id
+        ]
+        failures = [
+            item for item in self.store.list("runner_failure", RunnerFailure, run.product_id)
+            if item.harness_run_id == run.harness_run_id
+        ]
+        replay_specs = [
+            item for item in self.store.list("replay_spec", ReplaySpec, run.product_id)
+            if item.harness_run_id == run.harness_run_id
+        ]
+        replay_ids = {item.replay_spec_id for item in replay_specs}
+        replays = [
+            item for item in self.store.list("replay_result", ReplayResult, run.product_id)
+            if item.replay_spec_id in replay_ids
+        ]
+        policy = self._policy_for_run(run)
+        outcome = self.replan_engine.propose(
+            run_id=run.harness_run_id,
+            product_id=run.product_id,
+            plan=plan,
+            budget=budget,
+            executions=executions,
+            metrics=metrics,
+            verifications=verifications,
+            runner_failures=failures,
+            replays=replays,
+            handled_source_ids=handled,
+            allow_runner_switch=allow_runner_switch,
+            environment_fingerprint=ENVIRONMENT_FINGERPRINT,
+            policy_fingerprint=policy_fingerprint(policy),
+        )
+        if outcome is None:
+            raise AssistantInputError("No unhandled controlled Replan trigger exists for this run.")
+        persisted: list[tuple[str, str, str, object]] = [
+            ("replan", outcome.record.replan_id, run.product_id, outcome.record),
+            ("eval_plan", outcome.record.after_plan.eval_plan_id, run.product_id, outcome.record.after_plan),
+            *[("eval_case", case.eval_case_id, run.product_id, case) for case in outcome.eval_cases],
+            *[("work_item", item.work_item_id, run.product_id, item) for item in outcome.work_items],
+        ]
+        if outcome.environment_capture:
+            persisted.append(("environment_capture", outcome.environment_capture.capture_id, run.product_id, outcome.environment_capture))
+        if outcome.record.terminal_reason == "runner_blocked":
+            run = run.model_copy(update={"status": "blocked", "blocked_reason": "runner_environment_failure"})
+            persisted.append(("harness_run", run.harness_run_id, run.product_id, run))
+        if outcome.record.terminal_reason == "unresolved":
+            run = run.model_copy(update={"status": "awaiting_evidence", "blocked_reason": "replay_unresolved"})
+            evidence = Evidence(
+                harness_run_id=run.harness_run_id,
+                source="verifier",
+                level="unresolved",
+                summary="Replay did not reproduce; environment capture was persisted and release remains unresolved.",
+            )
+            persisted.extend([
+                ("harness_run", run.harness_run_id, run.product_id, run),
+                ("evidence", evidence.evidence_id, run.product_id, evidence),
+            ])
+        event = self._new_run_event(run, "REPLAN_RECORDED", [outcome.record.replan_id, *outcome.record.added_work_item_ids])
+        persisted.append(("run_event", event.event_id, run.product_id, event))
+        if outcome.environment_capture:
+            capture_event = self._new_run_event(
+                run, "ENVIRONMENT_CAPTURE_RECORDED", [outcome.environment_capture.capture_id], sequence=event.sequence + 1
+            )
+            persisted.append(("run_event", capture_event.event_id, run.product_id, capture_event))
+        self.store.save_many(persisted)  # type: ignore[arg-type]
+
+        results: list[TrialResult] = []
+        if outcome.record.terminal_reason == "applied" and outcome.work_items:
+            changeset = self._changeset_for_run(run)
+            for item in outcome.work_items:
+                if item.expected_output_type != "execution_result":
+                    continue
+                kind = "safety" if outcome.record.trigger == "permission_regression" else "instrumentation"
+                spec = TrialSpec(
+                    harness_run_id=run.harness_run_id,
+                    work_item_id=item.work_item_id,
+                    ordinal=self._next_trial_ordinal(run),
+                    kind=kind,
+                    cleanup_attempt=True if kind == "safety" else False,
+                    candidate_fingerprint=changeset.candidate_snapshot.fingerprint,
+                    policy_fingerprint=policy_fingerprint(policy),
+                    environment_fingerprint=ENVIRONMENT_FINGERPRINT,
+                    seed=self._next_trial_ordinal(run),
+                )
+                self.store.save("trial", spec.trial_id, run.product_id, spec)
+                results.append(self.trial_evaluator.execute(run, spec, item, changeset.candidate_snapshot, policy))
+        return ControlledReplanResult(run, outcome.record, outcome.work_items, results, outcome.environment_capture)
+
+    def _current_replan_plan(self, run: HarnessRun) -> EvalPlan:
+        records = [
+            record for record in self.store.list("replan", ReplanRecord, run.product_id)
+            if record.harness_run_id == run.harness_run_id
+        ]
+        if records:
+            return max(records, key=lambda record: record.created_at).after_plan
+        changeset = self._changeset_for_run(run)
+        plans = [
+            plan for plan in self.store.list("eval_plan", EvalPlan, run.product_id)
+            if plan.changeset_id == changeset.changeset_id
+        ]
+        if len(plans) != 1:
+            raise AssistantInputError("Run does not have exactly one initial EvalPlan.")
+        return plans[0]
+
+    def _next_trial_ordinal(self, run: HarnessRun) -> int:
+        specs = [
+            spec for spec in self.store.list("trial", TrialSpec, run.product_id)
+            if spec.harness_run_id == run.harness_run_id
+        ]
+        return max((spec.ordinal for spec in specs), default=0) + 1
+
+    def _new_run_event(self, run: HarnessRun, event_type: str, artifact_ids: list[str], *, sequence: int | None = None) -> RunEvent:
+        events = [
+            event for event in self.store.list("run_event", RunEvent, run.product_id)
+            if event.harness_run_id == run.harness_run_id
+        ]
+        return RunEvent(
+            harness_run_id=run.harness_run_id,
+            sequence=sequence if sequence is not None else max((event.sequence for event in events), default=0) + 1,
+            event_type=event_type,  # type: ignore[arg-type]
+            artifact_ids=artifact_ids,
+        )
 
     def replay_file_management_trial(self, harness_run_id: str, source_trial_result_id: str) -> P3RunResult:
         run = self._run(harness_run_id)

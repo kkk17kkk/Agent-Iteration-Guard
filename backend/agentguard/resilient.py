@@ -1,4 +1,4 @@
-from typing import Literal, TypedDict
+from typing import Literal, Protocol, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -6,6 +6,7 @@ from .domain import (
     ChangeSet,
     ComponentSnapshot,
     EvalCase,
+    EvalPlan,
     Evidence,
     ExecutionResult,
     FailureTicket,
@@ -39,19 +40,56 @@ class InjectedCrash(RuntimeError):
     pass
 
 
+class RuntimeAdapter(Protocol):
+    def build_plan(self, changeset: ChangeSet, cases: list[EvalCase], requested_case_ids: list[str]) -> EvalPlan: ...
+    def build_work_items(self, run_id: str, plan: EvalPlan) -> list[WorkItem]: ...
+    def execute(self, run: HarnessRun, work_item: WorkItem, candidate: ComponentSnapshot, policy: ToolPolicy, *, persist_execution: bool) -> ExecutionResult: ...
+    def verify(self, run_id: str, execution: ExecutionResult) -> VerificationResult: ...
+    def failure_ticket(self, run: HarnessRun, finding_id: str, evidence_id: str) -> FailureTicket: ...
+
+
+class FileRuntimeAdapter:
+    def __init__(self, store: Store) -> None:
+        self.runner = LocalFileRunner(store)
+        self.oracle = FileManagementPolicyOracle()
+
+    def build_plan(self, changeset: ChangeSet, cases: list[EvalCase], requested_case_ids: list[str]) -> EvalPlan:
+        return build_file_management_plan(changeset, cases)
+
+    def build_work_items(self, run_id: str, plan: EvalPlan) -> list[WorkItem]:
+        return build_file_management_work_items(run_id, plan)
+
+    def execute(self, run: HarnessRun, work_item: WorkItem, candidate: ComponentSnapshot, policy: ToolPolicy, *, persist_execution: bool) -> ExecutionResult:
+        return self.runner.execute(run, work_item, candidate, policy, persist_execution=persist_execution)
+
+    def verify(self, run_id: str, execution: ExecutionResult) -> VerificationResult:
+        return self.oracle.verify(run_id, execution)
+
+    @staticmethod
+    def failure_ticket(run: HarnessRun, finding_id: str, evidence_id: str) -> FailureTicket:
+        return FailureTicket(
+            product_id=run.product_id,
+            harness_run_id=run.harness_run_id,
+            finding_id=finding_id,
+            evidence_ids=[evidence_id],
+            title="File Management Agent permission violation",
+            reproduction=f"agentguard run resume --run-id {run.harness_run_id}",
+            recommended_action="Remove the cleanup instruction or require explicit delete approval.",
+        )
+
+
 class DurableState(TypedDict):
     harness_run_id: str
     next_step: Step
     crash_at: CrashPoint | None
 
 
-class ResilientFileHarness:
-    """Runs one durable LangGraph node at a time, keyed by an SQLite checkpoint."""
+class ResilientHarness:
+    """Runs one durable Agent runtime adapter node at a time from SQLite checkpoints."""
 
-    def __init__(self, store: Store) -> None:
+    def __init__(self, store: Store, adapter: RuntimeAdapter) -> None:
         self.store = store
-        self.runner = LocalFileRunner(store)
-        self.oracle = FileManagementPolicyOracle()
+        self.adapter = adapter
         graph = StateGraph(DurableState)
         graph.add_node("plan", self._plan)
         graph.add_node("execute", self._execute)
@@ -156,7 +194,7 @@ class ResilientFileHarness:
             if item.harness_run_id == run.harness_run_id
         ]
         if len(items) != 1:
-            raise RuntimeError("Resilient File Management run requires exactly one work item.")
+            raise RuntimeError("Resilient runtime requires exactly one work item.")
         return items[0]
 
     def _execution(self, run: HarnessRun) -> ExecutionResult:
@@ -166,7 +204,7 @@ class ResilientFileHarness:
             if item.harness_run_id == run.harness_run_id
         ]
         if len(items) != 1:
-            raise RuntimeError("Resilient File Management run requires exactly one execution.")
+            raise RuntimeError("Resilient runtime requires exactly one execution.")
         return items[0]
 
     def _policy(self, run: HarnessRun) -> ToolPolicy:
@@ -176,17 +214,17 @@ class ResilientFileHarness:
             if policy.harness_run_id == run.harness_run_id
         ]
         if len(policies) != 1:
-            raise RuntimeError("Resilient File Management run requires exactly one tool policy.")
+            raise RuntimeError("Resilient runtime requires exactly one tool policy.")
         return policies[0]
 
     def _plan(self, state: DurableState) -> DurableState:
         run = self._load_run(state["harness_run_id"])
         changeset = self._changeset(run)
         cases = self.store.list("eval_case", EvalCase, run.product_id)
-        plan = build_file_management_plan(changeset, cases)
-        work_items = build_file_management_work_items(run.harness_run_id, plan)
+        plan = self.adapter.build_plan(changeset, cases, run.eval_case_ids)
+        work_items = self.adapter.build_work_items(run.harness_run_id, plan)
         if len(work_items) != 1:
-            raise RuntimeError("File Management plan did not produce exactly one work item.")
+            raise RuntimeError("Runtime adapter plan did not produce exactly one work item.")
         updated = run.model_copy(update={"status": "planned", "eval_case_ids": plan.selected_case_ids})
         self._commit(
             updated,
@@ -208,7 +246,7 @@ class ResilientFileHarness:
         work_item = self._work_item(run)
         uncommitted_runner = state["crash_at"] == "after_runner_before_execution_commit"
         try:
-            execution = self.runner.execute(
+            execution = self.adapter.execute(
                 run,
                 work_item,
                 self._candidate(self._changeset(run)),
@@ -248,7 +286,7 @@ class ResilientFileHarness:
         execution = self._execution(run)
         if state["crash_at"] == "oracle_exception":
             raise InjectedCrash("Injected Oracle execution exception before verification commit.")
-        verification = self.oracle.verify(run.harness_run_id, execution)
+        verification = self.adapter.verify(run.harness_run_id, execution)
         evidence = Evidence(
             harness_run_id=run.harness_run_id,
             eval_case_id=self._work_item(run).eval_case_id,
@@ -297,15 +335,7 @@ class ResilientFileHarness:
                 evidence_ids=[evidence.evidence_id],
                 severity=verification.severity,
             )
-            ticket = FailureTicket(
-                product_id=run.product_id,
-                harness_run_id=run.harness_run_id,
-                finding_id=finding.finding_id,
-                evidence_ids=[evidence.evidence_id],
-                title="File Management Agent permission violation",
-                reproduction=f"agentguard run resume --run-id {run.harness_run_id}",
-                recommended_action="Remove the cleanup instruction or require explicit delete approval.",
-            )
+            ticket = self.adapter.failure_ticket(run, finding.finding_id, evidence.evidence_id)
             findings.append(finding)
             records.extend([
                 ("finding", finding.finding_id, run.product_id, finding),
@@ -354,3 +384,6 @@ class ResilientFileHarness:
         if not run:
             raise RuntimeError(f"Harness run not found: {harness_run_id}")
         return run
+
+
+ResilientFileHarness = ResilientHarness

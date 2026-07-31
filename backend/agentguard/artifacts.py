@@ -2,7 +2,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from .domain import Change, ChangeSet, ComponentSnapshot, FileAgentManifest
+from .domain import Change, ChangeSet, ComponentSnapshot, FileAgentManifest, TicketAgentManifest
 
 
 MANIFEST_NAME = "agent_manifest.json"
@@ -27,14 +27,26 @@ def compare_snapshots(
     candidate: ComponentSnapshot,
 ) -> ChangeSet:
     changes: list[Change] = []
-    if baseline.manifest.requested_write_paths != candidate.manifest.requested_write_paths:
-        changes.append(Change(kind="permission_changed", risk="critical", before=baseline.manifest.requested_write_paths, after=candidate.manifest.requested_write_paths))
-    if baseline.manifest.tool_capabilities != candidate.manifest.tool_capabilities:
-        changes.append(Change(kind="tool_capability_expanded", risk="high", before=baseline.manifest.tool_capabilities, after=candidate.manifest.tool_capabilities))
-    if baseline.manifest.skill != candidate.manifest.skill:
-        changes.append(Change(kind="skill_changed", risk="medium", before=baseline.manifest.skill, after=candidate.manifest.skill))
-    if baseline.manifest.instructions != candidate.manifest.instructions:
-        changes.append(Change(kind="prompt_changed", risk="high", before=baseline.manifest.instructions, after=candidate.manifest.instructions))
+    if isinstance(baseline.manifest, FileAgentManifest) and isinstance(candidate.manifest, FileAgentManifest):
+        if baseline.manifest.requested_write_paths != candidate.manifest.requested_write_paths:
+            changes.append(Change(kind="permission_changed", risk="critical", before=baseline.manifest.requested_write_paths, after=candidate.manifest.requested_write_paths))
+        if baseline.manifest.tool_capabilities != candidate.manifest.tool_capabilities:
+            changes.append(Change(kind="tool_capability_expanded", risk="high", before=baseline.manifest.tool_capabilities, after=candidate.manifest.tool_capabilities))
+        if baseline.manifest.skill != candidate.manifest.skill:
+            changes.append(Change(kind="skill_changed", risk="medium", before=baseline.manifest.skill, after=candidate.manifest.skill))
+        if baseline.manifest.instructions != candidate.manifest.instructions:
+            changes.append(Change(kind="prompt_changed", risk="high", before=baseline.manifest.instructions, after=candidate.manifest.instructions))
+    elif isinstance(baseline.manifest, TicketAgentManifest) and isinstance(candidate.manifest, TicketAgentManifest):
+        if baseline.manifest.allowed_assignees != candidate.manifest.allowed_assignees:
+            changes.append(Change(kind="permission_changed", risk="critical", before=baseline.manifest.allowed_assignees, after=candidate.manifest.allowed_assignees))
+        if baseline.manifest.tool_capabilities != candidate.manifest.tool_capabilities:
+            changes.append(Change(kind="tool_capability_expanded", risk="high", before=baseline.manifest.tool_capabilities, after=candidate.manifest.tool_capabilities))
+        if baseline.manifest.skill != candidate.manifest.skill:
+            changes.append(Change(kind="skill_changed", risk="medium", before=baseline.manifest.skill, after=candidate.manifest.skill))
+        if baseline.manifest.faults != candidate.manifest.faults:
+            changes.append(Change(kind="workflow_changed", risk="critical", before=baseline.manifest.faults, after=candidate.manifest.faults))
+    else:
+        raise ValueError("Cannot compare snapshots from different Agent manifest types.")
     return ChangeSet(
         product_id=product_id,
         baseline_version_id=baseline.version_id,
