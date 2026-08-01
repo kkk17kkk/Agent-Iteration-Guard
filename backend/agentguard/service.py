@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from time import perf_counter
@@ -48,11 +49,14 @@ from .domain import (
     ReplanBudget,
     ReplanRecord,
     EnvironmentCapture,
+    EvolutionAgentRun,
     IntakeReviewReport,
     MemoryDependency,
     MemoryEntry,
     ProductContractRevision,
     ProviderBinding,
+    ReportManifest,
+    ReportNarrative,
     NativeHarnessContract,
     RuntimeEnvironmentContract,
     RuntimeEnvironmentPreflight,
@@ -81,6 +85,15 @@ from .mutations import FileManagementMutationFactory
 from .inspect_runner import ExternalRunnerError, InspectFileManagementRunner
 from .replan import ControlledReplanEngine
 from .evolution import EvaluationAdmissionResult, EvolutionIntakeError, EvolutionIntakeResult, EvolutionService
+from .evolution_runtime import EvolutionAgentRuntime, ToolCallingProvider
+from .evolution_evidence import recompute_evolution_comparison
+from .reporting import (
+    REPORT_SYSTEM_PROMPT,
+    ReportNarrativeAdapter,
+    build_report_manifest,
+    record_blocked_report,
+)
+from .targets import EvidenceReviewAdapter
 from .stage1 import (
     Stage1HarnessArtifact,
     Stage1HarnessBatch,
@@ -386,6 +399,94 @@ class Service:
             raise ProductNotFoundError(project_id)
         self.store.save("provider_binding", binding.provider_binding_id, project_id, binding)
         return binding
+
+    def provider_binding(self, project_id: str, provider_binding_id: str) -> ProviderBinding:
+        binding = self.store.get("provider_binding", provider_binding_id, ProviderBinding)
+        if not binding or binding.project_id != project_id:
+            raise EvolutionIntakeError("ProviderBinding not found in this project.")
+        return binding
+
+    def run_evolution_control_plane_smoke(
+        self,
+        *,
+        project_id: str,
+        provider_binding_id: str,
+        objective: str,
+        evidence_ref: str,
+        evidence: dict[str, object],
+        provider: ToolCallingProvider,
+    ) -> EvolutionAgentRun:
+        if not self.product(project_id):
+            raise ProductNotFoundError(project_id)
+        binding = self.provider_binding(project_id, provider_binding_id)
+        adapter = EvidenceReviewAdapter(evidence_ref, evidence)
+        return EvolutionAgentRuntime(self.store, binding, provider, adapter).start(
+            project_id=project_id,
+            evolution_case_id="control_plane_smoke:approved_evolution_specs",
+            objective=objective,
+        )
+
+    def recompute_evolution_comparison(self, project_id: str, evolution_case_id: str):
+        if not self.product(project_id):
+            raise ProductNotFoundError(project_id)
+        return recompute_evolution_comparison(self.store, project_id, evolution_case_id)
+
+    def build_evolution_report_manifest(
+        self, project_id: str, evolution_case_id: str, control_plane_run_id: str
+    ) -> ReportManifest:
+        if not self.product(project_id):
+            raise ProductNotFoundError(project_id)
+        return build_report_manifest(self.store, project_id, evolution_case_id, control_plane_run_id)
+
+    def report_manifest(self, project_id: str, report_manifest_id: str) -> ReportManifest:
+        manifest = self.store.get("report_manifest", report_manifest_id, ReportManifest)
+        if not manifest or manifest.project_id != project_id:
+            raise EvolutionIntakeError("ReportManifest not found in this project.")
+        return manifest
+
+    def report_narrative(self, project_id: str, report_narrative_id: str) -> ReportNarrative:
+        narrative = self.store.get("report_narrative", report_narrative_id, ReportNarrative)
+        if not narrative or narrative.project_id != project_id:
+            raise EvolutionIntakeError("ReportNarrative not found in this project.")
+        return narrative
+
+    def run_evolution_report_agent(
+        self,
+        *,
+        project_id: str,
+        report_manifest_id: str,
+        provider_binding_id: str,
+        objective: str,
+        output_dir: Path,
+        provider_factory: Callable[[ProviderBinding], ToolCallingProvider],
+    ) -> tuple[EvolutionAgentRun, ReportNarrative]:
+        manifest = self.report_manifest(project_id, report_manifest_id)
+        binding = self.provider_binding(project_id, provider_binding_id)
+        prior_spend = sum(
+            item.spent_cost_usd
+            for item in self.store.list("evolution_agent_run", EvolutionAgentRun, project_id)
+            if item.provider_binding_id == provider_binding_id
+        )
+        remaining = binding.batch_budget_usd - prior_spend
+        if remaining <= 0:
+            raise EvolutionIntakeError("ProviderBinding aggregate budget is exhausted.")
+        bounded = binding.model_copy(update={"batch_budget_usd": remaining})
+        adapter = ReportNarrativeAdapter(self.store, manifest, output_dir)
+        run = EvolutionAgentRuntime(
+            self.store,
+            bounded,
+            provider_factory(bounded),
+            adapter,
+            system_prompt=REPORT_SYSTEM_PROMPT,
+        ).start(
+            project_id=project_id,
+            evolution_case_id=manifest.evolution_case_id,
+            objective=objective,
+        )
+        if run.status != "completed":
+            return run, record_blocked_report(self.store, manifest, run)
+        narrative = self.report_narrative(project_id, run.terminal_artifact_id or "")
+        return run, narrative
 
     def record_native_harness_contract(self, project_id: str, contract: NativeHarnessContract) -> NativeHarnessContract:
         if not self.product(project_id) or contract.project_id != project_id:

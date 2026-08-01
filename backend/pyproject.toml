@@ -15,6 +15,7 @@ dependencies = [
   "inspect-ai>=0.3.250,<0.4",
   "openai>=1.0,<3",
   "python-dotenv>=1.0,<2",
+  "psutil>=5.9,<8",
 ]
 
 [project.optional-dependencies]

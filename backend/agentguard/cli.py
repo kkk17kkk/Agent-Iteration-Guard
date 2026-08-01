@@ -12,6 +12,14 @@ from .domain import (
     RuntimeEnvironmentContract,
     RuntimeEnvironmentPreflight,
     TaskVerifierContract,
+    ProviderBinding,
+)
+from .provider_runtime import DeepSeekChatCompletionsClient, ProviderRuntimeError
+from .target_onboarding import (
+    TargetEnvironmentCache,
+    initialize_target_manifest,
+    inspect_target_manifest,
+    target_golden_path,
 )
 from .stage1 import Stage1HarnessBatch, assert_stage2_launch_allowed
 from .stage1_acceptance import run_stage1_fault_injection_matrix, run_stage1_replay_ablation_corpus
@@ -30,6 +38,32 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", choices=["text", "json"], default="text")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init")
+
+    target = commands.add_parser("target").add_subparsers(dest="subcommand", required=True)
+    target_init = target.add_parser("init")
+    target_init.add_argument("--source", required=True)
+    target_init.add_argument("--target-id", required=True)
+    target_init.add_argument("--kind", choices=["native_http", "native_command"], default="native_http")
+    target_init.add_argument("--application")
+    target_init.add_argument("--readiness-path")
+    target_init.add_argument("--command-part", action="append")
+    target_init.add_argument("--required-file", action="append", required=True)
+    target_init.add_argument("--dependency-lock")
+    target_init.add_argument("--python")
+    target_init.add_argument("--output", required=True)
+    target_inspect = target.add_parser("inspect")
+    target_inspect.add_argument("--manifest", required=True)
+    target_cache = target.add_parser("cache").add_subparsers(dest="cache_action", required=True)
+    target_cache_import = target_cache.add_parser("import")
+    target_cache_import.add_argument("--manifest", required=True)
+    target_cache_import.add_argument("--environment", required=True)
+    target_cache_import.add_argument("--cache-root", required=True)
+    target_preflight = target.add_parser("preflight")
+    target_preflight.add_argument("--manifest", required=True)
+    target_preflight.add_argument("--cache-root", required=True)
+    target_golden = target.add_parser("golden-path")
+    target_golden.add_argument("--manifest", required=True)
+    target_golden.add_argument("--cache-root", required=True)
 
     product = commands.add_parser("product").add_subparsers(dest="subcommand", required=True)
     add = product.add_parser("add")
@@ -179,6 +213,40 @@ def build_parser() -> argparse.ArgumentParser:
     assess = evolution.add_parser("assess")
     assess.add_argument("--project-id", required=True)
     assess.add_argument("--case-id", required=True)
+    bind_provider = evolution.add_parser("bind-provider")
+    bind_provider.add_argument("--project-id", required=True)
+    bind_provider.add_argument("--input", required=True, help="Path to a non-secret ProviderBinding JSON payload.")
+    control_plane_smoke = evolution.add_parser("control-plane-smoke")
+    control_plane_smoke.add_argument("--project-id", required=True)
+    control_plane_smoke.add_argument("--binding-id", required=True)
+    control_plane_smoke.add_argument("--evidence", required=True, help="Path to approved non-secret evidence JSON.")
+    control_plane_smoke.add_argument("--evidence-ref", required=True)
+    control_plane_smoke.add_argument(
+        "--objective",
+        default="Read the approved case evidence, then submit an evidence-linked hypothesis or insufficient evidence. Do not issue a release verdict.",
+    )
+    compare = evolution.add_parser("compare")
+    compare.add_argument("--project-id", required=True)
+    compare.add_argument("--case-id", required=True)
+    build_manifest = evolution.add_parser("build-manifest")
+    build_manifest.add_argument("--project-id", required=True)
+    build_manifest.add_argument("--case-id", required=True)
+    build_manifest.add_argument("--run-id", required=True)
+    report_agent = evolution.add_parser("report-agent")
+    report_agent.add_argument("--project-id", required=True)
+    report_agent.add_argument("--manifest-id", required=True)
+    report_agent.add_argument("--binding-id", required=True)
+    report_agent.add_argument("--output-dir", required=True)
+    report_agent.add_argument(
+        "--objective",
+        default=(
+            "Read the immutable ReportManifest, then submit a concise fact-linked narrative. Cover baseline, candidate, "
+            "and pair-equivalence facts. State limitations and do not issue a release verdict."
+        ),
+    )
+    report_result = evolution.add_parser("report-result")
+    report_result.add_argument("--project-id", required=True)
+    report_result.add_argument("--narrative-id", required=True)
     return parser
 
 
@@ -216,6 +284,29 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "init":
             output = {"db": args.db}
+        elif args.command == "target" and args.subcommand == "init":
+            output = initialize_target_manifest(
+                source=Path(args.source),
+                output=Path(args.output),
+                target_id=args.target_id,
+                kind=args.kind,
+                application=args.application,
+                readiness_path=args.readiness_path,
+                command=args.command_part,
+                required_source_files=args.required_file,
+                dependency_lock=args.dependency_lock,
+                python_executable=args.python,
+            ).model_dump()
+        elif args.command == "target" and args.subcommand == "inspect":
+            output = inspect_target_manifest(Path(args.manifest))
+        elif args.command == "target" and args.subcommand == "cache":
+            output = TargetEnvironmentCache(Path(args.cache_root)).import_environment(
+                Path(args.manifest), Path(args.environment)
+            ).model_dump()
+        elif args.command == "target" and args.subcommand == "preflight":
+            output = TargetEnvironmentCache(Path(args.cache_root)).preflight(Path(args.manifest))
+        elif args.command == "target" and args.subcommand == "golden-path":
+            output = target_golden_path(Path(args.manifest), Path(args.cache_root))
         elif args.command == "product" and args.subcommand == "add":
             product, version = service.create(args.name, args.description)
             output = {"product": product.model_dump(), "version": version.model_dump()}
@@ -375,6 +466,56 @@ def main(argv: list[str] | None = None) -> int:
                 output = service.record_historical_replay_evidence(args.project_id, HistoricalReplayEvidence.model_validate(payload)).model_dump()
         elif args.command == "evolution" and args.subcommand == "assess":
             output = service.assess_evolution_admission(args.project_id, args.case_id).as_dict()
+        elif args.command == "evolution" and args.subcommand == "bind-provider":
+            payload = json.loads(Path(args.input).read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("ProviderBinding input must be a JSON object")
+            payload["project_id"] = args.project_id
+            binding = ProviderBinding.model_validate(payload)
+            output = service.record_provider_binding(args.project_id, binding).model_dump()
+        elif args.command == "evolution" and args.subcommand == "control-plane-smoke":
+            evidence = json.loads(Path(args.evidence).read_text(encoding="utf-8"))
+            if not isinstance(evidence, dict):
+                raise ValueError("control-plane evidence must be a JSON object")
+            binding = service.provider_binding(args.project_id, args.binding_id)
+            from dotenv import load_dotenv
+
+            load_dotenv(Path(__file__).parents[2] / ".env")
+            api_key = os.getenv(binding.expected_environment_variable)
+            if not api_key:
+                raise ValueError(f"{binding.expected_environment_variable} is required at runtime")
+            provider = DeepSeekChatCompletionsClient(binding, api_key)
+            output = service.run_evolution_control_plane_smoke(
+                project_id=args.project_id,
+                provider_binding_id=args.binding_id,
+                objective=args.objective,
+                evidence_ref=args.evidence_ref,
+                evidence=evidence,
+                provider=provider,
+            ).model_dump()
+        elif args.command == "evolution" and args.subcommand == "compare":
+            output = service.recompute_evolution_comparison(args.project_id, args.case_id).model_dump()
+        elif args.command == "evolution" and args.subcommand == "build-manifest":
+            output = service.build_evolution_report_manifest(args.project_id, args.case_id, args.run_id).model_dump()
+        elif args.command == "evolution" and args.subcommand == "report-agent":
+            binding = service.provider_binding(args.project_id, args.binding_id)
+            from dotenv import load_dotenv
+
+            load_dotenv(Path(__file__).parents[2] / ".env", override=True)
+            api_key = os.getenv(binding.expected_environment_variable)
+            if not api_key:
+                raise ValueError(f"{binding.expected_environment_variable} is required at runtime")
+            run, narrative = service.run_evolution_report_agent(
+                project_id=args.project_id,
+                report_manifest_id=args.manifest_id,
+                provider_binding_id=args.binding_id,
+                objective=args.objective,
+                output_dir=Path(args.output_dir),
+                provider_factory=lambda bounded: DeepSeekChatCompletionsClient(bounded, api_key),
+            )
+            output = {"run": run.model_dump(), "narrative": narrative.model_dump()}
+        elif args.command == "evolution" and args.subcommand == "report-result":
+            output = service.report_narrative(args.project_id, args.narrative_id).model_dump()
         elif args.command == "evolution":
             output = service.evolution_report(args.project_id, args.report_id).model_dump()
         else:
@@ -390,8 +531,9 @@ def main(argv: list[str] | None = None) -> int:
         }
         print(json.dumps(output) if args.format == "json" else output)
         return 2
-    except (AssistantInputError, EvolutionIntakeError, LLMProviderError, ValueError, Stage2InjectedCrash) as error:
-        output = {"ok": False, "error": {"stage": "llm_assistant", "reason": str(error)}}
+    except (AssistantInputError, EvolutionIntakeError, LLMProviderError, ProviderRuntimeError, ValueError, Stage2InjectedCrash) as error:
+        stage = "target_onboarding" if args.command == "target" else "llm_assistant"
+        output = {"ok": False, "error": {"stage": stage, "reason": str(error)}}
         print(json.dumps(output, ensure_ascii=False) if args.format == "json" else output)
         return 3
 

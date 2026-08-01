@@ -890,6 +890,16 @@ class ProviderBinding(BaseModel):
     timeout_seconds: int = Field(gt=0)
     allowed_hosts: list[str] = Field(default_factory=list)
     data_retention_policy: str = Field(min_length=1)
+    max_model_calls: int = Field(default=8, gt=0)
+    max_tool_calls: int = Field(default=12, gt=0)
+    max_wall_time_seconds: int = Field(default=360, gt=0)
+    max_output_tokens: int = Field(default=512, gt=0)
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    input_price_per_million_usd: float | None = Field(default=None, ge=0)
+    output_price_per_million_usd: float | None = Field(default=None, ge=0)
+    cache_hit_price_per_million_usd: float | None = Field(default=None, ge=0)
+    pricing_source: str | None = None
+    pricing_verified_at: str | None = None
     created_at: str = Field(default_factory=now)
 
 
@@ -1101,4 +1111,197 @@ class EvaluationPipeline(BaseModel):
     status: Literal["queued", "blocked", "running", "completed"] = "queued"
     stages: list[str] = Field(default_factory=list)
     environment_fingerprint: str = Field(min_length=16)
+    created_at: str = Field(default_factory=now)
+
+
+class EvolutionAgentRun(BaseModel):
+    evolution_agent_run_id: str = Field(default_factory=lambda: ident("evolution_agent_run"))
+    project_id: str
+    evolution_case_id: str
+    provider_binding_id: str
+    objective: str = Field(min_length=1)
+    status: Literal["created", "running", "completed", "failed", "infrastructure_blocked"] = "created"
+    allowed_tools: list[str] = Field(min_length=1)
+    model_call_ids: list[str] = Field(default_factory=list)
+    tool_call_ids: list[str] = Field(default_factory=list)
+    observation_ids: list[str] = Field(default_factory=list)
+    hypothesis_id: str | None = None
+    terminal_artifact_kind: str | None = None
+    terminal_artifact_id: str | None = None
+    spent_cost_usd: float = Field(default=0.0, ge=0)
+    terminal_reason: str | None = None
+    created_at: str = Field(default_factory=now)
+    updated_at: str = Field(default_factory=now)
+
+
+class EvolutionProviderUsage(BaseModel):
+    evolution_provider_usage_id: str = Field(default_factory=lambda: ident("evolution_usage"))
+    project_id: str
+    evolution_agent_run_id: str
+    provider: str
+    model: str
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cache_hit_tokens: int = Field(default=0, ge=0)
+    total_cost_usd: float = Field(ge=0)
+    pricing_source: str = Field(min_length=1)
+    source: Literal["provider_response"] = "provider_response"
+    created_at: str = Field(default_factory=now)
+
+
+class EvolutionToolProposal(BaseModel):
+    native_tool_call_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    arguments: dict[str, object] = Field(default_factory=dict)
+
+
+class EvolutionModelCall(BaseModel):
+    evolution_model_call_id: str = Field(default_factory=lambda: ident("evolution_model_call"))
+    project_id: str
+    evolution_agent_run_id: str
+    sequence: int = Field(gt=0)
+    provider: str
+    model: str
+    provider_request_id: str | None = None
+    native_tool_call_id: str | None = None
+    proposed_tool_count: int = Field(default=0, ge=0)
+    proposed_tool_names: list[str] = Field(default_factory=list)
+    tool_proposals: list[EvolutionToolProposal] = Field(default_factory=list)
+    tool_name: str | None = None
+    tool_arguments: dict[str, object] = Field(default_factory=dict)
+    finish_reason: str | None = None
+    request_fingerprint: str = Field(min_length=16)
+    response_fingerprint: str | None = None
+    usage_id: str | None = None
+    outcome: Literal["tool_call", "invalid_response", "provider_error"]
+    error: str | None = None
+    created_at: str = Field(default_factory=now)
+
+
+class EvolutionToolCall(BaseModel):
+    evolution_tool_call_id: str = Field(default_factory=lambda: ident("evolution_tool_call"))
+    project_id: str
+    evolution_agent_run_id: str
+    model_call_id: str
+    native_tool_call_id: str | None = None
+    sequence: int = Field(gt=0)
+    name: str = Field(min_length=1)
+    arguments: dict[str, object] = Field(default_factory=dict)
+    status: Literal["executed", "rejected", "failed"]
+    observation_id: str | None = None
+    error: str | None = None
+    created_at: str = Field(default_factory=now)
+
+
+class EvolutionObservation(BaseModel):
+    evolution_observation_id: str = Field(default_factory=lambda: ident("evolution_observation"))
+    project_id: str
+    evolution_agent_run_id: str
+    tool_call_id: str
+    sequence: int = Field(gt=0)
+    payload: dict[str, object] = Field(default_factory=dict)
+    state_fingerprint: str = Field(min_length=16)
+    terminal: bool = False
+    created_at: str = Field(default_factory=now)
+
+
+class EvaluationHypothesis(BaseModel):
+    evaluation_hypothesis_id: str = Field(default_factory=lambda: ident("evaluation_hypothesis"))
+    project_id: str
+    evolution_agent_run_id: str
+    kind: Literal["hypothesis", "insufficient_evidence"]
+    summary: str = Field(min_length=1)
+    evidence_refs: list[str] = Field(default_factory=list)
+    uncertainty: str = Field(min_length=1)
+    evidence_level: Literal["inferred", "unresolved"]
+    created_at: str = Field(default_factory=now)
+
+
+class EvolutionTrial(BaseModel):
+    evolution_trial_id: str = Field(default_factory=lambda: ident("evolution_trial"))
+    project_id: str
+    evolution_case_id: str
+    revision_id: str
+    revision_role: Literal["baseline", "candidate"]
+    trial_index: int = Field(ge=1)
+    status: Literal["completed", "target_failed", "infrastructure_blocked"]
+    environment_fingerprint: str = Field(min_length=16)
+    reset_evidence_ref: str = Field(min_length=1)
+    request_fingerprint: str = Field(min_length=16)
+    response_evidence_ref: str | None = None
+    trace_evidence_ref: str | None = None
+    initial_state_ref: str = Field(min_length=1)
+    final_state_ref: str | None = None
+    terminal_reason: str = Field(min_length=1)
+    created_at: str = Field(default_factory=now)
+
+
+class VerificationCriterion(BaseModel):
+    name: str = Field(min_length=1)
+    status: Literal["passed", "failed"]
+    detail: str = Field(min_length=1)
+    evidence_refs: list[str] = Field(default_factory=list)
+
+
+class EvolutionVerification(BaseModel):
+    evolution_verification_id: str = Field(default_factory=lambda: ident("evolution_verification"))
+    project_id: str
+    evolution_case_id: str
+    evolution_trial_id: str
+    status: Literal["passed", "failed", "infrastructure_error"]
+    criteria: list[VerificationCriterion] = Field(default_factory=list)
+    evidence_refs: list[str] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now)
+
+
+class ReportFact(BaseModel):
+    fact_id: str = Field(default_factory=lambda: ident("report_fact"))
+    category: str = Field(min_length=1)
+    statement: str = Field(min_length=1)
+    evidence_level: EvidenceLevel
+    evidence_refs: list[str] = Field(min_length=1)
+
+
+class ReportManifest(BaseModel):
+    report_manifest_id: str = Field(default_factory=lambda: ident("report_manifest"))
+    project_id: str
+    evolution_case_id: str
+    comparison_id: str
+    baseline_revision_id: str
+    candidate_revision_id: str
+    environment_fingerprint: str = Field(min_length=16)
+    control_plane_run_id: str
+    facts: list[ReportFact] = Field(min_length=1)
+    metrics: dict[str, int | float | str] = Field(default_factory=dict)
+    evaluation_gate: Literal["candidate_behavior_supported", "not_supported", "blocked"]
+    release_status: Literal["not_evaluated"] = "not_evaluated"
+    evidence_refs: list[str] = Field(min_length=1)
+    manifest_fingerprint: str = Field(min_length=16)
+    created_at: str = Field(default_factory=now)
+
+
+class ReportNarrativeSection(BaseModel):
+    heading: str = Field(min_length=1)
+    fact_refs: list[str] = Field(min_length=1)
+    interpretation: str = Field(min_length=1)
+
+
+class ReportNarrative(BaseModel):
+    report_narrative_id: str = Field(default_factory=lambda: ident("report_narrative"))
+    project_id: str
+    evolution_case_id: str
+    report_manifest_id: str
+    report_agent_run_id: str
+    status: Literal["completed", "blocked"]
+    # Records created before the zh-CN contract did not persist a locale and
+    # were English. New report paths set zh-CN explicitly.
+    locale: Literal["en", "zh-CN"] = "en"
+    title: str = Field(min_length=1)
+    executive_summary: str = Field(min_length=1)
+    sections: list[ReportNarrativeSection] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    fact_refs: list[str] = Field(default_factory=list)
+    evaluation_gate_snapshot: Literal["candidate_behavior_supported", "not_supported", "blocked"]
+    html_evidence_ref: str | None = None
+    terminal_reason: str | None = None
     created_at: str = Field(default_factory=now)

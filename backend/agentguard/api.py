@@ -140,6 +140,16 @@ class ProviderBindingRequest(BaseModel):
     timeout_seconds: int
     allowed_hosts: list[str] = []
     data_retention_policy: str
+    max_model_calls: int = 8
+    max_tool_calls: int = 12
+    max_wall_time_seconds: int = 360
+    max_output_tokens: int = 512
+    temperature: float = 0.0
+    input_price_per_million_usd: float | None = None
+    output_price_per_million_usd: float | None = None
+    cache_hit_price_per_million_usd: float | None = None
+    pricing_source: str | None = None
+    pricing_verified_at: str | None = None
 
 
 class NativeHarnessContractRequest(BaseModel):
