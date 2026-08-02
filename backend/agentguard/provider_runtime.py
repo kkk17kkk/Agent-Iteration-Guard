@@ -11,9 +11,22 @@ from .domain import ProviderBinding
 
 
 class ProviderRuntimeError(RuntimeError):
-    def __init__(self, message: str, *, response_fingerprint: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        response_fingerprint: str | None = None,
+        request_id: str | None = None,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_hit_tokens: int = 0,
+    ) -> None:
         super().__init__(message)
         self.response_fingerprint = response_fingerprint
+        self.request_id = request_id
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_hit_tokens = cache_hit_tokens
 
 
 @dataclass(frozen=True)
@@ -35,8 +48,8 @@ class ProviderTurn:
     response_fingerprint: str
 
 
-class DeepSeekChatCompletionsClient:
-    """One OpenAI-compatible provider turn; credentials are injected by the caller."""
+class OpenAICompatibleChatCompletionsClient:
+    """One bounded control-plane turn for an approved OpenAI-compatible backend."""
 
     def __init__(self, binding: ProviderBinding, api_key: str) -> None:
         if binding.role != "control_plane":
@@ -49,10 +62,12 @@ class DeepSeekChatCompletionsClient:
         host = urlparse(base_url).hostname
         if not host or host not in binding.allowed_hosts:
             raise ValueError("Provider base URL host is not present in ProviderBinding.allowed_hosts.")
+        if not base_url:
+            raise ValueError("ProviderBinding.base_url is required for an OpenAI-compatible control-plane backend.")
         self.endpoint = f"{base_url}/chat/completions"
 
     def complete(self, messages: list[dict[str, object]], tools: list[dict[str, object]]) -> ProviderTurn:
-        payload = {
+        payload: dict[str, object] = {
             "model": self.binding.model,
             "messages": messages,
             "tools": tools,
@@ -61,8 +76,9 @@ class DeepSeekChatCompletionsClient:
             "temperature": self.binding.temperature,
             "max_tokens": self.binding.max_output_tokens,
             "stream": False,
-            "thinking": {"type": "disabled"},
         }
+        if self.binding.provider == "deepseek":
+            payload["thinking"] = {"type": "disabled"}
         encoded = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         request_fingerprint = hashlib.sha256(encoded).hexdigest()
         request = Request(
@@ -87,9 +103,21 @@ class DeepSeekChatCompletionsClient:
         response_fingerprint = hashlib.sha256(raw).hexdigest()
         try:
             body = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            detail = f"{type(error).__name__}:{str(error)}"[:160]
+            raise ProviderRuntimeError(
+                f"Provider returned an invalid Chat Completions payload ({detail}).",
+                response_fingerprint=response_fingerprint,
+            ) from error
+        try:
             choice = body["choices"][0]
             message = choice["message"]
             usage = body["usage"]
+            request_id = str(body.get("id")) if body.get("id") else None
+            details = usage.get("prompt_tokens_details") or {}
+            input_tokens = int(usage.get("prompt_tokens", 0) or 0)
+            output_tokens = int(usage.get("completion_tokens", 0) or 0)
+            cache_hit_tokens = int(details.get("cached_tokens", 0) or 0)
             native_calls = message.get("tool_calls") or []
             calls: list[ProviderToolCall] = []
             for item in native_calls:
@@ -97,14 +125,13 @@ class DeepSeekChatCompletionsClient:
                 if not isinstance(arguments, dict):
                     raise TypeError("tool arguments must be an object")
                 calls.append(ProviderToolCall(str(item["id"]), str(item["function"]["name"]), arguments))
-            details = usage.get("prompt_tokens_details") or {}
             return ProviderTurn(
-                request_id=str(body.get("id")) if body.get("id") else None,
+                request_id=request_id,
                 finish_reason=str(choice.get("finish_reason") or ""),
                 tool_calls=tuple(calls),
-                input_tokens=int(usage.get("prompt_tokens", 0) or 0),
-                output_tokens=int(usage.get("completion_tokens", 0) or 0),
-                cache_hit_tokens=int(details.get("cached_tokens", 0) or 0),
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cache_hit_tokens=cache_hit_tokens,
                 request_fingerprint=request_fingerprint,
                 response_fingerprint=response_fingerprint,
             )
@@ -113,4 +140,15 @@ class DeepSeekChatCompletionsClient:
             raise ProviderRuntimeError(
                 f"Provider returned an invalid Chat Completions payload ({detail}).",
                 response_fingerprint=response_fingerprint,
+                request_id=request_id if "request_id" in locals() else None,
+                input_tokens=input_tokens if "input_tokens" in locals() else 0,
+                output_tokens=output_tokens if "output_tokens" in locals() else 0,
+                cache_hit_tokens=cache_hit_tokens if "cache_hit_tokens" in locals() else 0,
             ) from error
+
+
+def build_control_plane_client(
+    binding: ProviderBinding, api_key: str
+) -> OpenAICompatibleChatCompletionsClient:
+    """Select the configured backend without retrying or falling back to another provider."""
+    return OpenAICompatibleChatCompletionsClient(binding, api_key)

@@ -29,10 +29,11 @@ class NativeCommandProfile:
     max_output_bytes: int = 1024 * 1024
 
     def command(
-        self, python_executable: Path, source: Path, state_path: Path, **variables: object
+        self, runtime_executable: Path, source: Path, state_path: Path, **variables: object
     ) -> list[str]:
         values = {
-            "python": str(python_executable),
+            "runtime": str(runtime_executable),
+            "python": str(runtime_executable),  # Compatibility alias for existing profiles.
             "source": str(source),
             "state_path": str(state_path),
             **{key: str(value) for key, value in variables.items()},
@@ -78,16 +79,23 @@ class CommandVerifierPlugin(Protocol):
 class NativeCommandRunner:
     """Run an approved argv template without a shell or target business rules."""
 
-    def __init__(self, python_executable: Path, profile: NativeCommandProfile) -> None:
-        self.python_executable = python_executable.resolve()
+    def __init__(self, runtime_executable: Path, profile: NativeCommandProfile) -> None:
+        self.runtime_executable = runtime_executable.resolve()
         self.profile = profile
 
-    def run(self, *, source: Path, state_path: Path, operation: CommandOperation) -> NativeCommandEvidence:
+    def run(
+        self,
+        *,
+        source: Path,
+        state_path: Path,
+        operation: CommandOperation,
+        environment_overrides: dict[str, str] | None = None,
+    ) -> NativeCommandEvidence:
         source = source.resolve()
         state_path = state_path.resolve()
         self._check_source(source)
-        environment = self.environment(source, state_path)
-        command = [*self.profile.command(self.python_executable, source, state_path), *operation.arguments]
+        environment = self.environment(source, state_path, environment_overrides=environment_overrides)
+        command = [*self.profile.command(self.runtime_executable, source, state_path), *operation.arguments]
         stdin = None if operation.stdin_json is None else json.dumps(operation.stdin_json, ensure_ascii=False)
         started = time.monotonic()
         try:
@@ -146,13 +154,14 @@ class NativeCommandRunner:
         readiness_path: str,
         label: str,
         startup_timeout_seconds: float = 60,
+        environment_overrides: dict[str, str] | None = None,
     ) -> tuple[subprocess.Popen[bytes], str, object]:
         source = source.resolve()
         state_path = state_path.resolve()
         self._check_source(source)
         port = self._free_port()
-        environment = self.environment(source, state_path, port=port)
-        command = self.profile.command(self.python_executable, source, state_path, port=port)
+        environment = self.environment(source, state_path, port=port, environment_overrides=environment_overrides)
+        command = self.profile.command(self.runtime_executable, source, state_path, port=port)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_handle = log_path.open("wb")
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
@@ -214,7 +223,14 @@ class NativeCommandRunner:
                     f"Missing native source file for {self.profile.profile_id}: {relative}"
                 )
 
-    def environment(self, source: Path, state_path: Path, **variables: object) -> dict[str, str]:
+    def environment(
+        self,
+        source: Path,
+        state_path: Path,
+        *,
+        environment_overrides: dict[str, str] | None = None,
+        **variables: object,
+    ) -> dict[str, str]:
         """Build the exact non-secret child environment used by this runner."""
         environment = {
             key: os.environ[key]
@@ -224,6 +240,13 @@ class NativeCommandRunner:
         environment["PYTHONUTF8"] = "1"
         environment.update(self.profile.environment(source, state_path, **variables))
         environment.update({key: "" for key in self.profile.cleared_secret_environment})
+        if environment_overrides:
+            protected = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC", "PYTHONUTF8"}
+            if protected.intersection(environment_overrides):
+                raise TargetInfrastructureError("Target-native environment injection cannot override process infrastructure.")
+            if any(not key or not isinstance(value, str) for key, value in environment_overrides.items()):
+                raise TargetInfrastructureError("Target-native environment injection must contain non-empty names and string values.")
+            environment.update(environment_overrides)
         return environment
 
     @staticmethod

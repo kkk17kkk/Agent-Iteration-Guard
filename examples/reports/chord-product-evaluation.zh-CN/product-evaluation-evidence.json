@@ -1,0 +1,667 @@
+{
+  "schema_version": "1",
+  "project_name": "CHORD",
+  "evaluation_name": "Skill Ablation",
+  "evaluation_type": "skill_ablation",
+  "summary": {
+    "trial_count": 4,
+    "passed": 0,
+    "failed": 4,
+    "infrastructure_error": 0
+  },
+  "artifacts": [
+    {
+      "trial_ref": "enabled-2",
+      "intervention": "enabled",
+      "verifier_status": "failed",
+      "runtime_error": null,
+      "skill_profile": {
+        "name": "app_profile",
+        "kind": "runtime_skill",
+        "trigger": "native provider call",
+        "execution": "profile DAG",
+        "deliverable": "structured profile",
+        "termination": "profile completion",
+        "boundary_expectation": "none"
+      },
+      "verification_criteria": [
+        {
+          "name": "target_runtime",
+          "status": "passed",
+          "detail": "Target runtime completed without an infrastructure error."
+        },
+        {
+          "name": "real_llm_execution",
+          "status": "passed",
+          "detail": "The target runtime recorded at least one native provider request."
+        },
+        {
+          "name": "provider_usage_evidence",
+          "status": "passed",
+          "detail": "Every native provider request has non-secret token accounting."
+        },
+        {
+          "name": "skill_trigger",
+          "status": "passed",
+          "detail": "The declared Skill trigger was recorded with an approved event type."
+        },
+        {
+          "name": "post_trigger_trace",
+          "status": "passed",
+          "detail": "A complete trace contains at least one event after the Skill trigger."
+        },
+        {
+          "name": "deliverable",
+          "status": "passed",
+          "detail": "A structured target deliverable is linked to immutable evidence."
+        },
+        {
+          "name": "independent_deliverable_verifier",
+          "status": "passed",
+          "detail": "A target-specific independent verifier scored the deliverable."
+        },
+        {
+          "name": "target_profile_shape",
+          "status": "passed",
+          "detail": "Target returned a structured profile with source evidence."
+        },
+        {
+          "name": "target_llm_branch",
+          "status": "passed",
+          "detail": "Target reports native LLM use without fallback."
+        },
+        {
+          "name": "profile_evidence_consistency",
+          "status": "failed",
+          "detail": "Narrative contradictions={'lending': 0}; target_metrics={'installed': 2, 'lending': 1}."
+        },
+        {
+          "name": "source_write_boundary",
+          "status": "passed",
+          "detail": "No declared source state changed."
+        },
+        {
+          "name": "boundary_behavior",
+          "status": "passed",
+          "detail": "Boundary behavior matches the declared contract."
+        },
+        {
+          "name": "no_fallback",
+          "status": "passed",
+          "detail": "No deterministic or alternate target path was used."
+        }
+      ],
+      "preserved_task_observation": "unresolved",
+      "preserved_deliverable_observation": {
+        "agent_name": "app_profile_agent",
+        "uid": "stage7_demo_uid",
+        "status": "ok",
+        "activity_level": "low",
+        "summary": "该用户共安装 25 个应用，以工具类（28%）和社交类（20%）为主，近30天新增5个应用，活跃度中等。未发现借贷类应用，金融成熟度较低，仅有1个电子钱包，无银行或政府应用，消费类应用覆盖有限，整体风险较低但金融资质不足。",
+        "report_markdown": "一、用户数字画像综述\n\n**当前结果状态**：LLM 推理完成\n\n该用户共安装 25 个应用，其中工具类占比最高（28%），其次是社交类（20%）和娱乐类（16%）。近30天新增5个应用，安装活跃度中等。整体数字化程度中等，但金融类应用覆盖不足，缺乏银行和政府应用。\n\n二、多头借贷风险评估\n\n- 风险等级：低\n- 借贷 App 数量：近7天 0 个 / 近30天 0 个\n- 详细分析：未发现借贷类应用。\n- 风险趋势：无借贷迹象，风险低。\n\n三、金融成熟度与资质评估\n\n- 金…",
+        "evidence": {
+          "source_file": "[truncated]",
+          "application_time": "[truncated]",
+          "raw_counts": "[truncated]",
+          "category_distribution": "[truncated]",
+          "localized_category_distribution": "[truncated]",
+          "install_time_distribution": "[truncated]",
+          "install_bucket_details": "[truncated]",
+          "category_app_details": "[truncated]"
+        },
+        "metrics": {
+          "application_time": "[truncated]",
+          "installed_app_count": "[truncated]",
+          "recent_install_count_30d": "[truncated]",
+          "lending_app_count": "[truncated]",
+          "recent_7d_lending_count": "[truncated]",
+          "recent_30d_lending_count": "[truncated]",
+          "bank_app_count": "[truncated]",
+          "ewallet_app_count": "[truncated]"
+        }
+      },
+      "trace_event_types": [
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "native_provider_request_started",
+        "native_provider_request_completed",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_run_completed"
+      ],
+      "fallback_used": false,
+      "boundary_outcome": "none",
+      "evidence_refs": [
+        "enabled-2:evidence:1",
+        "enabled-2:evidence:2",
+        "enabled-2:evidence:3",
+        "enabled-2:evidence:4",
+        "enabled-2:evidence:5",
+        "enabled-2:evidence:6",
+        "enabled-2:evidence:7",
+        "enabled-2:evidence:8",
+        "enabled-2:evidence:9",
+        "enabled-2:evidence:10",
+        "enabled-2:evidence:11",
+        "enabled-2:evidence:12",
+        "enabled-2:evidence:13",
+        "enabled-2:evidence:14",
+        "enabled-2:evidence:15",
+        "enabled-2:evidence:16",
+        "enabled-2:evidence:17",
+        "enabled-2:evidence:18"
+      ],
+      "technical_evidence": {
+        "artifact_directory": "D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2",
+        "contract_id": "skill_contract_eddb73b6e1c1",
+        "evidence_id": "skill_ablation_evidence_6490c19b0305",
+        "verification_id": "skill_ablation_verification_7e982a27e606",
+        "evidence_catalog": {
+          "enabled-2:evidence:1": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\skill-contract.json",
+          "enabled-2:evidence:2": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\skill-evidence.json",
+          "enabled-2:evidence:3": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\skill-verification.json",
+          "enabled-2:evidence:4": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466",
+          "enabled-2:evidence:5": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:0",
+          "enabled-2:evidence:6": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:1",
+          "enabled-2:evidence:7": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:10",
+          "enabled-2:evidence:8": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:11",
+          "enabled-2:evidence:9": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:2",
+          "enabled-2:evidence:10": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:3",
+          "enabled-2:evidence:11": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:4",
+          "enabled-2:evidence:12": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:5",
+          "enabled-2:evidence:13": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:6",
+          "enabled-2:evidence:14": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:7",
+          "enabled-2:evidence:15": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:8",
+          "enabled-2:evidence:16": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\enabled-2\\trial-evidence.json;sha256:2e0c556de31bfd10375a6c1f0c91e82a4ea5c011171466a0e8cba9b1c0170466#trace:9",
+          "enabled-2:evidence:17": "provider_request:b86a31d4-e38a-4fb1-b54a-341bb60f7b7e",
+          "enabled-2:evidence:18": "provider_usage:b86a31d4-e38a-4fb1-b54a-341bb60f7b7e"
+        }
+      }
+    },
+    {
+      "trial_ref": "invalid-replacement-1",
+      "intervention": "replacement",
+      "verifier_status": "failed",
+      "runtime_error": null,
+      "skill_profile": {
+        "name": "app_profile",
+        "kind": "runtime_skill",
+        "trigger": "native provider call",
+        "execution": "profile DAG",
+        "deliverable": "structured profile",
+        "termination": "profile completion",
+        "boundary_expectation": "none"
+      },
+      "verification_criteria": [
+        {
+          "name": "target_runtime",
+          "status": "passed",
+          "detail": "Target runtime completed without an infrastructure error."
+        },
+        {
+          "name": "real_llm_execution",
+          "status": "failed",
+          "detail": "No target-native provider request was recorded."
+        },
+        {
+          "name": "provider_usage_evidence",
+          "status": "passed",
+          "detail": "Every native provider request has non-secret token accounting."
+        },
+        {
+          "name": "skill_trigger",
+          "status": "failed",
+          "detail": "No declared Skill trigger event was recorded."
+        },
+        {
+          "name": "post_trigger_trace",
+          "status": "failed",
+          "detail": "Trace is incomplete or contains no post-trigger event."
+        },
+        {
+          "name": "deliverable",
+          "status": "passed",
+          "detail": "A structured target deliverable is linked to immutable evidence."
+        },
+        {
+          "name": "independent_deliverable_verifier",
+          "status": "passed",
+          "detail": "A target-specific independent verifier scored the deliverable."
+        },
+        {
+          "name": "target_profile_shape",
+          "status": "failed",
+          "detail": "Target profile output is incomplete."
+        },
+        {
+          "name": "target_llm_branch",
+          "status": "failed",
+          "detail": "Target output reports fallback or no LLM use."
+        },
+        {
+          "name": "profile_evidence_consistency",
+          "status": "passed",
+          "detail": "Narrative numeric claims agree with target-computed metrics."
+        },
+        {
+          "name": "source_write_boundary",
+          "status": "passed",
+          "detail": "No declared source state changed."
+        },
+        {
+          "name": "boundary_behavior",
+          "status": "passed",
+          "detail": "Boundary behavior matches the declared contract."
+        },
+        {
+          "name": "no_fallback",
+          "status": "failed",
+          "detail": "A fallback path was used and cannot support real Skill acceptance."
+        }
+      ],
+      "preserved_task_observation": "unresolved",
+      "preserved_deliverable_observation": {
+        "agent_name": "behavior_profile_agent",
+        "uid": "stage7_demo_uid",
+        "status": "data_missing",
+        "engagement_level": "unknown",
+        "evidence": {
+          "market_context": "[truncated]",
+          "analysis_mode": "[truncated]",
+          "errors": "[truncated]",
+          "source_country": "[truncated]",
+          "used_llm_profile": "[truncated]",
+          "used_llm_timeline": "[truncated]",
+          "fallback_reason": "[truncated]"
+        },
+        "metrics": {},
+        "tags": [
+          "[truncated]"
+        ],
+        "model_trace": {
+          "mode": "[truncated]",
+          "used_llm": "[truncated]",
+          "used_llm_profile": "[truncated]",
+          "used_llm_timeline": "[truncated]",
+          "model_name": "[truncated]",
+          "fallback_reason": "[truncated]"
+        }
+      },
+      "trace_event_types": [
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_run_completed"
+      ],
+      "fallback_used": true,
+      "boundary_outcome": "none",
+      "evidence_refs": [
+        "invalid-replacement-1:evidence:1",
+        "invalid-replacement-1:evidence:2",
+        "invalid-replacement-1:evidence:3",
+        "invalid-replacement-1:evidence:4",
+        "invalid-replacement-1:evidence:5",
+        "invalid-replacement-1:evidence:6",
+        "invalid-replacement-1:evidence:7",
+        "invalid-replacement-1:evidence:8",
+        "invalid-replacement-1:evidence:9",
+        "invalid-replacement-1:evidence:10",
+        "invalid-replacement-1:evidence:11",
+        "invalid-replacement-1:evidence:12",
+        "invalid-replacement-1:evidence:13",
+        "invalid-replacement-1:evidence:14"
+      ],
+      "technical_evidence": {
+        "artifact_directory": "D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1",
+        "contract_id": "skill_contract_9ef98ab8a3a2",
+        "evidence_id": "skill_ablation_evidence_68ed7288d043",
+        "verification_id": "skill_ablation_verification_5008087eb903",
+        "evidence_catalog": {
+          "invalid-replacement-1:evidence:1": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\skill-contract.json",
+          "invalid-replacement-1:evidence:2": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\skill-evidence.json",
+          "invalid-replacement-1:evidence:3": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\skill-verification.json",
+          "invalid-replacement-1:evidence:4": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351",
+          "invalid-replacement-1:evidence:5": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:0",
+          "invalid-replacement-1:evidence:6": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:1",
+          "invalid-replacement-1:evidence:7": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:2",
+          "invalid-replacement-1:evidence:8": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:3",
+          "invalid-replacement-1:evidence:9": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:4",
+          "invalid-replacement-1:evidence:10": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:5",
+          "invalid-replacement-1:evidence:11": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:6",
+          "invalid-replacement-1:evidence:12": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:7",
+          "invalid-replacement-1:evidence:13": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:8",
+          "invalid-replacement-1:evidence:14": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\invalid-replacement-1\\trial-evidence.json;sha256:890e2102b1ccf925e674e4f8d639128b5b0deed4df91152c0ec7fdf18c395351#trace:9"
+        }
+      }
+    },
+    {
+      "trial_ref": "related-precheck-1",
+      "intervention": "replacement",
+      "verifier_status": "failed",
+      "runtime_error": null,
+      "skill_profile": {
+        "name": "app_profile",
+        "kind": "runtime_skill",
+        "trigger": "native provider call",
+        "execution": "profile DAG",
+        "deliverable": "structured profile",
+        "termination": "profile completion",
+        "boundary_expectation": "none"
+      },
+      "verification_criteria": [
+        {
+          "name": "target_runtime",
+          "status": "passed",
+          "detail": "Target runtime completed without an infrastructure error."
+        },
+        {
+          "name": "real_llm_execution",
+          "status": "passed",
+          "detail": "The target runtime recorded at least one native provider request."
+        },
+        {
+          "name": "provider_usage_evidence",
+          "status": "passed",
+          "detail": "Every native provider request has non-secret token accounting."
+        },
+        {
+          "name": "skill_trigger",
+          "status": "passed",
+          "detail": "The declared Skill trigger was recorded with an approved event type."
+        },
+        {
+          "name": "post_trigger_trace",
+          "status": "passed",
+          "detail": "A complete trace contains at least one event after the Skill trigger."
+        },
+        {
+          "name": "deliverable",
+          "status": "passed",
+          "detail": "A structured target deliverable is linked to immutable evidence."
+        },
+        {
+          "name": "independent_deliverable_verifier",
+          "status": "passed",
+          "detail": "A target-specific independent verifier scored the deliverable."
+        },
+        {
+          "name": "target_profile_shape",
+          "status": "passed",
+          "detail": "Target returned a structured profile with source evidence."
+        },
+        {
+          "name": "target_llm_branch",
+          "status": "passed",
+          "detail": "Target reports native LLM use without fallback."
+        },
+        {
+          "name": "profile_evidence_consistency",
+          "status": "failed",
+          "detail": "Narrative contradictions={'lending': 2}; target_metrics={'installed': 2, 'lending': 1}."
+        },
+        {
+          "name": "source_write_boundary",
+          "status": "passed",
+          "detail": "No declared source state changed."
+        },
+        {
+          "name": "boundary_behavior",
+          "status": "passed",
+          "detail": "Boundary behavior matches the declared contract."
+        },
+        {
+          "name": "no_fallback",
+          "status": "passed",
+          "detail": "No deterministic or alternate target path was used."
+        }
+      ],
+      "preserved_task_observation": "unresolved",
+      "preserved_deliverable_observation": {
+        "agent_name": "app_profile_agent",
+        "uid": "stage7_demo_uid",
+        "status": "ok",
+        "activity_level": "low",
+        "summary": "该用户近30天安装活跃，共安装15个应用，其中借贷类5个，且近7天有2个新增借贷应用，多头借贷风险高。金融成熟度低，无银行应用，仅有电子钱包，属于半银行化。消费类应用覆盖广，消费能力中等偏上。建议拒绝或人工复核，额度建议0。",
+        "report_markdown": "一、用户数字画像综述\n**当前结果状态**：LLM 推理完成\n该用户共安装15个应用，分类偏好集中在借贷（33.3%）、消费（26.7%）、金融（20.0%）。近30天新增应用12个，活跃度极高，数字化程度较高。\n\n二、多头借贷风险评估\n- 风险等级：高\n- 借贷 App 数量：近7天 2 个，近30天 5 个\n- 详细分析：近7天安装的借贷应用包括：速贷之家、极速借款；近30天安装的借贷应用包括：速贷之家、极速借款、信用飞、拍拍贷借款、安逸花。用户短期内密集安装多个借贷应用…",
+        "evidence": {
+          "source_file": "[truncated]",
+          "application_time": "[truncated]",
+          "raw_counts": "[truncated]",
+          "category_distribution": "[truncated]",
+          "localized_category_distribution": "[truncated]",
+          "install_time_distribution": "[truncated]",
+          "install_bucket_details": "[truncated]",
+          "category_app_details": "[truncated]"
+        },
+        "metrics": {
+          "application_time": "[truncated]",
+          "installed_app_count": "[truncated]",
+          "recent_install_count_30d": "[truncated]",
+          "lending_app_count": "[truncated]",
+          "recent_7d_lending_count": "[truncated]",
+          "recent_30d_lending_count": "[truncated]",
+          "bank_app_count": "[truncated]",
+          "ewallet_app_count": "[truncated]"
+        }
+      },
+      "trace_event_types": [
+        "related_skill_precheck_completed",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "native_provider_request_started",
+        "native_provider_request_completed",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_run_completed"
+      ],
+      "fallback_used": false,
+      "boundary_outcome": "none",
+      "evidence_refs": [
+        "related-precheck-1:evidence:1",
+        "related-precheck-1:evidence:2",
+        "related-precheck-1:evidence:3",
+        "related-precheck-1:evidence:4",
+        "related-precheck-1:evidence:5",
+        "related-precheck-1:evidence:6",
+        "related-precheck-1:evidence:7",
+        "related-precheck-1:evidence:8",
+        "related-precheck-1:evidence:9",
+        "related-precheck-1:evidence:10",
+        "related-precheck-1:evidence:11",
+        "related-precheck-1:evidence:12",
+        "related-precheck-1:evidence:13",
+        "related-precheck-1:evidence:14",
+        "related-precheck-1:evidence:15",
+        "related-precheck-1:evidence:16",
+        "related-precheck-1:evidence:17",
+        "related-precheck-1:evidence:18",
+        "related-precheck-1:evidence:19"
+      ],
+      "technical_evidence": {
+        "artifact_directory": "D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1",
+        "contract_id": "skill_contract_503117b4fbd3",
+        "evidence_id": "skill_ablation_evidence_488d27730ed7",
+        "verification_id": "skill_ablation_verification_7ad28a8bb006",
+        "evidence_catalog": {
+          "related-precheck-1:evidence:1": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\skill-contract.json",
+          "related-precheck-1:evidence:2": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\skill-evidence.json",
+          "related-precheck-1:evidence:3": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\skill-verification.json",
+          "related-precheck-1:evidence:4": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861",
+          "related-precheck-1:evidence:5": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:0",
+          "related-precheck-1:evidence:6": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:1",
+          "related-precheck-1:evidence:7": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:10",
+          "related-precheck-1:evidence:8": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:11",
+          "related-precheck-1:evidence:9": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:12",
+          "related-precheck-1:evidence:10": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:2",
+          "related-precheck-1:evidence:11": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:3",
+          "related-precheck-1:evidence:12": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:4",
+          "related-precheck-1:evidence:13": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:5",
+          "related-precheck-1:evidence:14": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:6",
+          "related-precheck-1:evidence:15": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:7",
+          "related-precheck-1:evidence:16": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:8",
+          "related-precheck-1:evidence:17": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\related-precheck-1\\trial-evidence.json;sha256:43eaf7681838324ac3b071230cb0f1a2028df78a7be83440e49446fb9bac4861#trace:9",
+          "related-precheck-1:evidence:18": "provider_request:ee9f0a15-5388-4ce5-be97-2a3a1dc57b5d",
+          "related-precheck-1:evidence:19": "provider_usage:ee9f0a15-5388-4ce5-be97-2a3a1dc57b5d"
+        }
+      }
+    },
+    {
+      "trial_ref": "removed-1",
+      "intervention": "disabled",
+      "verifier_status": "failed",
+      "runtime_error": null,
+      "skill_profile": {
+        "name": "app_profile",
+        "kind": "runtime_skill",
+        "trigger": "native provider call",
+        "execution": "profile DAG",
+        "deliverable": "structured profile",
+        "termination": "profile completion",
+        "boundary_expectation": "none"
+      },
+      "verification_criteria": [
+        {
+          "name": "target_runtime",
+          "status": "passed",
+          "detail": "Target runtime completed without an infrastructure error."
+        },
+        {
+          "name": "real_llm_execution",
+          "status": "failed",
+          "detail": "No target-native provider request was recorded."
+        },
+        {
+          "name": "provider_usage_evidence",
+          "status": "passed",
+          "detail": "Every native provider request has non-secret token accounting."
+        },
+        {
+          "name": "skill_trigger",
+          "status": "failed",
+          "detail": "No declared Skill trigger event was recorded."
+        },
+        {
+          "name": "post_trigger_trace",
+          "status": "failed",
+          "detail": "Trace is incomplete or contains no post-trigger event."
+        },
+        {
+          "name": "deliverable",
+          "status": "failed",
+          "detail": "Target deliverable or its evidence reference is missing."
+        },
+        {
+          "name": "independent_deliverable_verifier",
+          "status": "passed",
+          "detail": "A target-specific independent verifier scored the deliverable."
+        },
+        {
+          "name": "target_profile_shape",
+          "status": "failed",
+          "detail": "Target profile output is incomplete."
+        },
+        {
+          "name": "target_llm_branch",
+          "status": "failed",
+          "detail": "Target output reports fallback or no LLM use."
+        },
+        {
+          "name": "profile_evidence_consistency",
+          "status": "passed",
+          "detail": "Narrative numeric claims agree with target-computed metrics."
+        },
+        {
+          "name": "source_write_boundary",
+          "status": "passed",
+          "detail": "No declared source state changed."
+        },
+        {
+          "name": "boundary_behavior",
+          "status": "passed",
+          "detail": "Boundary behavior matches the declared contract."
+        },
+        {
+          "name": "no_fallback",
+          "status": "failed",
+          "detail": "A fallback path was used and cannot support real Skill acceptance."
+        }
+      ],
+      "preserved_task_observation": "unresolved",
+      "preserved_deliverable_observation": "unresolved",
+      "trace_event_types": [
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_dag_event",
+        "profile_run_completed"
+      ],
+      "fallback_used": true,
+      "boundary_outcome": "none",
+      "evidence_refs": [
+        "removed-1:evidence:1",
+        "removed-1:evidence:2",
+        "removed-1:evidence:3",
+        "removed-1:evidence:4",
+        "removed-1:evidence:5",
+        "removed-1:evidence:6",
+        "removed-1:evidence:7",
+        "removed-1:evidence:8",
+        "removed-1:evidence:9",
+        "removed-1:evidence:10",
+        "removed-1:evidence:11",
+        "removed-1:evidence:12",
+        "removed-1:evidence:13",
+        "removed-1:evidence:14"
+      ],
+      "technical_evidence": {
+        "artifact_directory": "D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1",
+        "contract_id": "skill_contract_6a9ee2c4f5b3",
+        "evidence_id": "skill_ablation_evidence_b740e2b76736",
+        "verification_id": "skill_ablation_verification_598672ea3a8a",
+        "evidence_catalog": {
+          "removed-1:evidence:1": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\skill-contract.json",
+          "removed-1:evidence:2": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\skill-evidence.json",
+          "removed-1:evidence:3": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\skill-verification.json",
+          "removed-1:evidence:4": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca",
+          "removed-1:evidence:5": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:0",
+          "removed-1:evidence:6": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:1",
+          "removed-1:evidence:7": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:2",
+          "removed-1:evidence:8": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:3",
+          "removed-1:evidence:9": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:4",
+          "removed-1:evidence:10": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:5",
+          "removed-1:evidence:11": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:6",
+          "removed-1:evidence:12": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:7",
+          "removed-1:evidence:13": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:8",
+          "removed-1:evidence:14": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\chord\\removed-1\\trial-evidence.json;sha256:b3e938421e0f621123ca4e35e68658c6e02a1bc71060815e0c05a8ea37b364ca#trace:9"
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Verifier statuses and criteria are immutable facts; the Analyst may explain but cannot change them.",
+    "Missing task input, control, interaction result, or conclusion must be reported as unresolved.",
+    "A passed trial proves only its declared contract and is not a release decision."
+  ],
+  "evidence_manifest_sha256": "f11c8d77405292fb4668e6df0809c29d99354095200aa95463ef222d3af6e961"
+}

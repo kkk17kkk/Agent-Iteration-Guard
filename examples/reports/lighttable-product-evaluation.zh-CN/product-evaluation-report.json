@@ -1,0 +1,145 @@
+{
+  "schema_version": "1",
+  "evidence_manifest_sha256": "475683d499ee60e1f752a9f797f5ef000cc937026345d882ddf8f2f80437c6f4",
+  "analyst": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "provider_request_id": "a8746af3-feb8-45ac-9425-895216496ae6",
+    "input_tokens": 8001,
+    "output_tokens": 2190,
+    "cache_hit_tokens": 0,
+    "request_fingerprint": "c9d4a21aa91596775a1bc4adab3dfb17f856ab43100b7dc6b56eac2b780c7e7f",
+    "response_fingerprint": "1e0f9ea3b8c480382c518bd1741e9ee9283fc5ab8bc6c4d4b6ead1992b2eb6da"
+  },
+  "analysis": {
+    "summary": "LightTable 的 recipe_planning Skill 消融评估共 5 次试验：enabled-1 与 related_precheck-1 通过，invalid_replacement-1 因超时基础设施错误，invalid_replacement-2 与 removed-1 失败。核心发现：Skill 启用时能正确触发原生 provider 调用并生成符合忌口约束的结构化菜谱；移除 Skill 后无原生调用、无触发事件，但仍有结构化输出（疑似走通用路径）；替换为无效实现时出现 fallback 且约束遵守失败。整体验证了 Skill 的触发与约束执行价值，但替换/移除场景的边界行为需进一步确认。",
+    "skill_profile": "recipe_planning 为声明式能力：触发条件是目标发起原生菜谱规划 provider 调用；执行由原生目标菜谱规划器使用声明 provider 完成；交付物为结构化膳食方案；终止条件为生成方案或发出 fallback 轨迹；边界期望为 none。enabled-1 与 related_precheck-1 完整满足全部 12 项验证标准，证明该 Skill 契约可被真实执行。",
+    "evaluation_design": "消融设计覆盖四种干预：enabled（启用）、replacement（替换为无效/相关实现）、disabled（移除）。每 arm 以同一任务输入（目标 maintain、2 人、20 分钟预算、忌口鸡蛋）运行，由独立 verifier 按 12 项标准评分，含真实 LLM 执行、触发事件、交付物、约束遵守、SQLite 写边界与 fallback 检测。",
+    "comparison_examples": "有 Skill（enabled-1）：触发 recipe_planning_generated，原生 provider 调用，方案排除忌口鸡蛋，无 fallback。无 Skill（removed-1）：仅 recipe_planning_removed 事件，无原生调用、无触发，但仍有结构化输出与 shopping_suggestions，约束遵守失败。对比显示 Skill 是约束执行与原生路径的关键载体。",
+    "skill_ablation_analysis": "移除 Skill 后（removed-1）无原生 provider 调用、无触发事件，但目标仍返回结构化方案，说明存在 Skill 之外的通用生成路径；该路径未遵守忌口约束。替换为无效实现（invalid_replacement-2）触发 fallback 且约束遵守失败，但 deliverable 仍通过，提示 fallback 路径可能绕过 Skill 契约。enabled 与 related_precheck 均通过，证明 Skill 本身可稳定工作。",
+    "skill_interaction_analysis": "related_precheck-1 显示 Skill 与 precheck 事件（recipe_planning_precheck_completed）协同：precheck 完成后进入原生 provider 调用并生成方案，约束遵守通过。invalid_replacement-1 因超时中断，precheck/fallback 交互未完成，无法评估。Skill 与 precheck 的衔接在正常路径下有效，但异常路径的交互证据不足。",
+    "final_assessment": "触发可靠性：enabled 与 related_precheck 均正确记录触发事件，removed 无触发符合预期，触发机制可靠。执行质量：启用时走原生 provider 且无 fallback，执行路径正确。输出质量：启用时方案排除忌口鸡蛋、结构完整；移除/替换时约束遵守失败，输出质量依赖 Skill。边界控制：SQLite 写边界在多数 arm 通过，invalid_replacement-1 因超时越界。总体有效性：Skill 对约束执行与原生路径有实质价值，但替换/移除场景暴露通用 fallback 路径可绕过契约，需加固。下一步：修复替换场景的 fallback 绕过、补充超时重试，并验证 removed 路径的通用输出是否应被拦截。",
+    "limitations": "invalid_replacement-1 因 TimeoutError 中断，其约束与边界结论不可用。removed-1 的通用输出路径来源未完全定位。任务输入、控制组与交互结论部分缺失，相关项按 unresolved 处理。通过试验仅证明声明契约，不构成发布决定。",
+    "experiment_results": [
+      {
+        "arm": "enabled-1",
+        "status": "passed",
+        "explanation": "Skill 启用：触发 recipe_planning_generated，走原生 provider 调用，无 fallback；方案排除忌口鸡蛋，SQLite 写边界符合契约，12 项标准全通过。证明 Skill 正常路径完整可用。",
+        "evidence_refs": [
+          "enabled-1:evidence:1",
+          "enabled-1:evidence:2",
+          "enabled-1:evidence:3",
+          "enabled-1:evidence:4",
+          "enabled-1:evidence:5",
+          "enabled-1:evidence:6",
+          "enabled-1:evidence:7",
+          "enabled-1:evidence:8",
+          "enabled-1:evidence:9"
+        ]
+      },
+      {
+        "arm": "invalid_replacement-1-interrupted",
+        "status": "infrastructure_error",
+        "explanation": "替换为无效实现但超时中断：有原生调用与触发，但 trace 不完整、无 post-trigger 事件，deliverable 缺失，SQLite 越界，fallback 被使用。因 TimeoutError 无法得出有效结论。",
+        "evidence_refs": [
+          "invalid_replacement-1-interrupted:evidence:1",
+          "invalid_replacement-1-interrupted:evidence:2",
+          "invalid_replacement-1-interrupted:evidence:3",
+          "invalid_replacement-1-interrupted:evidence:4",
+          "invalid_replacement-1-interrupted:evidence:5",
+          "invalid_replacement-1-interrupted:evidence:6",
+          "invalid_replacement-1-interrupted:evidence:7",
+          "invalid_replacement-1-interrupted:evidence:8",
+          "invalid_replacement-1-interrupted:evidence:9"
+        ]
+      },
+      {
+        "arm": "invalid_replacement-2",
+        "status": "failed",
+        "explanation": "替换为无效实现：触发事件存在但无 post-trigger 事件，走 fallback 路径；deliverable 与响应形状通过，但约束遵守失败（含忌口鸡蛋），no_fallback 失败。证明无效替换会绕过 Skill 契约。",
+        "evidence_refs": [
+          "invalid_replacement-2:evidence:1",
+          "invalid_replacement-2:evidence:2",
+          "invalid_replacement-2:evidence:3",
+          "invalid_replacement-2:evidence:4",
+          "invalid_replacement-2:evidence:5",
+          "invalid_replacement-2:evidence:6",
+          "invalid_replacement-2:evidence:7",
+          "invalid_replacement-2:evidence:8",
+          "invalid_replacement-2:evidence:9",
+          "invalid_replacement-2:evidence:10",
+          "invalid_replacement-2:evidence:11",
+          "invalid_replacement-2:evidence:12"
+        ]
+      },
+      {
+        "arm": "related_precheck-1",
+        "status": "passed",
+        "explanation": "相关 precheck 替换：precheck 完成后进入原生 provider 调用并生成方案，约束遵守通过，无 fallback，12 项标准全通过。证明 Skill 与 precheck 协同路径正常。",
+        "evidence_refs": [
+          "related_precheck-1:evidence:1",
+          "related_precheck-1:evidence:2",
+          "related_precheck-1:evidence:3",
+          "related_precheck-1:evidence:4",
+          "related_precheck-1:evidence:5",
+          "related_precheck-1:evidence:6",
+          "related_precheck-1:evidence:7",
+          "related_precheck-1:evidence:8",
+          "related_precheck-1:evidence:9",
+          "related_precheck-1:evidence:10"
+        ]
+      },
+      {
+        "arm": "removed-1",
+        "status": "failed",
+        "explanation": "移除 Skill：仅 recipe_planning_removed 事件，无原生调用、无触发、无 post-trigger；但仍有结构化输出与 shopping_suggestions，约束遵守失败。证明存在 Skill 之外的通用生成路径且不遵守忌口。",
+        "evidence_refs": [
+          "removed-1:evidence:1",
+          "removed-1:evidence:2",
+          "removed-1:evidence:3",
+          "removed-1:evidence:4",
+          "removed-1:evidence:5"
+        ]
+      }
+    ],
+    "citations": {
+      "summary": [
+        "enabled-1:evidence:1",
+        "invalid_replacement-2:evidence:3",
+        "removed-1:evidence:3",
+        "related_precheck-1:evidence:3"
+      ],
+      "skill_profile": [
+        "enabled-1:evidence:1",
+        "related_precheck-1:evidence:1"
+      ],
+      "evaluation_design": [
+        "enabled-1:evidence:3",
+        "invalid_replacement-2:evidence:3",
+        "removed-1:evidence:3"
+      ],
+      "comparison_examples": [
+        "enabled-1:evidence:5",
+        "removed-1:evidence:5"
+      ],
+      "skill_ablation_analysis": [
+        "removed-1:evidence:5",
+        "invalid_replacement-2:evidence:5",
+        "enabled-1:evidence:5"
+      ],
+      "skill_interaction_analysis": [
+        "related_precheck-1:evidence:5",
+        "invalid_replacement-1-interrupted:evidence:2"
+      ],
+      "final_assessment": [
+        "enabled-1:evidence:3",
+        "invalid_replacement-2:evidence:3",
+        "removed-1:evidence:3"
+      ],
+      "limitations": [
+        "invalid_replacement-1-interrupted:evidence:1",
+        "removed-1:evidence:5"
+      ]
+    }
+  }
+}

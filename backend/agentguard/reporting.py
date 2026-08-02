@@ -19,6 +19,10 @@ from .domain import (
     ReportManifest,
     ReportNarrative,
     ReportNarrativeSection,
+    SkillAblationAnalysis,
+    SkillAblationEvidence,
+    SkillAblationVerification,
+    SkillDimensionNarrative,
     StalePropagation,
 )
 from .store import Store
@@ -44,6 +48,14 @@ _CATEGORY_LABELS = {
     "write_boundary": "写入边界",
     "control_plane_agent": "控制平面 Agent",
     "version_memory": "版本记忆",
+    "skill_trigger": "Skill 触发",
+    "skill_trace": "触发后的执行过程",
+    "skill_deliverable": "交付结果",
+    "skill_boundary": "边界行为",
+    "skill_trigger_analysis": "触发解读",
+    "skill_trace_analysis": "过程解读",
+    "skill_deliverable_analysis": "交付解读",
+    "skill_boundary_analysis": "边界解读",
 }
 
 _METRIC_LABELS = {
@@ -58,6 +70,22 @@ _METRIC_LABELS = {
     "case_binding_cost_before_report_usd": "报告前累计成本 USD",
     "approved_control_plane_and_report_budget_usd": "批准预算 USD",
     "budget_remaining_before_report_usd": "报告前剩余预算 USD",
+    "skill_ablation_runs": "Skill 消融运行数",
+    "skill_ablation_passes": "完整证据通过数",
+}
+
+_SKILL_DIMENSIONS = {
+    "trigger": "skill_trigger",
+    "trace": "skill_trace",
+    "deliverable": "skill_deliverable",
+    "boundary": "skill_boundary",
+}
+
+_SKILL_DIMENSION_LABELS = {
+    "trigger": "触发时刻",
+    "trace": "触发后的过程",
+    "deliverable": "任务交付物",
+    "boundary": "边界与异常",
 }
 
 _GATE_LABELS = {
@@ -210,6 +238,64 @@ def build_report_manifest(
                 for verification in (*baseline_verifications, *candidate_verifications)
             ],
         ))
+    skill_verifications = [
+        item for item in store.list("skill_ablation_verification", SkillAblationVerification, project_id)
+        if item.evolution_case_id == evolution_case_id
+    ]
+    skill_evidence = {
+        item.skill_ablation_evidence_id: item
+        for item in store.list("skill_ablation_evidence", SkillAblationEvidence, project_id)
+        if item.evolution_case_id == evolution_case_id
+    }
+    skill_analyses = {
+        item.skill_ablation_evidence_id: item
+        for item in store.list("skill_ablation_analysis", SkillAblationAnalysis, project_id)
+        if item.evolution_case_id == evolution_case_id
+    }
+    for dimension, criterion_name in (
+        ("trigger", "skill_trigger"),
+        ("trace", "post_trigger_trace"),
+        ("deliverable", "deliverable"),
+        ("boundary", "boundary_behavior"),
+    ):
+        observed = [
+            (verification, next((criterion for criterion in verification.criteria if criterion.name == criterion_name), None))
+            for verification in skill_verifications
+        ]
+        observed = [(verification, criterion) for verification, criterion in observed if criterion]
+        if not observed:
+            continue
+        statuses = [criterion.status for _, criterion in observed]
+        refs = [
+            ref for verification, criterion in observed
+            for ref in (verification.skill_ablation_verification_id, *criterion.evidence_refs)
+        ]
+        facts.append(ReportFact(
+            category=_SKILL_DIMENSIONS[dimension],
+            statement=(
+                f"{_SKILL_DIMENSION_LABELS[dimension]}：在 {len(observed)} 次 Skill 消融运行中，"
+                f"{sum(status == 'passed' for status in statuses)} 次证据完整，"
+                f"{sum(status == 'failed' for status in statuses)} 次未达到要求。"
+            ),
+            evidence_level="verified",
+            evidence_refs=list(dict.fromkeys(refs)),
+        ))
+        analysis_values = [
+            getattr(analysis, f"{dimension}_analysis")
+            for evidence_id, analysis in skill_analyses.items()
+            if evidence_id in {verification.skill_ablation_evidence_id for verification, _ in observed}
+        ]
+        if analysis_values:
+            facts.append(ReportFact(
+                category=f"{_SKILL_DIMENSIONS[dimension]}_analysis",
+                statement="；".join(analysis_values),
+                evidence_level="inferred",
+                evidence_refs=[
+                    analysis.skill_ablation_analysis_id
+                    for evidence_id, analysis in skill_analyses.items()
+                    if evidence_id in {verification.skill_ablation_evidence_id for verification, _ in observed}
+                ],
+            ))
     all_binding_runs = [
         item for item in store.list("evolution_agent_run", EvolutionAgentRun, project_id)
         if item.provider_binding_id == run.provider_binding_id
@@ -254,11 +340,14 @@ def build_report_manifest(
         "case_binding_cost_before_report_usd": round(binding_spend, 12),
         "approved_control_plane_and_report_budget_usd": binding.batch_budget_usd,
         "budget_remaining_before_report_usd": round(binding.batch_budget_usd - binding_spend, 12),
+        "skill_ablation_runs": len(skill_verifications),
+        "skill_ablation_passes": sum(item.status == "passed" for item in skill_verifications),
     }
     evidence_refs = [
         comparison.evolution_comparison_id,
         *(trial.evolution_trial_id for pair in paired for trial in (pair[0], pair[2])),
         run.evolution_agent_run_id,
+        *(item.skill_ablation_verification_id for item in skill_verifications),
     ]
     manifest = ReportManifest(
         project_id=project_id,
@@ -319,6 +408,23 @@ class ReportNarrativeAdapter:
                                     "additionalProperties": False,
                                 },
                             },
+                            "skill_ablation_summary": {"type": "string"},
+                            "skill_dimensions": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "dimension": {
+                                            "type": "string",
+                                            "enum": ["trigger", "trace", "deliverable", "boundary"],
+                                        },
+                                        "fact_refs": {"type": "array", "items": {"type": "string"}},
+                                        "conclusion": {"type": "string"},
+                                    },
+                                    "required": ["dimension", "fact_refs", "conclusion"],
+                                    "additionalProperties": False,
+                                },
+                            },
                             "limitations": {"type": "array", "items": {"type": "string"}},
                         },
                         "required": ["title", "executive_summary", "sections", "limitations"],
@@ -356,9 +462,42 @@ class ReportNarrativeAdapter:
         required_refs = {item.fact_id for item in self.manifest.facts if item.category in required_categories}
         if not required_refs <= observed:
             raise ValueError("Narrative must cover baseline, candidate, and pair-equivalence facts")
+        skill_dimensions = arguments.get("skill_dimensions", [])
+        skill_categories = {category for category in _SKILL_DIMENSIONS.values() if any(
+            fact.category == category for fact in self.manifest.facts
+        )}
+        skill_summary = arguments.get("skill_ablation_summary")
+        if skill_categories:
+            if not isinstance(skill_summary, str) or not skill_summary.strip():
+                raise ValueError("Skill ablation report requires a concise plain-language summary")
+            if not isinstance(skill_dimensions, list) or {item.get("dimension") for item in skill_dimensions if isinstance(item, dict)} != set(_SKILL_DIMENSIONS):
+                raise ValueError("Skill ablation report requires exactly trigger, trace, deliverable, and boundary conclusions")
+            for item in skill_dimensions:
+                if not isinstance(item, dict):
+                    raise ValueError("Each Skill dimension conclusion must be an object")
+                dimension = item.get("dimension")
+                refs = item.get("fact_refs")
+                conclusion = item.get("conclusion")
+                if (
+                    not isinstance(dimension, str)
+                    or not isinstance(refs, list)
+                    or not refs
+                    or not all(isinstance(ref, str) for ref in refs)
+                    or not isinstance(conclusion, str)
+                    or not conclusion.strip()
+                ):
+                    raise ValueError("Each Skill dimension conclusion requires a cited non-empty conclusion")
+                required_category = _SKILL_DIMENSIONS[dimension]
+                if not any(fact.category == required_category and fact.fact_id in refs for fact in self.manifest.facts):
+                    raise ValueError("Each Skill dimension conclusion must cite its verified evidence fact")
+        elif skill_dimensions or skill_summary:
+            raise ValueError("Skill ablation narrative is only valid when immutable Skill facts are present")
         text_values = [str(arguments.get("title", "")), str(arguments.get("executive_summary", ""))]
         text_values.extend(str(section.get("heading", "")) for section in sections if isinstance(section, dict))
         text_values.extend(str(section.get("interpretation", "")) for section in sections if isinstance(section, dict))
+        if isinstance(skill_summary, str):
+            text_values.append(skill_summary)
+        text_values.extend(str(item.get("conclusion", "")) for item in skill_dimensions if isinstance(item, dict))
         limitations = arguments.get("limitations")
         if not isinstance(limitations, list) or not all(isinstance(item, str) for item in limitations):
             raise ValueError("limitations must be a list of strings")
@@ -375,6 +514,7 @@ class ReportNarrativeAdapter:
         if not isinstance(raw, dict):
             raise ValueError("Terminal report observation is invalid")
         sections = [ReportNarrativeSection.model_validate(item) for item in raw["sections"]]
+        skill_dimensions = [SkillDimensionNarrative.model_validate(item) for item in raw.get("skill_dimensions", [])]
         fact_refs = list(dict.fromkeys(ref for section in sections for ref in section.fact_refs))
         narrative = ReportNarrative(
             project_id=project_id,
@@ -386,6 +526,9 @@ class ReportNarrativeAdapter:
             title=str(raw["title"]),
             executive_summary=str(raw["executive_summary"]),
             sections=sections,
+            skill_ablation_summary=str(raw["skill_ablation_summary"]).strip()
+            if isinstance(raw.get("skill_ablation_summary"), str) else None,
+            skill_dimensions=skill_dimensions,
             limitations=[str(item) for item in raw["limitations"]],
             fact_refs=fact_refs,
             evaluation_gate_snapshot=self.manifest.evaluation_gate,
@@ -415,7 +558,7 @@ def record_blocked_report(store: Store, manifest: ReportManifest, report_run: Ev
     return narrative
 
 
-def render_report_html(manifest: ReportManifest, narrative: ReportNarrative, *, sample: bool = False) -> str:
+def _render_report_html_legacy(manifest: ReportManifest, narrative: ReportNarrative, *, sample: bool = False) -> str:
     facts = {item.fact_id: item for item in manifest.facts}
     fact_cards = []
     indexed_facts: set[str] = set()
@@ -496,4 +639,69 @@ def render_report_html(manifest: ReportManifest, narrative: ReportNarrative, *, 
   <div class="content"><div class="narratives">{''.join(sections)}</div><aside class="sidebar"><section class="panel fact-index"><span class="eyebrow">Fact Index</span><h2>不可变事实索引</h2><ul>{''.join(fact_cards)}</ul></section><section class="panel limits"><span class="eyebrow">Scope</span><h2>限制与适用边界</h2><ul>{limitations}</ul></section></aside></div>
   <section class="panel technical"><div><span>Manifest 指纹</span><code>{html.escape(manifest.manifest_fingerprint)}</code></div><div><span>环境指纹</span><code>{html.escape(manifest.environment_fingerprint)}</code></div><div><span>ReportManifest</span><code>{html.escape(manifest.report_manifest_id)}</code></div><div><span>ReportNarrative</span><code>{html.escape(narrative.report_narrative_id)}</code></div></section>
   <footer>事实层来自不可变 ReportManifest。中文叙事层为 inferred，仅帮助阅读，不能改变 Gate、指标或发布状态。</footer>
+</main></body></html>"""
+
+
+def render_report_html(manifest: ReportManifest, narrative: ReportNarrative, *, sample: bool = False) -> str:
+    """Render the public report without exposing run, task, or artifact identifiers."""
+    facts = {item.fact_id: item for item in manifest.facts}
+    detail_sections = []
+    for section in narrative.sections:
+        evidence = "".join(
+            "<li>"
+            f"<span>{html.escape(_CATEGORY_LABELS.get(facts[ref].category, facts[ref].category))}</span>"
+            f"{html.escape(facts[ref].statement)}</li>"
+            for ref in section.fact_refs
+        )
+        detail_sections.append(
+            "<section class='card detail'><h2>"
+            f"{html.escape(section.heading)}</h2><p>{html.escape(section.interpretation)}</p>"
+            f"<ul>{evidence}</ul></section>"
+        )
+    skill_cards = []
+    for dimension in narrative.skill_dimensions:
+        evidence = "".join(
+            f"<li>{html.escape(facts[ref].statement)}</li>" for ref in dimension.fact_refs
+        )
+        skill_cards.append(
+            "<article class='skill-card'><span>"
+            f"{html.escape(_SKILL_DIMENSION_LABELS[dimension.dimension])}</span>"
+            f"<h3>{html.escape(dimension.conclusion)}</h3><ul>{evidence}</ul></article>"
+        )
+    skill_block = ""
+    if narrative.skill_ablation_summary:
+        skill_block = (
+            "<section class='card skill-summary'><p class='eyebrow'>Tool / Skill 有效性结论</p>"
+            f"<h2>{html.escape(narrative.skill_ablation_summary)}</h2>"
+            f"<div class='skill-grid'>{''.join(skill_cards)}</div></section>"
+        )
+    metrics = "".join(
+        "<div class='metric'><span>"
+        f"{html.escape(_METRIC_LABELS.get(str(key), str(key)))}</span>"
+        f"<strong>{html.escape(str(value))}</strong></div>"
+        for key, value in manifest.metrics.items()
+        if key not in {"control_plane_input_tokens", "control_plane_output_tokens"}
+    )
+    limitations = "".join(f"<li>{html.escape(item)}</li>" for item in narrative.limitations)
+    gate_label = _GATE_LABELS[manifest.evaluation_gate]
+    gate_class = "good" if manifest.evaluation_gate == "candidate_behavior_supported" else "caution"
+    sample_banner = "<p class='sample'>这是展示样式，不代表新的实验结论。</p>" if sample else ""
+    return f"""<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{html.escape(narrative.title)}</title><style>
+:root{{--ink:#1a2433;--muted:#637085;--paper:#f6f8fc;--card:#fff;--line:#dfe5ef;--blue:#2458d3;--good:#13795b;--warn:#9a5b00}}
+*{{box-sizing:border-box}} body{{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 "Microsoft YaHei",system-ui,sans-serif}}
+main{{max-width:1080px;margin:auto;padding:42px 24px 64px}} h1{{font-size:36px;line-height:1.22;margin:10px 0}} h2{{font-size:21px;line-height:1.45;margin:0 0 12px}} h3{{font-size:17px;line-height:1.5;margin:7px 0 10px}}
+.brand,.eyebrow{{color:var(--blue);font-weight:700;letter-spacing:.04em}} .brand{{font-size:14px}} .lede{{max-width:820px;color:var(--muted);font-size:18px;margin:0 0 26px}} .sample{{color:var(--warn)}}
+.hero,.skill-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}} .card{{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin:16px 0;box-shadow:0 4px 14px rgba(24,42,72,.04)}}
+.verdict{{font-size:28px;font-weight:800;margin:8px 0;color:var(--good)}} .verdict.caution{{color:var(--warn)}} .hero p{{margin:6px 0;color:var(--muted)}}
+.metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:18px 0}} .metric{{background:#eef3ff;border-radius:12px;padding:14px}} .metric span{{display:block;color:var(--muted);font-size:13px}} .metric strong{{display:block;font-size:20px;margin-top:8px}}
+.skill-summary h2{{font-size:22px}} .skill-card{{border:1px solid #cfd9f1;border-radius:12px;padding:16px;background:#fbfcff}} .skill-card>span,.detail li span{{display:block;color:var(--blue);font-size:13px;font-weight:700}}
+ul{{margin:0;padding-left:20px}} li{{margin:8px 0}} .detail>p{{font-weight:600;margin:0 0 13px}} .detail ul{{color:var(--muted)}} footer{{color:var(--muted);font-size:13px;margin-top:28px}}
+@media(max-width:720px){{main{{padding:28px 16px}}.hero,.skill-grid,.metrics{{grid-template-columns:1fr}}h1{{font-size:30px}}}}
+</style></head><body><main>
+<div class="brand">Agent Iteration Guard · Tool / Skill 评测报告</div><h1>{html.escape(narrative.title)}</h1><p class="lede">{html.escape(narrative.executive_summary)}</p>{sample_banner}
+<div class="hero"><section class="card"><p class="eyebrow">本次结论</p><div class="verdict {gate_class}">{html.escape(gate_label)}</div><p>结论来自相同条件下的对照运行与独立核验，不等同于发布批准。</p></section><section class="card"><p class="eyebrow">我们如何得到结论</p><h2>真实运行、独立核验、再用自然语言解释</h2><p>系统记录触发、执行过程、交付物和边界行为；DeepSeek 只负责把已核验的结果讲清楚。</p></section></div>
+<section class="metrics">{metrics}</section>{skill_block}<section class="card"><p class="eyebrow">过程与证据</p><h2>哪些事实支持了本次结论</h2>{''.join(detail_sections)}</section>
+<section class="card"><p class="eyebrow">适用范围</p><ul>{limitations}</ul></section><footer>报告隐去运行与任务编号；底层不可变证据仍由本地评测记录保存并可审计。</footer>
 </main></body></html>"""

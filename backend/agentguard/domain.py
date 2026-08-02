@@ -28,7 +28,7 @@ RunEventType = Literal[
     "TRIAL_STARTED", "TRIAL_COMPLETED", "METRICS_RECORDED", "REPLAY_RECORDED", "ABLATION_RECORDED",
     "REPLAN_RECORDED", "ENVIRONMENT_CAPTURE_RECORDED",
     "BATCH_CREATED", "BATCH_ITEM_COMPLETED", "BATCH_CHECKPOINT_COMMITTED", "BATCH_RECORDED",
-    "ACTION_PLANNED", "ACTION_COMPLETED", "OBSERVATION_RECORDED", "STAGE2_CHECKPOINT_COMMITTED", "STAGE2_MODEL_RESPONSE_REJECTED",
+    "ACTION_PLANNED", "ACTION_COMPLETED", "OBSERVATION_RECORDED",
 ]
 MutationKind = Literal["prompt", "skill", "tool_schema", "permission", "workflow", "retry_idempotency"]
 
@@ -349,232 +349,6 @@ class ToolPolicy(BaseModel):
     created_at: str = Field(default_factory=now)
 
 
-Stage2ActionKind = Literal["read_file", "write_file", "delete_file", "finish"]
-Stage2ActionStatus = Literal["planned", "running", "completed", "blocked", "failed"]
-Stage2RunStatus = Literal["created", "running", "blocked", "finished", "failed", "budget_exhausted"]
-
-
-class AgentAction(BaseModel):
-    """The only command a Stage 2 model may send to the Harness."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    action_id: str = Field(default_factory=lambda: ident("action"))
-    agent_run_id: str
-    step: int = Field(ge=1)
-    kind: Stage2ActionKind
-    path: str | None = None
-    content: str | None = None
-    expected_observation_fingerprint: str | None = None
-    approval_required: bool = False
-    approval_token: str | None = None
-    status: Stage2ActionStatus = "planned"
-    tool_calls: list[ToolCall] = Field(default_factory=list)
-    result: str | None = None
-    error: str | None = None
-    created_at: str = Field(default_factory=now)
-
-
-class AgentObservation(BaseModel):
-    observation_id: str = Field(default_factory=lambda: ident("observation"))
-    agent_run_id: str
-    step: int = Field(ge=0)
-    state_fingerprint: str
-    files: dict[str, str] = Field(default_factory=dict)
-    changed_paths: list[str] = Field(default_factory=list)
-    last_action_id: str | None = None
-    last_action_kind: Stage2ActionKind | None = None
-    tool_result: str | None = None
-    error: str | None = None
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2AgentRun(BaseModel):
-    agent_run_id: str = Field(default_factory=lambda: ident("stage2"))
-    product_id: str
-    harness_run_id: str
-    work_item_id: str
-    stage1_batch_id: str
-    task_kind: str
-    fixture_variant: Literal["default", "needs_update", "already_satisfied"] = "default"
-    task: dict[str, object] = Field(default_factory=dict)
-    tool_manifest: dict[str, object] = Field(default_factory=dict)
-    policy_id: str
-    sandbox_path: str
-    model_kind: Literal["deterministic", "fake", "json", "http_json", "real_llm", "deepseek_tools", "trace_replay"] = "deterministic"
-    model_provider: str | None = None
-    runtime_batch_id: str | None = None
-    status: Stage2RunStatus = "created"
-    step_count: int = Field(default=0, ge=0)
-    max_steps: int = Field(default=8, ge=1, le=32)
-    action_ids: list[str] = Field(default_factory=list)
-    observation_ids: list[str] = Field(default_factory=list)
-    checkpoint_id: str | None = None
-    terminal_reason: str | None = None
-    duplicate_side_effect_count: int = Field(default=0, ge=0)
-    resumed_from_checkpoint: bool = False
-    retry_mode: Literal["stable_operation_id", "regenerate_operation_id"] = "stable_operation_id"
-    retry_mutation_applied: bool = False
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2ModelCall(BaseModel):
-    """Auditable evidence for one action proposal at the model boundary."""
-
-    model_call_id: str = Field(default_factory=lambda: ident("stage2_model_call"))
-    agent_run_id: str
-    step: int = Field(ge=1)
-    action_id: str | None = None
-    model_kind: Literal["deterministic", "fake", "json", "http_json", "real_llm", "deepseek_tools", "trace_replay"]
-    provider: str
-    model: str | None = None
-    provider_request_id: str | None = None
-    observation_fingerprint: str
-    prompt_fingerprint: str | None = None
-    response_fingerprint: str | None = None
-    native_tool_call_id: str | None = None
-    finish_reason: str | None = None
-    provider_usage_id: str | None = None
-    outcome: Literal["accepted", "invalid_response", "provider_error"] = "accepted"
-    error: str | None = None
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2RuntimeBatch(BaseModel):
-    runtime_batch_id: str = Field(default_factory=lambda: ident("stage2_runtime_batch"))
-    stage1_batch_id: str
-    product_id: str
-    model: str
-    budget_limit_usd: float = Field(gt=0)
-    max_steps_per_run: int = Field(ge=1, le=32)
-    agent_run_ids: list[str] = Field(default_factory=list)
-    status: Literal["running", "completed", "blocked", "budget_exhausted", "failed"] = "running"
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2RuntimeBudgetGate(BaseModel):
-    runtime_batch_id: str
-    status: Literal["PASS", "BLOCKED"]
-    budget_limit_usd: float = Field(ge=0)
-    observed_cost_usd: float = Field(ge=0)
-    provider_usage_ids: list[str] = Field(default_factory=list)
-    native_trace_call_ids: list[str] = Field(default_factory=list)
-    failure_reason: str | None = None
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2ReliabilityCorpus(BaseModel):
-    """A persisted, runtime-side-effect corpus; not a synthetic Oracle fixture."""
-
-    corpus_id: str = Field(default_factory=lambda: ident("stage2_reliability_corpus"))
-    stage1_batch_id: str
-    product_id: str
-    mutation_kind: Literal["retry_idempotency"] = "retry_idempotency"
-    model_kind: Literal["deterministic", "deepseek_tools"]
-    trial_count: int = Field(ge=3)
-    runtime_batch_id: str | None = None
-    trial_ids: list[str] = Field(default_factory=list)
-    replay_id: str | None = None
-    ablation_id: str | None = None
-    status: Literal["running", "completed", "blocked"] = "running"
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2ReliabilityTrial(BaseModel):
-    trial_id: str = Field(default_factory=lambda: ident("stage2_reliability_trial"))
-    corpus_id: str
-    ordinal: int = Field(ge=1)
-    retry_mode: Literal["stable_operation_id", "regenerate_operation_id"]
-    agent_run_id: str
-    crash_boundary: Literal["after_side_effect_before_commit"] = "after_side_effect_before_commit"
-    trace_fingerprint: str
-    operation_ids: list[str] = Field(default_factory=list)
-    duplicate_side_effect_count: int = Field(ge=0)
-    oracle_passed: bool
-    release_status: Literal["ready", "blocked"]
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2ReliabilityReplay(BaseModel):
-    replay_id: str = Field(default_factory=lambda: ident("stage2_reliability_replay"))
-    corpus_id: str
-    kind: Literal["replay", "ablation"]
-    source_trial_id: str
-    agent_run_id: str
-    retry_mode: Literal["stable_operation_id", "regenerate_operation_id"]
-    source_trace_fingerprint: str
-    replay_trace_fingerprint: str
-    trace_matches: bool
-    duplicate_side_effect_count: int = Field(ge=0)
-    oracle_passed: bool
-    release_status: Literal["ready", "blocked"]
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2ReliabilityGate(BaseModel):
-    corpus_id: str
-    status: Literal["PASS", "PASS_WITH_LIMITATIONS", "BLOCKED"]
-    baseline_trial_ids: list[str]
-    candidate_trial_ids: list[str]
-    replay_id: str | None = None
-    ablation_id: str | None = None
-    criteria: list[dict[str, object]] = Field(default_factory=list)
-    limitation: str | None = None
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2Checkpoint(BaseModel):
-    checkpoint_id: str = Field(default_factory=lambda: ident("stage2_checkpoint"))
-    agent_run_id: str
-    next_step: int = Field(default=1, ge=1)
-    pending_action_id: str | None = None
-    observation_id: str | None = None
-    committed_action_ids: list[str] = Field(default_factory=list)
-    state_fingerprint: str
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2Operation(BaseModel):
-    operation_id: str = Field(default_factory=lambda: ident("stage2_operation"))
-    agent_run_id: str
-    action_id: str
-    side_effect_fingerprint: str = ""
-    status: Literal["running", "completed"] = "running"
-    side_effect_applied: bool = False
-    duplicate: bool = False
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2OracleResult(BaseModel):
-    oracle_result_id: str = Field(default_factory=lambda: ident("stage2_oracle"))
-    agent_run_id: str
-    passed: bool
-    expected: str
-    observed: str
-    action_order: list[str] = Field(default_factory=list)
-    failure_reason: str | None = None
-    stale_observation_rejected: bool = True
-    created_at: str = Field(default_factory=now)
-
-
-class Stage2GateCriterion(BaseModel):
-    criterion: str
-    status: Literal["verified", "partial", "failed", "missing"]
-    supporting_artifact_ids: list[str] = Field(default_factory=list)
-    supporting_test: str
-    failure_reason: str | None = None
-
-
-class Stage2Gate(BaseModel):
-    stage1_batch_id: str
-    status: Literal["PASS", "PASS_WITH_LIMITATIONS", "BLOCKED"]
-    deterministic_harness_status: Literal["PASS", "BLOCKED"] = "BLOCKED"
-    real_llm_integration_status: Literal["verified", "missing", "failed"] = "missing"
-    real_llm_case_ids: list[str] = Field(default_factory=list)
-    criteria: list[Stage2GateCriterion] = Field(default_factory=list)
-    created_at: str = Field(default_factory=now)
-
-
 class FailureTicket(BaseModel):
     ticket_id: str = Field(default_factory=lambda: ident("ticket"))
     product_id: str
@@ -881,7 +655,7 @@ class ProviderBinding(BaseModel):
     provider_binding_id: str = Field(default_factory=lambda: ident("provider_binding"))
     project_id: str
     role: Literal["control_plane", "sut_native"]
-    provider: str = Field(min_length=1)
+    provider: Literal["deepseek", "openai", "vllm"]
     base_url: str | None = None
     model: str = Field(min_length=1)
     expected_environment_variable: str = Field(min_length=1)
@@ -1254,6 +1028,94 @@ class EvolutionVerification(BaseModel):
     created_at: str = Field(default_factory=now)
 
 
+class SkillContract(BaseModel):
+    """Versioned behavior contract for a real runtime Skill or declared capability."""
+
+    skill_contract_id: str = Field(default_factory=lambda: ident("skill_contract"))
+    project_id: str
+    evolution_case_id: str
+    skill_name: str = Field(min_length=1)
+    kind: Literal["runtime_skill", "declared_capability"]
+    trigger: str = Field(min_length=1)
+    execution: str = Field(min_length=1)
+    deliverable: str = Field(min_length=1)
+    termination: str = Field(min_length=1)
+    required_trace_event_types: list[str] = Field(min_length=1)
+    boundary_expectation: Literal["none", "blocked", "acknowledged"] = "none"
+    requires_real_llm: bool = True
+    requires_independent_verifier: bool = True
+    status: Literal["incomplete", "approved"] = "incomplete"
+    created_at: str = Field(default_factory=now)
+
+
+class SkillTraceEvent(BaseModel):
+    sequence: int = Field(ge=0)
+    event_type: str = Field(min_length=1)
+    evidence_ref: str = Field(min_length=1)
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class SutProviderUsage(BaseModel):
+    """Non-secret accounting emitted by the target-native provider client."""
+
+    request_id: str = Field(min_length=1)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cache_hit_tokens: int = Field(default=0, ge=0)
+
+
+class SkillAblationEvidence(BaseModel):
+    skill_ablation_evidence_id: str = Field(default_factory=lambda: ident("skill_ablation_evidence"))
+    project_id: str
+    evolution_case_id: str
+    skill_contract_id: str
+    trial_ref: str = Field(min_length=1)
+    intervention: Literal["enabled", "disabled", "replacement"]
+    sut_provider_request_ids: list[str] = Field(default_factory=list)
+    sut_provider_usage: list[SutProviderUsage] = Field(default_factory=list)
+    trigger_event: SkillTraceEvent | None = None
+    trace_events: list[SkillTraceEvent] = Field(default_factory=list)
+    trace_complete: bool = False
+    deliverable: dict[str, object] = Field(default_factory=dict)
+    deliverable_evidence_ref: str | None = None
+    target_criteria: list[VerificationCriterion] = Field(default_factory=list)
+    runtime_error: str | None = None
+    boundary_outcome: Literal["none", "blocked", "acknowledged", "unexpected"] = "none"
+    boundary_evidence_refs: list[str] = Field(default_factory=list)
+    fallback_used: bool = False
+    created_at: str = Field(default_factory=now)
+
+
+class SkillAblationVerification(BaseModel):
+    skill_ablation_verification_id: str = Field(default_factory=lambda: ident("skill_ablation_verification"))
+    project_id: str
+    evolution_case_id: str
+    skill_contract_id: str
+    skill_ablation_evidence_id: str
+    status: Literal["passed", "failed", "infrastructure_error"]
+    criteria: list[VerificationCriterion] = Field(default_factory=list)
+    created_at: str = Field(default_factory=now)
+
+
+class SkillAblationAnalysis(BaseModel):
+    """An LLM-authored interpretation of immutable Skill evidence, never a verifier verdict."""
+
+    skill_ablation_analysis_id: str = Field(default_factory=lambda: ident("skill_ablation_analysis"))
+    project_id: str
+    evolution_case_id: str
+    skill_contract_id: str
+    skill_ablation_evidence_id: str
+    evolution_agent_run_id: str
+    trigger_analysis: str = Field(min_length=1)
+    trace_analysis: str = Field(min_length=1)
+    deliverable_analysis: str = Field(min_length=1)
+    boundary_analysis: str = Field(min_length=1)
+    evidence_refs: list[str] = Field(min_length=1)
+    limitation: str = Field(min_length=1)
+    evidence_level: Literal["inferred"] = "inferred"
+    created_at: str = Field(default_factory=now)
+
+
 class ReportFact(BaseModel):
     fact_id: str = Field(default_factory=lambda: ident("report_fact"))
     category: str = Field(min_length=1)
@@ -1286,6 +1148,14 @@ class ReportNarrativeSection(BaseModel):
     interpretation: str = Field(min_length=1)
 
 
+class SkillDimensionNarrative(BaseModel):
+    """Reader-facing interpretation of one verified Skill-ablation dimension."""
+
+    dimension: Literal["trigger", "trace", "deliverable", "boundary"]
+    fact_refs: list[str] = Field(min_length=1)
+    conclusion: str = Field(min_length=1)
+
+
 class ReportNarrative(BaseModel):
     report_narrative_id: str = Field(default_factory=lambda: ident("report_narrative"))
     project_id: str
@@ -1299,6 +1169,8 @@ class ReportNarrative(BaseModel):
     title: str = Field(min_length=1)
     executive_summary: str = Field(min_length=1)
     sections: list[ReportNarrativeSection] = Field(default_factory=list)
+    skill_ablation_summary: str | None = None
+    skill_dimensions: list[SkillDimensionNarrative] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     fact_refs: list[str] = Field(default_factory=list)
     evaluation_gate_snapshot: Literal["candidate_behavior_supported", "not_supported", "blocked"]

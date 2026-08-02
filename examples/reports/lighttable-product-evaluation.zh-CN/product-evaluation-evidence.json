@@ -1,0 +1,716 @@
+{
+  "schema_version": "1",
+  "project_name": "LightTable",
+  "evaluation_name": "Skill Ablation",
+  "evaluation_type": "skill_ablation",
+  "summary": {
+    "trial_count": 5,
+    "passed": 2,
+    "failed": 2,
+    "infrastructure_error": 1
+  },
+  "artifacts": [
+    {
+      "trial_ref": "enabled-1",
+      "intervention": "enabled",
+      "verifier_status": "passed",
+      "runtime_error": null,
+      "skill_profile": {
+        "name": "recipe_planning",
+        "kind": "declared_capability",
+        "trigger": "The target begins the native recipe-planning provider call.",
+        "execution": "Native target recipe planner uses the declared provider.",
+        "deliverable": "Structured meal-plan options.",
+        "termination": "Plan generated or fallback trace emitted.",
+        "boundary_expectation": "none"
+      },
+      "verification_criteria": [
+        {
+          "name": "target_runtime",
+          "status": "passed",
+          "detail": "Target runtime completed without an infrastructure error."
+        },
+        {
+          "name": "real_llm_execution",
+          "status": "passed",
+          "detail": "The target runtime recorded at least one native provider request."
+        },
+        {
+          "name": "provider_usage_evidence",
+          "status": "passed",
+          "detail": "Every native provider request has non-secret token accounting."
+        },
+        {
+          "name": "skill_trigger",
+          "status": "passed",
+          "detail": "The declared Skill trigger was recorded with an approved event type."
+        },
+        {
+          "name": "post_trigger_trace",
+          "status": "passed",
+          "detail": "A complete trace contains at least one event after the Skill trigger."
+        },
+        {
+          "name": "deliverable",
+          "status": "passed",
+          "detail": "A structured target deliverable is linked to immutable evidence."
+        },
+        {
+          "name": "independent_deliverable_verifier",
+          "status": "passed",
+          "detail": "A target-specific independent verifier scored the deliverable."
+        },
+        {
+          "name": "target_response_shape",
+          "status": "passed",
+          "detail": "Target returned a non-empty structured meal-plan response."
+        },
+        {
+          "name": "generated_constraint_adherence",
+          "status": "passed",
+          "detail": "Target-generated recipe ingredients exclude the approved disliked ingredient."
+        },
+        {
+          "name": "sqlite_write_boundary",
+          "status": "passed",
+          "detail": "Only the declared recommendation-history/shopping-list state changed."
+        },
+        {
+          "name": "boundary_behavior",
+          "status": "passed",
+          "detail": "Boundary behavior matches the declared contract."
+        },
+        {
+          "name": "no_fallback",
+          "status": "passed",
+          "detail": "No deterministic or alternate target path was used."
+        }
+      ],
+      "preserved_task_observation": {
+        "feedback_events": [],
+        "inventory_items": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "recommendation_history": [],
+        "shopping_list_items": [],
+        "user": [
+          "[truncated]"
+        ]
+      },
+      "preserved_deliverable_observation": {
+        "request_id": "req_be620914",
+        "profile_summary": "目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook",
+        "strategy_summary": "优先消耗临期豆腐，结合番茄和鸡蛋（但忌口鸡蛋，需避开），设计2-3道快手家常菜，控制在20分钟内，无需额外采购。",
+        "plans": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "shopping_suggestions": [],
+        "debug_retrieval": []
+      },
+      "trace_event_types": [
+        "native_provider_request_started",
+        "native_provider_request_completed",
+        "recipe_planning_generated"
+      ],
+      "fallback_used": false,
+      "boundary_outcome": "none",
+      "evidence_refs": [
+        "enabled-1:evidence:1",
+        "enabled-1:evidence:2",
+        "enabled-1:evidence:3",
+        "enabled-1:evidence:4",
+        "enabled-1:evidence:5",
+        "enabled-1:evidence:6",
+        "enabled-1:evidence:7",
+        "enabled-1:evidence:8",
+        "enabled-1:evidence:9"
+      ],
+      "technical_evidence": {
+        "artifact_directory": "D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\enabled-1",
+        "contract_id": "skill_contract_4511ef834997",
+        "evidence_id": "skill_ablation_evidence_810eafffc575",
+        "verification_id": "skill_ablation_verification_b3d65927f960",
+        "evidence_catalog": {
+          "enabled-1:evidence:1": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\enabled-1\\skill-contract.json",
+          "enabled-1:evidence:2": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\enabled-1\\skill-evidence.json",
+          "enabled-1:evidence:3": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\enabled-1\\skill-verification.json",
+          "enabled-1:evidence:4": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\enabled-1\\trial-evidence.json",
+          "enabled-1:evidence:5": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\enabled-1\\trial-evidence.json#trace:0",
+          "enabled-1:evidence:6": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\enabled-1\\trial-evidence.json#trace:1",
+          "enabled-1:evidence:7": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\enabled-1\\trial-evidence.json#trace:2",
+          "enabled-1:evidence:8": "provider_request:b8460742-39d8-4175-bd23-20130c75fec9",
+          "enabled-1:evidence:9": "provider_usage:b8460742-39d8-4175-bd23-20130c75fec9"
+        }
+      }
+    },
+    {
+      "trial_ref": "invalid_replacement-1-interrupted",
+      "intervention": "replacement",
+      "verifier_status": "infrastructure_error",
+      "runtime_error": "TimeoutError",
+      "skill_profile": {
+        "name": "recipe_planning",
+        "kind": "declared_capability",
+        "trigger": "The target begins the native recipe-planning provider call.",
+        "execution": "Native target recipe planner uses the declared provider.",
+        "deliverable": "Structured meal-plan options.",
+        "termination": "Plan generated or fallback trace emitted.",
+        "boundary_expectation": "none"
+      },
+      "verification_criteria": [
+        {
+          "name": "target_runtime",
+          "status": "failed",
+          "detail": "Target runtime error: TimeoutError."
+        },
+        {
+          "name": "real_llm_execution",
+          "status": "passed",
+          "detail": "The target runtime recorded at least one native provider request."
+        },
+        {
+          "name": "provider_usage_evidence",
+          "status": "passed",
+          "detail": "Every native provider request has non-secret token accounting."
+        },
+        {
+          "name": "skill_trigger",
+          "status": "passed",
+          "detail": "The declared Skill trigger was recorded with an approved event type."
+        },
+        {
+          "name": "post_trigger_trace",
+          "status": "failed",
+          "detail": "Trace is incomplete or contains no post-trigger event."
+        },
+        {
+          "name": "deliverable",
+          "status": "failed",
+          "detail": "Target deliverable or its evidence reference is missing."
+        },
+        {
+          "name": "independent_deliverable_verifier",
+          "status": "passed",
+          "detail": "A target-specific independent verifier scored the deliverable."
+        },
+        {
+          "name": "target_response_shape",
+          "status": "failed",
+          "detail": "Target response was not an accepted non-empty meal-plan response."
+        },
+        {
+          "name": "generated_constraint_adherence",
+          "status": "failed",
+          "detail": "Generated-plan trace is absent or includes the disliked ingredient."
+        },
+        {
+          "name": "sqlite_write_boundary",
+          "status": "failed",
+          "detail": "SQLite changes exceeded the declared state boundary."
+        },
+        {
+          "name": "boundary_behavior",
+          "status": "failed",
+          "detail": "Boundary behavior does not match the declared contract or lacks evidence."
+        },
+        {
+          "name": "no_fallback",
+          "status": "failed",
+          "detail": "A fallback path was used and cannot support real Skill acceptance."
+        }
+      ],
+      "preserved_task_observation": {
+        "feedback_events": [],
+        "inventory_items": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "recommendation_history": [],
+        "shopping_list_items": [],
+        "user": [
+          "[truncated]"
+        ]
+      },
+      "preserved_deliverable_observation": "unresolved",
+      "trace_event_types": [
+        "native_provider_request_started",
+        "native_provider_request_completed",
+        "recipe_planning_fallback"
+      ],
+      "fallback_used": true,
+      "boundary_outcome": "unexpected",
+      "evidence_refs": [
+        "invalid_replacement-1-interrupted:evidence:1",
+        "invalid_replacement-1-interrupted:evidence:2",
+        "invalid_replacement-1-interrupted:evidence:3",
+        "invalid_replacement-1-interrupted:evidence:4",
+        "invalid_replacement-1-interrupted:evidence:5",
+        "invalid_replacement-1-interrupted:evidence:6",
+        "invalid_replacement-1-interrupted:evidence:7",
+        "invalid_replacement-1-interrupted:evidence:8",
+        "invalid_replacement-1-interrupted:evidence:9"
+      ],
+      "technical_evidence": {
+        "artifact_directory": "D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-1",
+        "contract_id": "skill_contract_4511ef834997",
+        "evidence_id": "skill_ablation_evidence_16c163431d3a",
+        "verification_id": "skill_ablation_verification_025964f2e671",
+        "evidence_catalog": {
+          "invalid_replacement-1-interrupted:evidence:1": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-1\\infrastructure-evidence.json",
+          "invalid_replacement-1-interrupted:evidence:2": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-1\\infrastructure-evidence.json#trace:0",
+          "invalid_replacement-1-interrupted:evidence:3": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-1\\infrastructure-evidence.json#trace:1",
+          "invalid_replacement-1-interrupted:evidence:4": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-1\\infrastructure-evidence.json#trace:2",
+          "invalid_replacement-1-interrupted:evidence:5": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-1\\skill-contract.json",
+          "invalid_replacement-1-interrupted:evidence:6": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-1\\skill-evidence.json",
+          "invalid_replacement-1-interrupted:evidence:7": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-1\\skill-verification.json",
+          "invalid_replacement-1-interrupted:evidence:8": "provider_request:65b866b5-4862-4a5e-8245-b07e155d0e9f",
+          "invalid_replacement-1-interrupted:evidence:9": "provider_usage:65b866b5-4862-4a5e-8245-b07e155d0e9f"
+        }
+      }
+    },
+    {
+      "trial_ref": "invalid_replacement-2",
+      "intervention": "replacement",
+      "verifier_status": "failed",
+      "runtime_error": null,
+      "skill_profile": {
+        "name": "recipe_planning",
+        "kind": "declared_capability",
+        "trigger": "The target begins the native recipe-planning provider call.",
+        "execution": "Native target recipe planner uses the declared provider.",
+        "deliverable": "Structured meal-plan options.",
+        "termination": "Plan generated or fallback trace emitted.",
+        "boundary_expectation": "none"
+      },
+      "verification_criteria": [
+        {
+          "name": "target_runtime",
+          "status": "passed",
+          "detail": "Target runtime completed without an infrastructure error."
+        },
+        {
+          "name": "real_llm_execution",
+          "status": "passed",
+          "detail": "The target runtime recorded at least one native provider request."
+        },
+        {
+          "name": "provider_usage_evidence",
+          "status": "passed",
+          "detail": "Every native provider request has non-secret token accounting."
+        },
+        {
+          "name": "skill_trigger",
+          "status": "passed",
+          "detail": "The declared Skill trigger was recorded with an approved event type."
+        },
+        {
+          "name": "post_trigger_trace",
+          "status": "failed",
+          "detail": "Trace is incomplete or contains no post-trigger event."
+        },
+        {
+          "name": "deliverable",
+          "status": "passed",
+          "detail": "A structured target deliverable is linked to immutable evidence."
+        },
+        {
+          "name": "independent_deliverable_verifier",
+          "status": "passed",
+          "detail": "A target-specific independent verifier scored the deliverable."
+        },
+        {
+          "name": "target_response_shape",
+          "status": "passed",
+          "detail": "Target returned a non-empty structured meal-plan response."
+        },
+        {
+          "name": "generated_constraint_adherence",
+          "status": "failed",
+          "detail": "Generated-plan trace is absent or includes the disliked ingredient."
+        },
+        {
+          "name": "sqlite_write_boundary",
+          "status": "passed",
+          "detail": "Only the declared recommendation-history/shopping-list state changed."
+        },
+        {
+          "name": "boundary_behavior",
+          "status": "passed",
+          "detail": "Boundary behavior matches the declared contract."
+        },
+        {
+          "name": "no_fallback",
+          "status": "failed",
+          "detail": "A fallback path was used and cannot support real Skill acceptance."
+        }
+      ],
+      "preserved_task_observation": {
+        "feedback_events": [],
+        "inventory_items": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "recommendation_history": [],
+        "shopping_list_items": [],
+        "user": [
+          "[truncated]"
+        ]
+      },
+      "preserved_deliverable_observation": {
+        "request_id": "req_d2538b9f",
+        "profile_summary": "目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook",
+        "strategy_summary": "库存优先，通用饮食规则，时间预算 20 分钟",
+        "plans": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "shopping_suggestions": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "debug_retrieval": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ]
+      },
+      "trace_event_types": [
+        "native_provider_request_started",
+        "native_provider_request_completed",
+        "recipe_planning_fallback",
+        "native_provider_request_started",
+        "native_provider_request_started",
+        "native_provider_request_started"
+      ],
+      "fallback_used": true,
+      "boundary_outcome": "none",
+      "evidence_refs": [
+        "invalid_replacement-2:evidence:1",
+        "invalid_replacement-2:evidence:2",
+        "invalid_replacement-2:evidence:3",
+        "invalid_replacement-2:evidence:4",
+        "invalid_replacement-2:evidence:5",
+        "invalid_replacement-2:evidence:6",
+        "invalid_replacement-2:evidence:7",
+        "invalid_replacement-2:evidence:8",
+        "invalid_replacement-2:evidence:9",
+        "invalid_replacement-2:evidence:10",
+        "invalid_replacement-2:evidence:11",
+        "invalid_replacement-2:evidence:12"
+      ],
+      "technical_evidence": {
+        "artifact_directory": "D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2",
+        "contract_id": "skill_contract_4511ef834997",
+        "evidence_id": "skill_ablation_evidence_038184ddad78",
+        "verification_id": "skill_ablation_verification_57dca399f47b",
+        "evidence_catalog": {
+          "invalid_replacement-2:evidence:1": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\skill-contract.json",
+          "invalid_replacement-2:evidence:2": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\skill-evidence.json",
+          "invalid_replacement-2:evidence:3": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\skill-verification.json",
+          "invalid_replacement-2:evidence:4": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\trial-evidence.json",
+          "invalid_replacement-2:evidence:5": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\trial-evidence.json#trace:0",
+          "invalid_replacement-2:evidence:6": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\trial-evidence.json#trace:1",
+          "invalid_replacement-2:evidence:7": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\trial-evidence.json#trace:2",
+          "invalid_replacement-2:evidence:8": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\trial-evidence.json#trace:3",
+          "invalid_replacement-2:evidence:9": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\trial-evidence.json#trace:4",
+          "invalid_replacement-2:evidence:10": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\invalid_replacement-2\\trial-evidence.json#trace:5",
+          "invalid_replacement-2:evidence:11": "provider_request:a56b1966-5150-4303-b62c-33ea3f8cbebd",
+          "invalid_replacement-2:evidence:12": "provider_usage:a56b1966-5150-4303-b62c-33ea3f8cbebd"
+        }
+      }
+    },
+    {
+      "trial_ref": "related_precheck-1",
+      "intervention": "replacement",
+      "verifier_status": "passed",
+      "runtime_error": null,
+      "skill_profile": {
+        "name": "recipe_planning",
+        "kind": "declared_capability",
+        "trigger": "The target begins the native recipe-planning provider call.",
+        "execution": "Native target recipe planner uses the declared provider.",
+        "deliverable": "Structured meal-plan options.",
+        "termination": "Plan generated or fallback trace emitted.",
+        "boundary_expectation": "none"
+      },
+      "verification_criteria": [
+        {
+          "name": "target_runtime",
+          "status": "passed",
+          "detail": "Target runtime completed without an infrastructure error."
+        },
+        {
+          "name": "real_llm_execution",
+          "status": "passed",
+          "detail": "The target runtime recorded at least one native provider request."
+        },
+        {
+          "name": "provider_usage_evidence",
+          "status": "passed",
+          "detail": "Every native provider request has non-secret token accounting."
+        },
+        {
+          "name": "skill_trigger",
+          "status": "passed",
+          "detail": "The declared Skill trigger was recorded with an approved event type."
+        },
+        {
+          "name": "post_trigger_trace",
+          "status": "passed",
+          "detail": "A complete trace contains at least one event after the Skill trigger."
+        },
+        {
+          "name": "deliverable",
+          "status": "passed",
+          "detail": "A structured target deliverable is linked to immutable evidence."
+        },
+        {
+          "name": "independent_deliverable_verifier",
+          "status": "passed",
+          "detail": "A target-specific independent verifier scored the deliverable."
+        },
+        {
+          "name": "target_response_shape",
+          "status": "passed",
+          "detail": "Target returned a non-empty structured meal-plan response."
+        },
+        {
+          "name": "generated_constraint_adherence",
+          "status": "passed",
+          "detail": "Target-generated recipe ingredients exclude the approved disliked ingredient."
+        },
+        {
+          "name": "sqlite_write_boundary",
+          "status": "passed",
+          "detail": "Only the declared recommendation-history/shopping-list state changed."
+        },
+        {
+          "name": "boundary_behavior",
+          "status": "passed",
+          "detail": "Boundary behavior matches the declared contract."
+        },
+        {
+          "name": "no_fallback",
+          "status": "passed",
+          "detail": "No deterministic or alternate target path was used."
+        }
+      ],
+      "preserved_task_observation": {
+        "feedback_events": [],
+        "inventory_items": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "recommendation_history": [],
+        "shopping_list_items": [],
+        "user": [
+          "[truncated]"
+        ]
+      },
+      "preserved_deliverable_observation": {
+        "request_id": "req_984909db",
+        "profile_summary": "目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook",
+        "strategy_summary": "优先消耗临期豆腐，结合番茄和鸡蛋（忌口鸡蛋，但库存有，需注意），生成2-3个快手方案，避免使用鸡蛋作为主料。",
+        "plans": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "shopping_suggestions": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "debug_retrieval": []
+      },
+      "trace_event_types": [
+        "recipe_planning_precheck_completed",
+        "native_provider_request_started",
+        "native_provider_request_completed",
+        "recipe_planning_generated"
+      ],
+      "fallback_used": false,
+      "boundary_outcome": "none",
+      "evidence_refs": [
+        "related_precheck-1:evidence:1",
+        "related_precheck-1:evidence:2",
+        "related_precheck-1:evidence:3",
+        "related_precheck-1:evidence:4",
+        "related_precheck-1:evidence:5",
+        "related_precheck-1:evidence:6",
+        "related_precheck-1:evidence:7",
+        "related_precheck-1:evidence:8",
+        "related_precheck-1:evidence:9",
+        "related_precheck-1:evidence:10"
+      ],
+      "technical_evidence": {
+        "artifact_directory": "D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\related_precheck-1",
+        "contract_id": "skill_contract_4511ef834997",
+        "evidence_id": "skill_ablation_evidence_bd5c2cd669d7",
+        "verification_id": "skill_ablation_verification_92fa4afe1c5f",
+        "evidence_catalog": {
+          "related_precheck-1:evidence:1": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\related_precheck-1\\skill-contract.json",
+          "related_precheck-1:evidence:2": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\related_precheck-1\\skill-evidence.json",
+          "related_precheck-1:evidence:3": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\related_precheck-1\\skill-verification.json",
+          "related_precheck-1:evidence:4": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\related_precheck-1\\trial-evidence.json",
+          "related_precheck-1:evidence:5": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\related_precheck-1\\trial-evidence.json#trace:0",
+          "related_precheck-1:evidence:6": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\related_precheck-1\\trial-evidence.json#trace:1",
+          "related_precheck-1:evidence:7": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\related_precheck-1\\trial-evidence.json#trace:2",
+          "related_precheck-1:evidence:8": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\related_precheck-1\\trial-evidence.json#trace:3",
+          "related_precheck-1:evidence:9": "provider_request:c86c4c11-d904-4eb1-b46a-af2f65da2508",
+          "related_precheck-1:evidence:10": "provider_usage:c86c4c11-d904-4eb1-b46a-af2f65da2508"
+        }
+      }
+    },
+    {
+      "trial_ref": "removed-1",
+      "intervention": "disabled",
+      "verifier_status": "failed",
+      "runtime_error": null,
+      "skill_profile": {
+        "name": "recipe_planning",
+        "kind": "declared_capability",
+        "trigger": "The target begins the native recipe-planning provider call.",
+        "execution": "Native target recipe planner uses the declared provider.",
+        "deliverable": "Structured meal-plan options.",
+        "termination": "Plan generated or fallback trace emitted.",
+        "boundary_expectation": "none"
+      },
+      "verification_criteria": [
+        {
+          "name": "target_runtime",
+          "status": "passed",
+          "detail": "Target runtime completed without an infrastructure error."
+        },
+        {
+          "name": "real_llm_execution",
+          "status": "failed",
+          "detail": "No target-native provider request was recorded."
+        },
+        {
+          "name": "provider_usage_evidence",
+          "status": "passed",
+          "detail": "Every native provider request has non-secret token accounting."
+        },
+        {
+          "name": "skill_trigger",
+          "status": "failed",
+          "detail": "No declared Skill trigger event was recorded."
+        },
+        {
+          "name": "post_trigger_trace",
+          "status": "failed",
+          "detail": "Trace is incomplete or contains no post-trigger event."
+        },
+        {
+          "name": "deliverable",
+          "status": "passed",
+          "detail": "A structured target deliverable is linked to immutable evidence."
+        },
+        {
+          "name": "independent_deliverable_verifier",
+          "status": "passed",
+          "detail": "A target-specific independent verifier scored the deliverable."
+        },
+        {
+          "name": "target_response_shape",
+          "status": "passed",
+          "detail": "Target returned a non-empty structured meal-plan response."
+        },
+        {
+          "name": "generated_constraint_adherence",
+          "status": "failed",
+          "detail": "Generated-plan trace is absent or includes the disliked ingredient."
+        },
+        {
+          "name": "sqlite_write_boundary",
+          "status": "passed",
+          "detail": "Only the declared recommendation-history/shopping-list state changed."
+        },
+        {
+          "name": "boundary_behavior",
+          "status": "passed",
+          "detail": "Boundary behavior matches the declared contract."
+        },
+        {
+          "name": "no_fallback",
+          "status": "passed",
+          "detail": "No deterministic or alternate target path was used."
+        }
+      ],
+      "preserved_task_observation": {
+        "feedback_events": [],
+        "inventory_items": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "recommendation_history": [],
+        "shopping_list_items": [],
+        "user": [
+          "[truncated]"
+        ]
+      },
+      "preserved_deliverable_observation": {
+        "request_id": "req_5292e001",
+        "profile_summary": "目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook",
+        "strategy_summary": "库存优先，通用饮食规则，时间预算 20 分钟",
+        "plans": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "shopping_suggestions": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ],
+        "debug_retrieval": [
+          "[truncated]",
+          "[truncated]",
+          "[truncated]"
+        ]
+      },
+      "trace_event_types": [
+        "recipe_planning_removed"
+      ],
+      "fallback_used": false,
+      "boundary_outcome": "none",
+      "evidence_refs": [
+        "removed-1:evidence:1",
+        "removed-1:evidence:2",
+        "removed-1:evidence:3",
+        "removed-1:evidence:4",
+        "removed-1:evidence:5"
+      ],
+      "technical_evidence": {
+        "artifact_directory": "D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\removed-1",
+        "contract_id": "skill_contract_4511ef834997",
+        "evidence_id": "skill_ablation_evidence_a113a5b7d9dc",
+        "verification_id": "skill_ablation_verification_887509156fda",
+        "evidence_catalog": {
+          "removed-1:evidence:1": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\removed-1\\skill-contract.json",
+          "removed-1:evidence:2": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\removed-1\\skill-evidence.json",
+          "removed-1:evidence:3": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\removed-1\\skill-verification.json",
+          "removed-1:evidence:4": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\removed-1\\trial-evidence.json",
+          "removed-1:evidence:5": "file:D:\\codexdata\\agentguard-stage7\\formal-runs\\lighttable\\removed-1\\trial-evidence.json#trace:0"
+        }
+      }
+    }
+  ],
+  "limitations": [
+    "Verifier statuses and criteria are immutable facts; the Analyst may explain but cannot change them.",
+    "Missing task input, control, interaction result, or conclusion must be reported as unresolved.",
+    "A passed trial proves only its declared contract and is not a release decision."
+  ],
+  "evidence_manifest_sha256": "475683d499ee60e1f752a9f797f5ef000cc937026345d882ddf8f2f80437c6f4"
+}

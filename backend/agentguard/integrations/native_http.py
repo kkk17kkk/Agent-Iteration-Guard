@@ -77,6 +77,7 @@ class HttpOperation:
     method: str
     path: str
     payload: dict[str, object] | None = None
+    timeout_seconds: float = 10
 
 
 @dataclass(frozen=True)
@@ -138,6 +139,7 @@ class NativeHttpProcessRunner:
         state_path: Path,
         log_path: Path,
         label: str,
+        environment_overrides: dict[str, str] | None = None,
     ) -> tuple[subprocess.Popen[bytes], str, object]:
         for relative in self.profile.required_source_files:
             if not (source / relative).is_file():
@@ -145,14 +147,7 @@ class NativeHttpProcessRunner:
         port = self._free_port()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_handle = log_path.open("wb")
-        environment = {
-            key: os.environ[key]
-            for key in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC")
-            if key in os.environ
-        }
-        environment.update({"PYTHONUTF8": "1"})
-        environment.update(self.profile.environment(source, state_path))
-        environment.update({key: "" for key in self.profile.cleared_secret_environment})
+        environment = self.environment(source, state_path, environment_overrides=environment_overrides)
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         process = subprocess.Popen(
             [
@@ -186,9 +181,34 @@ class NativeHttpProcessRunner:
         self.stop(process, log_handle)
         raise TargetInfrastructureError(f"{label} readiness timed out; log={log_path}")
 
+    def environment(
+        self, source: Path, state_path: Path, *, environment_overrides: dict[str, str] | None = None
+    ) -> dict[str, str]:
+        """Build one child-only environment; approved injection wins over secret clearing."""
+        environment = {
+            key: os.environ[key]
+            for key in ("PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC")
+            if key in os.environ
+        }
+        environment["PYTHONUTF8"] = "1"
+        environment.update(self.profile.environment(source, state_path))
+        environment.update({key: "" for key in self.profile.cleared_secret_environment})
+        if environment_overrides:
+            protected = {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "PATHEXT", "COMSPEC", "PYTHONUTF8"}
+            if protected.intersection(environment_overrides):
+                raise TargetInfrastructureError("Target-native environment injection cannot override process infrastructure.")
+            if any(not key or not isinstance(value, str) for key, value in environment_overrides.items()):
+                raise TargetInfrastructureError("Target-native environment injection must contain non-empty names and string values.")
+            environment.update(environment_overrides)
+        return environment
+
     @staticmethod
     def execute(base_url: str, operation: HttpOperation) -> tuple[int, object]:
-        return request_json(f"{base_url}{operation.path}", operation.method, operation.payload)
+        if operation.timeout_seconds <= 0:
+            raise TargetInfrastructureError("Native HTTP operation timeout_seconds must be positive.")
+        return request_json(
+            f"{base_url}{operation.path}", operation.method, operation.payload, operation.timeout_seconds
+        )
 
     @staticmethod
     def stop(process: subprocess.Popen[bytes], log_handle: object) -> None:

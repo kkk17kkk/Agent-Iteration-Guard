@@ -34,6 +34,7 @@ LIGHTTABLE_CONSTRAINT_CASE = DeclarativeHttpCase(
         method="POST",
         path="/api/v1/recommend",
         payload={"user_id": "default", "tags": [], "context": {}},
+        timeout_seconds=45,
     ),
     catalog_relative_path="backend/data/recipes.json",
 )

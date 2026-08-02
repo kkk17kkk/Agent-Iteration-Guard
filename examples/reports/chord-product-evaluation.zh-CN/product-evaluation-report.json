@@ -1,0 +1,104 @@
+{
+  "schema_version": "1",
+  "evidence_manifest_sha256": "f11c8d77405292fb4668e6df0809c29d99354095200aa95463ef222d3af6e961",
+  "analyst": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "provider_request_id": "01a3df7b-990d-4758-ac80-6a715fc7d2f0",
+    "input_tokens": 11001,
+    "output_tokens": 1539,
+    "cache_hit_tokens": 0,
+    "request_fingerprint": "bd96778eebeb7665affb1bef1ba652ad97fbc8d2fa1f1eabd49bb76fea0c26a8",
+    "response_fingerprint": "38ce51db6d4a114625425fd3432277bf8f9c69b6d90ae352a6f5f456b27fad78"
+  },
+  "analysis": {
+    "summary": "CHORD 的 app_profile 运行时技能消融评估共 4 个 trial，全部失败（0 通过）。enabled 与 related-precheck 两个启用/替换臂均因\"画像证据一致性\"失败（叙述与目标指标在借贷计数上矛盾）；invalid-replacement 与 removed 两个臂因无原生 LLM 调用、走 fallback 而失败。核心问题集中在借贷类应用计数在叙述与结构化指标间不一致，以及禁用/替换后技能无法触发真实 LLM 执行。",
+    "skill_profile": "app_profile 为运行时技能：触发方式为原生 provider 调用，执行 profile DAG，交付结构化画像，终止于画像完成，边界期望为无。技能用于生成用户数字画像并评估多头借贷风险、金融成熟度等，输出含叙述性总结与结构化指标。",
+    "evaluation_design": "消融设计含 4 臂：enabled（启用）、invalid-replacement（无效替换）、related-precheck（相关预检替换）、removed（禁用）。每臂以 13 项验证准则评估触发、真实 LLM 执行、交付物、画像形状、证据一致性、边界与 fallback。任务输入与对照未保留，无法还原具体输入。",
+    "comparison_examples": "unresolved：输入任务未保留（preserved_task_observation 均为 unresolved），无法给出有 Skill/无 Skill 的具体行为对照。仅能从 verifier 状态推断：enabled 臂触发并走真实 LLM 但证据不一致；removed 臂无触发且走 fallback。",
+    "skill_ablation_analysis": "enabled 臂触发、真实 LLM、交付物、边界均通过，仅画像证据一致性失败（叙述借贷=0 vs 指标 lending=1），说明技能能跑通但叙述与结构化指标脱节。removed 臂无触发、无 LLM、交付物缺失并走 fallback，符合禁用预期。invalid-replacement 同样走 fallback，说明替换未生效。",
+    "skill_interaction_analysis": "related-precheck 臂含 related_skill_precheck_completed 事件，触发与真实 LLM 均通过，但同样在借贷计数上叙述（2）与指标（1）矛盾。预检机制本身工作，但未解决证据一致性问题，且与 enabled 臂呈现同类缺陷，说明问题在技能内部而非预检交互。",
+    "final_assessment": "触发可靠性：enabled/related-precheck 触发可靠，removed/invalid-replacement 无触发并走 fallback，符合预期。执行质量：启用臂真实 LLM 执行正常，无基础设施错误。输出质量：画像叙述与结构化指标在借贷计数上不一致（enabled 0 vs 1，related-precheck 2 vs 1），为关键缺陷。边界控制：所有臂 source_write_boundary 与 boundary_behavior 均通过，无越界。总体有效性：技能可触发可执行，但证据一致性缺陷导致 4/4 失败，不可发布。下一步：修复借贷计数在叙述与指标间的映射逻辑，补充任务输入保留以支持对照。",
+    "limitations": "任务输入、对照结果均未保留（unresolved），无法做有/无 Skill 行为对照；无法还原具体输入任务。verifier 状态为不可变事实，本报告仅解释不改写。passed 仅证明声明契约，不构成发布决定。",
+    "experiment_results": [
+      {
+        "arm": "enabled-2",
+        "status": "failed",
+        "explanation": "技能启用臂。触发、真实 LLM、交付物、边界均通过，但画像证据一致性失败：叙述称借贷 0 个，而结构化指标 lending=1，叙述与指标矛盾。技能可跑通但输出内部不一致。",
+        "evidence_refs": [
+          "enabled-2:evidence:1",
+          "enabled-2:evidence:2",
+          "enabled-2:evidence:3"
+        ]
+      },
+      {
+        "arm": "invalid-replacement-1",
+        "status": "failed",
+        "explanation": "无效替换臂。无原生 provider 请求、无技能触发、无 post-trigger 事件，走 fallback 路径，画像输出不完整。替换未生效，无法支撑真实技能验收。",
+        "evidence_refs": [
+          "invalid-replacement-1:evidence:1",
+          "invalid-replacement-1:evidence:2",
+          "invalid-replacement-1:evidence:3"
+        ]
+      },
+      {
+        "arm": "related-precheck-1",
+        "status": "failed",
+        "explanation": "相关预检替换臂。含 related_skill_precheck_completed 事件，触发与真实 LLM 均通过，但画像证据一致性失败：叙述称借贷 2 个，指标 lending=1，矛盾。预检机制工作但未解决一致性问题。",
+        "evidence_refs": [
+          "related-precheck-1:evidence:1",
+          "related-precheck-1:evidence:2",
+          "related-precheck-1:evidence:3"
+        ]
+      },
+      {
+        "arm": "removed-1",
+        "status": "failed",
+        "explanation": "禁用臂。无触发、无真实 LLM、交付物缺失，走 fallback 路径，符合禁用预期。作为对照证明技能移除后无法产出真实画像。",
+        "evidence_refs": [
+          "removed-1:evidence:1",
+          "removed-1:evidence:2",
+          "removed-1:evidence:3"
+        ]
+      }
+    ],
+    "citations": {
+      "summary": [
+        "enabled-2:evidence:1",
+        "related-precheck-1:evidence:1",
+        "invalid-replacement-1:evidence:1",
+        "removed-1:evidence:1"
+      ],
+      "skill_profile": [
+        "enabled-2:evidence:1"
+      ],
+      "evaluation_design": [
+        "enabled-2:evidence:3",
+        "invalid-replacement-1:evidence:3",
+        "related-precheck-1:evidence:3",
+        "removed-1:evidence:3"
+      ],
+      "comparison_examples": [
+        "enabled-2:evidence:2",
+        "removed-1:evidence:2"
+      ],
+      "skill_ablation_analysis": [
+        "enabled-2:evidence:3",
+        "removed-1:evidence:3",
+        "invalid-replacement-1:evidence:3"
+      ],
+      "skill_interaction_analysis": [
+        "related-precheck-1:evidence:3"
+      ],
+      "final_assessment": [
+        "enabled-2:evidence:3",
+        "related-precheck-1:evidence:3",
+        "removed-1:evidence:3"
+      ],
+      "limitations": [
+        "enabled-2:evidence:2",
+        "removed-1:evidence:2"
+      ]
+    }
+  }
+}

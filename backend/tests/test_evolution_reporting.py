@@ -171,8 +171,10 @@ def test_report_agent_cites_manifest_and_cannot_modify_gate(tmp_path: Path) -> N
     html = next((tmp_path / "html").glob("*.html")).read_text(encoding="utf-8")
     assert '<html lang="zh-CN">' in html
     assert "候选行为得到支持" in html
-    assert "candidate_behavior_supported" in html
-    assert "不等于发布批准" in html
+    assert "候选行为得到支持" in html
+    assert "不等同于发布批准" in html
+    assert "fact_baseline" not in html
+    assert "project_runtime" not in html
 
 
 def test_report_rejects_non_chinese_narrative(tmp_path: Path) -> None:
@@ -193,6 +195,42 @@ def test_report_rejects_non_chinese_narrative(tmp_path: Path) -> None:
         assert "zh-CN" in str(error)
     else:
         raise AssertionError("English report narrative must fail visibly")
+
+
+def test_skill_ablation_report_requires_and_renders_four_reader_facing_conclusions(tmp_path: Path) -> None:
+    fixed = manifest().model_copy(update={"facts": [
+        *manifest().facts,
+        ReportFact(fact_id="skill_trigger", category="skill_trigger", statement="触发时刻：4 次运行中 3 次证据完整。", evidence_level="verified", evidence_refs=["e:1"]),
+        ReportFact(fact_id="skill_trace", category="skill_trace", statement="触发后的过程：4 次运行中 3 次证据完整。", evidence_level="verified", evidence_refs=["e:2"]),
+        ReportFact(fact_id="skill_deliverable", category="skill_deliverable", statement="任务交付物：4 次运行中 3 次证据完整。", evidence_level="verified", evidence_refs=["e:3"]),
+        ReportFact(fact_id="skill_boundary", category="skill_boundary", statement="边界与异常：4 次运行中 4 次证据完整。", evidence_level="verified", evidence_refs=["e:4"]),
+    ]})
+    adapter = ReportNarrativeAdapter(Store(str(tmp_path / "skill-report.db")), fixed, tmp_path / "html")
+    adapter.execute("read_report_manifest", {})
+    payload = {
+        "title": "Skill 消融结果",
+        "executive_summary": "对照实验显示，新增能力带来改善，同时也暴露了一个需要继续修正的过程缺口。",
+        "sections": [{
+            "heading": "对照结果", "fact_refs": ["fact_baseline", "fact_candidate", "fact_pair"],
+            "interpretation": "在相同条件下，候选方案的结果更符合本次评测要求。",
+        }],
+        "skill_ablation_summary": "Skill 能带来可观察的帮助，但要继续提高其在异常情况下的稳定性。",
+        "skill_dimensions": [
+            {"dimension": "trigger", "fact_refs": ["skill_trigger"], "conclusion": "大多数情况下能在需要时启动。"},
+            {"dimension": "trace", "fact_refs": ["skill_trace"], "conclusion": "过程记录总体完整，但仍有一次缺口。"},
+            {"dimension": "deliverable", "fact_refs": ["skill_deliverable"], "conclusion": "大多数运行产生了可用交付物。"},
+            {"dimension": "boundary", "fact_refs": ["skill_boundary"], "conclusion": "边界规则在所有运行中都被遵守。"},
+        ],
+        "limitations": ["样本量较小，后续应在相同环境中扩样。"],
+    }
+    observation = adapter.execute("submit_report_narrative", payload)
+    assert observation.terminal
+    artifact = adapter.complete_terminal("project_runtime", "run", observation.payload)
+    narrative = adapter.store.get("report_narrative", artifact.record_id, ReportNarrative)
+    assert narrative and len(narrative.skill_dimensions) == 4
+    html = next((tmp_path / "html").glob("*.html")).read_text(encoding="utf-8")
+    assert "触发时刻" in html and "任务交付物" in html and "边界与异常" in html
+    assert "skill_trigger" not in html
 
 
 def test_sample_banner_is_explicit() -> None:
@@ -216,8 +254,8 @@ def test_sample_banner_is_explicit() -> None:
         evaluation_gate_snapshot=fixed.evaluation_gate,
     )
     html = render_report_html(fixed, narrative, sample=True)
-    assert "界面输出示例" in html
-    assert "不构成新的 Provider 运行或发布结论" in html
+    assert "这是展示样式" in html
+    assert "不代表新的实验结论" in html
 
 
 def test_report_provider_failure_is_visibly_blocked(tmp_path: Path) -> None:
