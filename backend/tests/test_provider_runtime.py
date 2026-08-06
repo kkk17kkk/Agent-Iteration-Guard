@@ -90,3 +90,49 @@ def test_control_plane_invalid_tool_arguments_preserve_nonsecret_usage(monkeypat
 
     assert raised.value.request_id == "request-parse-error"
     assert (raised.value.input_tokens, raised.value.output_tokens, raised.value.cache_hit_tokens) == (11, 7, 3)
+
+
+def test_control_plane_accepts_provider_python_literal_tool_arguments(monkeypatch) -> None:
+    @contextmanager
+    def fake_urlopen(request, timeout):
+        class Response:
+            def read(self):
+                return json.dumps({
+                    "id": "request-literal",
+                    "choices": [{"message": {"tool_calls": [{
+                        "id": "call-1", "function": {"name": "read", "arguments": "{'value': True}"},
+                    }]}}],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 2},
+                }).encode("utf-8")
+        yield Response()
+
+    monkeypatch.setattr("agentguard.provider_runtime.urlopen", fake_urlopen)
+    turn = build_control_plane_client(binding("deepseek", "https://api.deepseek.com"), "secret-at-runtime").complete(
+        [{"role": "user", "content": "inspect"}],
+        [{"type": "function", "function": {"name": "read", "parameters": {"type": "object"}}}],
+    )
+
+    assert turn.tool_calls[0].arguments == {"value": True}
+
+
+def test_control_plane_closes_only_unterminated_json_tool_arguments(monkeypatch) -> None:
+    @contextmanager
+    def fake_urlopen(request, timeout):
+        class Response:
+            def read(self):
+                return json.dumps({
+                    "id": "request-truncated",
+                    "choices": [{"message": {"tool_calls": [{
+                        "id": "call-1", "function": {"name": "read", "arguments": '{"value": [1, 2'},
+                    }]}}],
+                    "usage": {"prompt_tokens": 3, "completion_tokens": 2},
+                }).encode("utf-8")
+        yield Response()
+
+    monkeypatch.setattr("agentguard.provider_runtime.urlopen", fake_urlopen)
+    turn = build_control_plane_client(binding("deepseek", "https://api.deepseek.com"), "secret-at-runtime").complete(
+        [{"role": "user", "content": "inspect"}],
+        [{"type": "function", "function": {"name": "read", "parameters": {"type": "object"}}}],
+    )
+
+    assert turn.tool_calls[0].arguments == {"value": [1, 2]}

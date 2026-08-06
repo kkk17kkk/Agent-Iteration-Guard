@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 from dataclasses import dataclass
@@ -121,7 +122,7 @@ class OpenAICompatibleChatCompletionsClient:
             native_calls = message.get("tool_calls") or []
             calls: list[ProviderToolCall] = []
             for item in native_calls:
-                arguments = json.loads(item["function"].get("arguments", "{}"))
+                arguments = _decode_tool_arguments(item["function"].get("arguments", "{}"))
                 if not isinstance(arguments, dict):
                     raise TypeError("tool arguments must be an object")
                 calls.append(ProviderToolCall(str(item["id"]), str(item["function"]["name"]), arguments))
@@ -152,3 +153,84 @@ def build_control_plane_client(
 ) -> OpenAICompatibleChatCompletionsClient:
     """Select the configured backend without retrying or falling back to another provider."""
     return OpenAICompatibleChatCompletionsClient(binding, api_key)
+
+
+def _decode_tool_arguments(value: object) -> object:
+    """Decode provider tool arguments while keeping malformed output fail-fast.
+
+    Some OpenAI-compatible providers occasionally serialize a JSON-shaped tool
+    object with Python literal quoting.  We accept only the standard JSON form
+    first, then a non-executable ``ast.literal_eval`` representation; truncated
+    or otherwise malformed arguments still raise the original parse error.
+    """
+
+    if not isinstance(value, str):
+        raise TypeError("tool arguments must be a string")
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as json_error:
+        repaired = _close_unterminated_json(value)
+        if repaired is not None:
+            try:
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                pass
+        try:
+            return ast.literal_eval(value)
+        except (SyntaxError, ValueError, TypeError):
+            raise json_error
+
+
+def _close_unterminated_json(value: str) -> str | None:
+    """Repair only a JSON object that ends with unmatched containers."""
+
+    stack: list[str] = []
+    repaired: list[str] = []
+    in_string = False
+    escaped = False
+    matching = {"]": "[", "}": "{"
+    }
+    for char in value:
+        previous = next((item for item in reversed(repaired) if not item.isspace()), "")
+        if (
+            char == "{"
+            and stack
+            and stack[-1] == "{"
+            and "[" in stack[:-1]
+            and previous == ","
+        ):
+            stack.pop()
+            comma_index = len(repaired) - 1
+            while comma_index >= 0 and repaired[comma_index].isspace():
+                comma_index -= 1
+            if comma_index < 0 or repaired[comma_index] != ",":
+                return None
+            repaired.insert(comma_index, "}")
+        repaired.append(char)
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+        elif char in "[{":
+            stack.append(char)
+        elif char in "]}":
+            if not stack or stack[-1] != matching[char]:
+                if char == "]" and "[" in stack:
+                    while stack and stack[-1] == "{":
+                        stack.pop()
+                        repaired.insert(len(repaired) - 1, "}")
+                    if not stack or stack[-1] != "[":
+                        return None
+                else:
+                    return None
+            stack.pop()
+    if in_string:
+        return None
+    repaired.extend("]" if item == "[" else "}" for item in reversed(stack))
+    return "".join(repaired) if stack or repaired != list(value) else None

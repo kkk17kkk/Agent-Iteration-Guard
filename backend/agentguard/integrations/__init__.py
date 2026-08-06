@@ -1,1 +1,1 @@
-"""Target-specific adapters kept outside the AgentGuard domain runtime."""
+"""Target runtime adapters kept outside the AgentGuard domain contracts."""

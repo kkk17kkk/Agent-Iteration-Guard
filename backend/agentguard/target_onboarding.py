@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import string
 import subprocess
 from pathlib import Path
 from typing import Callable, Literal
@@ -11,6 +12,7 @@ from pydantic import BaseModel, Field, model_validator
 from .domain import now
 from .domain import ProviderBinding
 from .sut_provider import SutProviderConfigurationError, SutProviderEnvironment
+from .scenario_contracts import ScenarioTraceContract
 
 
 class TargetSourceSpec(BaseModel):
@@ -83,7 +85,40 @@ class TargetTraceSpec(BaseModel):
 
     trace_path_variable: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     required_event_types: list[str] = Field(min_length=1)
+    provider_event_types: list[str] = Field(default_factory=list)
     requires_provider_usage: bool = True
+
+
+class TargetInteractionSpec(BaseModel):
+    """Target-owned command contract for one scenario/condition trial.
+
+    The command receives a JSON InteractionRequest on stdin and must return a
+    JSON InteractionObservation on stdout.  It is intentionally separate from
+    the runtime service command so a target can expose an evaluation seam
+    without changing its production entrypoint.
+    """
+
+    command: list[str] = Field(min_length=1, max_length=32)
+    timeout_seconds: float = Field(default=120, gt=0)
+    required_exit_code: int = 0
+
+    @model_validator(mode="after")
+    def validate_command(self) -> "TargetInteractionSpec":
+        allowed_placeholders = {
+            "runtime", "python", "source", "state_path", "scenario_id",
+            "condition_kind", "request_path", "trace_path",
+        }
+        for part in self.command:
+            if "{" not in part:
+                continue
+            try:
+                placeholders = {field_name for _, field_name, _, _ in string.Formatter().parse(part) if field_name}
+            except ValueError as error:
+                raise ValueError("interaction command contains an invalid format placeholder") from error
+            unknown = placeholders.difference(allowed_placeholders)
+            if unknown:
+                raise ValueError(f"interaction command contains unsupported placeholders: {sorted(unknown)}")
+        return self
 
 
 class TargetIsolationSpec(BaseModel):
@@ -101,6 +136,7 @@ class TargetManifest(BaseModel):
     runtime_requirements: list[TargetRuntimeRequirement] = Field(default_factory=list)
     sut_provider: TargetProviderInjectionSpec | None = None
     trace: TargetTraceSpec | None = None
+    interaction: TargetInteractionSpec | None = None
     isolation: TargetIsolationSpec = Field(default_factory=TargetIsolationSpec)
 
     def fingerprint(self) -> str:
@@ -171,6 +207,7 @@ def initialize_target_manifest(
     runtime_requirements: list[dict[str, object]] | None = None,
     sut_provider: dict[str, object] | None = None,
     trace: dict[str, object] | None = None,
+    interaction: dict[str, object] | None = None,
 ) -> TargetManifest:
     source = source.resolve()
     if not (source / ".git").exists():
@@ -193,6 +230,7 @@ def initialize_target_manifest(
         runtime_requirements=[TargetRuntimeRequirement.model_validate(item) for item in runtime_requirements or []],
         sut_provider=TargetProviderInjectionSpec.model_validate(sut_provider) if sut_provider else None,
         trace=TargetTraceSpec.model_validate(trace) if trace else None,
+        interaction=TargetInteractionSpec.model_validate(interaction) if interaction else None,
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(manifest.model_dump(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -253,7 +291,18 @@ def inspect_target_manifest(path: Path) -> dict[str, object]:
             "detail": (
                 f"path_variable={manifest.trace.trace_path_variable}; "
                 f"required_events={sorted(manifest.trace.required_event_types)}; "
+                f"provider_events={sorted(manifest.trace.provider_event_types)}; "
                 f"provider_usage={manifest.trace.requires_provider_usage}"
+            ),
+        })
+    if manifest.interaction:
+        checks.append({
+            "name": "interaction_contract",
+            "status": "passed",
+            "detail": (
+                f"command_parts={len(manifest.interaction.command)}; "
+                f"timeout_seconds={manifest.interaction.timeout_seconds}; "
+                f"required_exit_code={manifest.interaction.required_exit_code}"
             ),
         })
     dependency_lock = _resolve(source, manifest.runtime.dependency_lock)
@@ -294,25 +343,43 @@ def resolve_target_provider_environment(
     ).resolve(binding, credential_reader=credential_reader)
 
 
-def verify_target_trace(manifest: TargetManifest, events: list[dict[str, object]]) -> dict[str, object]:
-    """Check a target-declared trace contract without trusting agent prose."""
+def verify_target_trace(
+    manifest: TargetManifest,
+    events: list[dict[str, object]],
+    *,
+    scenario_trace: ScenarioTraceContract | None = None,
+) -> dict[str, object]:
+    """Check target and optional scenario trace contracts without trusting prose."""
     if not manifest.trace:
         return {"status": "trace_not_declared", "missing_event_types": []}
     observed = {str(item.get("event_type") or "") for item in events}
-    missing = sorted(set(manifest.trace.required_event_types).difference(observed))
-    usage_complete = True
-    if manifest.trace.requires_provider_usage:
-        provider_events = [item for item in events if item.get("request_id")]
-        usage_complete = bool(provider_events) and all(
-            isinstance(item.get("input_tokens"), int)
-            and isinstance(item.get("output_tokens"), int)
-            and isinstance(item.get("cache_hit_tokens", 0), int)
-            for item in provider_events
-        )
+    required_event_types = set(manifest.trace.required_event_types)
+    if scenario_trace and scenario_trace.provider_usage in {"optional", "forbidden"}:
+        required_event_types.difference_update(manifest.trace.provider_event_types)
+    missing = sorted(required_event_types.difference(observed))
+    provider_events = [item for item in events if item.get("request_id")]
+    usage_complete = all(
+        isinstance(item.get("input_tokens"), int)
+        and isinstance(item.get("output_tokens"), int)
+        and isinstance(item.get("cache_hit_tokens", 0), int)
+        for item in provider_events
+    )
+    provider_usage = (
+        scenario_trace.provider_usage
+        if scenario_trace is not None
+        else ("required" if manifest.trace.requires_provider_usage else "optional")
+    )
+    usage_satisfied = usage_complete
+    if provider_usage == "required":
+        usage_satisfied = bool(provider_events) and usage_complete
+    elif provider_usage == "forbidden":
+        usage_satisfied = not provider_events
     return {
-        "status": "passed" if not missing and usage_complete else "trace_not_satisfied",
+        "status": "passed" if not missing and usage_satisfied else "trace_not_satisfied",
         "missing_event_types": missing,
+        "provider_usage": provider_usage,
         "provider_usage_complete": usage_complete,
+        "provider_usage_satisfied": usage_satisfied,
     }
 
 

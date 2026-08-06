@@ -194,7 +194,7 @@ def test_manifest_provider_mapping_and_trace_contract_are_target_neutral(tmp_pat
         "target_id": "portable-agent", "source": {"path": str(source), "revision": revision},
         "runtime": {"application": "app:app", "readiness_path": "/health", "required_source_files": ["app.py"]},
         "sut_provider": {"api_key_variable": "TARGET_KEY", "model_variable": "TARGET_MODEL", "base_url_variable": "TARGET_URL", "model_alias_variables": ["TARGET_FAST_MODEL"]},
-        "trace": {"trace_path_variable": "TRACE_FILE", "required_event_types": ["skill_started", "provider_completed"]},
+        "trace": {"trace_path_variable": "TRACE_FILE", "required_event_types": ["skill_started", "provider_completed"], "provider_event_types": ["provider_completed"]},
     }), encoding="utf-8")
     binding = ProviderBinding(
         project_id="portable", role="sut_native", provider="deepseek", base_url="https://api.deepseek.com/v1",
@@ -218,6 +218,30 @@ def test_manifest_provider_mapping_and_trace_contract_are_target_neutral(tmp_pat
         {"event_type": "skill_started"},
         {"event_type": "provider_completed", "request_id": "r1"},
     ])["status"] == "trace_not_satisfied"
+
+
+def test_scenario_trace_contract_can_override_global_provider_requirement(tmp_path: Path) -> None:
+    source = source_repository(tmp_path)
+    manifest_path = tmp_path / "target.json"
+    revision = subprocess.run(["git", "rev-parse", "HEAD"], cwd=source, check=True, capture_output=True, text=True).stdout.strip()
+    manifest_path.write_text(json.dumps({
+        "target_id": "conditional-trace-agent", "source": {"path": str(source), "revision": revision},
+        "runtime": {"application": "app:app", "readiness_path": "/health", "required_source_files": ["app.py"]},
+        "trace": {"trace_path_variable": "TRACE_FILE", "required_event_types": ["skill_started", "provider_completed"], "provider_event_types": ["provider_completed"]},
+    }), encoding="utf-8")
+    manifest = load_target_manifest(manifest_path)
+
+    from agentguard.scenario_contracts import ScenarioTraceContract
+
+    verification = verify_target_trace(
+        manifest,
+        [{"event_type": "skill_started"}],
+        scenario_trace=ScenarioTraceContract(provider_usage="forbidden"),
+    )
+
+    assert verification["status"] == "passed"
+    assert verification["missing_event_types"] == []
+    assert verification["provider_usage"] == "forbidden"
 
 
 def test_target_cli_json_golden_path_fails_with_structured_exit_code(
@@ -264,8 +288,10 @@ def test_target_init_cli_writes_portable_runtime_contract_fields(tmp_path: Path,
     source = source_repository(tmp_path)
     provider_path = tmp_path / "provider.json"
     trace_path = tmp_path / "trace.json"
+    interaction_path = tmp_path / "interaction.json"
     provider_path.write_text(json.dumps({"api_key_variable": "TARGET_KEY", "model_variable": "TARGET_MODEL"}), encoding="utf-8")
     trace_path.write_text(json.dumps({"trace_path_variable": "TRACE_PATH", "required_event_types": ["skill_started"]}), encoding="utf-8")
+    interaction_path.write_text(json.dumps({"command": ["{python}", "app.py", "interaction"], "timeout_seconds": 20}), encoding="utf-8")
     manifest_path = tmp_path / "portable.json"
 
     assert main([
@@ -273,12 +299,13 @@ def test_target_init_cli_writes_portable_runtime_contract_fields(tmp_path: Path,
         "--source", str(source), "--target-id", "portable-cli-agent", "--application", "app:app",
         "--readiness-path", "/health", "--required-file", "app.py",
         "--runtime-requirement", '{"name":"task-data","relative_path":"requirements.lock","purpose":"task input"}',
-        "--sut-provider", str(provider_path), "--trace", str(trace_path), "--output", str(manifest_path),
+        "--sut-provider", str(provider_path), "--trace", str(trace_path), "--interaction", str(interaction_path), "--output", str(manifest_path),
     ]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["data"]["runtime_requirements"][0]["name"] == "task-data"
     assert payload["data"]["sut_provider"]["api_key_variable"] == "TARGET_KEY"
     assert payload["data"]["trace"]["required_event_types"] == ["skill_started"]
+    assert payload["data"]["interaction"]["command"][-1] == "interaction"
 
 
 def test_manifest_runtime_adapter_starts_existing_command_service_without_redeployment(tmp_path: Path) -> None:

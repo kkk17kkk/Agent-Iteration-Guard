@@ -1071,6 +1071,7 @@ class SkillAblationEvidence(BaseModel):
     skill_contract_id: str
     trial_ref: str = Field(min_length=1)
     intervention: Literal["enabled", "disabled", "replacement"]
+    scenario_id: str | None = Field(default=None, min_length=1)
     sut_provider_request_ids: list[str] = Field(default_factory=list)
     sut_provider_usage: list[SutProviderUsage] = Field(default_factory=list)
     trigger_event: SkillTraceEvent | None = None

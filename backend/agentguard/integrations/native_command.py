@@ -90,12 +90,19 @@ class NativeCommandRunner:
         state_path: Path,
         operation: CommandOperation,
         environment_overrides: dict[str, str] | None = None,
+        command_variables: dict[str, object] | None = None,
     ) -> NativeCommandEvidence:
         source = source.resolve()
         state_path = state_path.resolve()
         self._check_source(source)
-        environment = self.environment(source, state_path, environment_overrides=environment_overrides)
-        command = [*self.profile.command(self.runtime_executable, source, state_path), *operation.arguments]
+        variables = dict(command_variables or {})
+        environment = self.environment(
+            source, state_path, environment_overrides=environment_overrides, **variables
+        )
+        command = [
+            *self.profile.command(self.runtime_executable, source, state_path, **variables),
+            *operation.arguments,
+        ]
         stdin = None if operation.stdin_json is None else json.dumps(operation.stdin_json, ensure_ascii=False)
         started = time.monotonic()
         try:

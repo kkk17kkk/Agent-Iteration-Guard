@@ -33,7 +33,7 @@ def test_sut_binding_is_resolved_only_at_runtime_into_target_declared_names() ->
         base_url_variable="OPENROUTER_BASE_URL",
         model_variable="OPENROUTER_MODEL",
         model_alias_variables=("OPENROUTER_RECIPE_MODEL",),
-        additional_environment={"LIGHTTABLE_LLM_REQUIRED": "1"},
+        additional_environment={"TARGET_LLM_REQUIRED": "1"},
     )
 
     environment = mapping.resolve(binding(), credential_reader=lambda _: "runtime-only-secret")
@@ -43,7 +43,7 @@ def test_sut_binding_is_resolved_only_at_runtime_into_target_declared_names() ->
         "OPENROUTER_BASE_URL": "https://api.deepseek.com/v1",
         "OPENROUTER_MODEL": "deepseek-chat",
         "OPENROUTER_RECIPE_MODEL": "deepseek-chat",
-        "LIGHTTABLE_LLM_REQUIRED": "1",
+        "TARGET_LLM_REQUIRED": "1",
     }
     assert "runtime-only-secret" not in repr(mapping)
 

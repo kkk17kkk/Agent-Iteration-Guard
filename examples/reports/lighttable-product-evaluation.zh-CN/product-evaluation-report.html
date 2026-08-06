@@ -1,3 +1,2415 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><title>LightTable 产品评估报告</title><style>
-:root{--bg:#070b14;--surface:#0d1423;--line:#24314a;--text:#f3f6fb;--muted:#91a0b8;--accent:#4f7cff;--good:#42d6a4;--warn:#ffb454;--bad:#ff5f70;--radius:14px}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 76% 0,#12213f 0,transparent 32%),var(--bg);color:var(--text);font:15px/1.7 "Segoe UI","Microsoft YaHei UI",system-ui,sans-serif}.shell{max-width:1440px;margin:auto;padding:30px}.topbar{display:flex;justify-content:space-between;gap:16px;align-items:center;padding-bottom:22px;border-bottom:1px solid var(--line)}.brand{display:flex;gap:12px;align-items:center;font-weight:700}.mark{display:grid;place-items:center;width:38px;height:38px;border:1px solid #6688ff;border-radius:12px;color:#a9bbff;background:#101a33}.meta,.eyebrow,small{color:var(--muted);font-size:12px}.breadcrumb{margin:26px 0 8px;color:var(--muted)}h1{font-size:34px;line-height:1.2;margin:0 0 9px;letter-spacing:-.02em}h2{font-size:20px;margin:4px 0 12px}p{margin:0;white-space:pre-line}.lede{max-width:850px;color:#c4cee0}.hero,.content{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:18px;margin-top:22px}.panel{background:linear-gradient(145deg,rgba(18,28,48,.96),rgba(11,17,30,.96));border:1px solid var(--line);border-radius:var(--radius);padding:22px}.gate{font-size:31px;line-height:1.15;margin:14px 0 8px;font-weight:800}.gate.supported{color:var(--good)}.gate.limited{color:var(--warn)}.gate.blocked{color:var(--bad)}.decision-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:22px}.decision-grid div{padding-top:12px;border-top:1px solid var(--line)}.decision-grid span{display:block;color:var(--muted);font-size:12px}.metrics{display:grid;grid-template-columns:repeat(4,minmax(145px,1fr));gap:12px;margin:18px 0}.metric{min-height:92px;padding:16px;border:1px solid var(--line);border-radius:var(--radius);background:#0b1220}.metric span{display:block;color:var(--muted);font-size:12px}.metric strong{display:block;margin-top:12px;font-size:21px;color:#e6ecff}.section{margin-top:18px}.eyebrow{display:block;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}table{width:100%;border-collapse:collapse}th,td{padding:11px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}th{color:var(--muted);font-size:12px}.badge{font-size:12px;padding:3px 8px;border-radius:99px;border:1px solid var(--line)}.badge.passed{color:var(--good)}.badge.failed{color:var(--bad)}.badge.infrastructure_error{color:var(--warn)}details{margin-top:18px;border:1px solid var(--line);border-radius:var(--radius);padding:16px;color:var(--muted)}summary{cursor:pointer;color:var(--text);font-weight:700}.technical-list{list-style:none;margin:12px 0 0;padding:0}.technical-list li{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-bottom:1px solid var(--line)}code{font-family:"Cascadia Code",monospace;font-size:12px;color:#9eb7ff;overflow-wrap:anywhere}@media(max-width:980px){.hero,.content{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.shell{padding:18px}.topbar{align-items:flex-start}.metrics,.decision-grid{grid-template-columns:1fr}h1{font-size:29px}}@media print{body{background:#fff;color:#111}.panel,.metric{background:#fff;color:#111;border-color:#bbb}}
-</style></head><body><main class="shell"><header class="topbar"><div class="brand"><div class="mark">AIG</div><div>Agent Iteration Guard<br><span class="meta">项目级产品评估</span></div></div><div class="meta">评估范围 · Skill Ablation</div></header><div class="breadcrumb">报告 / 项目评估 / Skill Ablation</div><h1>LightTable 产品评估报告</h1><p class="lede">LightTable 的 recipe_planning Skill 消融评估共 5 次试验：enabled-1 与 related_precheck-1 通过，invalid_replacement-1 因超时基础设施错误，invalid_replacement-2 与 removed-1 失败。核心发现：Skill 启用时能正确触发原生 provider 调用并生成符合忌口约束的结构化菜谱；移除 Skill 后无原生调用、无触发事件，但仍有结构化输出（疑似走通用路径）；替换为无效实现时出现 fallback 且约束遵守失败。整体验证了 Skill 的触发与约束执行价值，但替换/移除场景的边界行为需进一步确认。</p><section class="hero"><section class="panel"><span class="eyebrow">Evaluation Assessment</span><div class="gate blocked">需要改进</div><p>该评估只解释保存证据覆盖的范围；不会替代独立 Verifier，也不构成发布批准。</p><div class="decision-grid"><div><span>评估 Arms</span><strong>5</strong></div><div><span>通过 / 未通过</span><strong>2 / 2</strong></div></div></section><section class="panel"><span class="eyebrow">Final Assessment</span><h2>最终评估</h2><p>触发可靠性：enabled 与 related_precheck 均正确记录触发事件，removed 无触发符合预期，触发机制可靠。执行质量：启用时走原生 provider 且无 fallback，执行路径正确。输出质量：启用时方案排除忌口鸡蛋、结构完整；移除/替换时约束遵守失败，输出质量依赖 Skill。边界控制：SQLite 写边界在多数 arm 通过，invalid_replacement-1 因超时越界。总体有效性：Skill 对约束执行与原生路径有实质价值，但替换/移除场景暴露通用 fallback 路径可绕过契约，需加固。下一步：修复替换场景的 fallback 绕过、补充超时重试，并验证 removed 路径的通用输出是否应被拦截。</p></section></section><section class="metrics"><article class='metric'><span>已评估 Arms</span><strong>5</strong></article><article class='metric'><span>通过</span><strong>2</strong></article><article class='metric'><span>未通过</span><strong>2</strong></article><article class='metric'><span>基础设施问题</span><strong>1</strong></article></section><section class='panel section'><span class='eyebrow'>Skill Profile</span><h2>技能在产品中的角色</h2><p>recipe_planning 为声明式能力：触发条件是目标发起原生菜谱规划 provider 调用；执行由原生目标菜谱规划器使用声明 provider 完成；交付物为结构化膳食方案；终止条件为生成方案或发出 fallback 轨迹；边界期望为 none。enabled-1 与 related_precheck-1 完整满足全部 12 项验证标准，证明该 Skill 契约可被真实执行。</p></section><section class='panel section'><span class='eyebrow'>Evaluation Design</span><h2>为何这样设计实验</h2><p>消融设计覆盖四种干预：enabled（启用）、replacement（替换为无效/相关实现）、disabled（移除）。每 arm 以同一任务输入（目标 maintain、2 人、20 分钟预算、忌口鸡蛋）运行，由独立 verifier 按 12 项标准评分，含真实 LLM 执行、触发事件、交付物、约束遵守、SQLite 写边界与 fallback 检测。</p></section><section class="panel section"><span class="eyebrow">Experiment Results</span><h2>每个 Arm 的结果</h2><div style="overflow:auto"><table><thead><tr><th>Arm</th><th>Verifier</th><th>证据支持的解释</th></tr></thead><tbody><tr><td>enabled-1</td><td><span class='badge passed'>passed</span></td><td>Skill 启用：触发 recipe_planning_generated，走原生 provider 调用，无 fallback；方案排除忌口鸡蛋，SQLite 写边界符合契约，12 项标准全通过。证明 Skill 正常路径完整可用。</td></tr><tr><td>invalid_replacement-1-interrupted</td><td><span class='badge infrastructure_error'>infrastructure_error</span></td><td>替换为无效实现但超时中断：有原生调用与触发，但 trace 不完整、无 post-trigger 事件，deliverable 缺失，SQLite 越界，fallback 被使用。因 TimeoutError 无法得出有效结论。</td></tr><tr><td>invalid_replacement-2</td><td><span class='badge failed'>failed</span></td><td>替换为无效实现：触发事件存在但无 post-trigger 事件，走 fallback 路径；deliverable 与响应形状通过，但约束遵守失败（含忌口鸡蛋），no_fallback 失败。证明无效替换会绕过 Skill 契约。</td></tr><tr><td>related_precheck-1</td><td><span class='badge passed'>passed</span></td><td>相关 precheck 替换：precheck 完成后进入原生 provider 调用并生成方案，约束遵守通过，无 fallback，12 项标准全通过。证明 Skill 与 precheck 协同路径正常。</td></tr><tr><td>removed-1</td><td><span class='badge failed'>failed</span></td><td>移除 Skill：仅 recipe_planning_removed 事件，无原生调用、无触发、无 post-trigger；但仍有结构化输出与 shopping_suggestions，约束遵守失败。证明存在 Skill 之外的通用生成路径且不遵守忌口。</td></tr></tbody></table></div></section><section class='panel section'><span class='eyebrow'>Behavior Examples</span><h2>保存证据支持的行为例子</h2><p>有 Skill（enabled-1）：触发 recipe_planning_generated，原生 provider 调用，方案排除忌口鸡蛋，无 fallback。无 Skill（removed-1）：仅 recipe_planning_removed 事件，无原生调用、无触发，但仍有结构化输出与 shopping_suggestions，约束遵守失败。对比显示 Skill 是约束执行与原生路径的关键载体。</p></section><section class="content section"><section class='panel section'><span class='eyebrow'>Skill Ablation Analysis</span><h2>有 Skill 与无 Skill</h2><p>移除 Skill 后（removed-1）无原生 provider 调用、无触发事件，但目标仍返回结构化方案，说明存在 Skill 之外的通用生成路径；该路径未遵守忌口约束。替换为无效实现（invalid_replacement-2）触发 fallback 且约束遵守失败，但 deliverable 仍通过，提示 fallback 路径可能绕过 Skill 契约。enabled 与 related_precheck 均通过，证明 Skill 本身可稳定工作。</p></section><section class='panel section'><span class='eyebrow'>Skill Interaction Analysis</span><h2>相关 Skill 的关系</h2><p>related_precheck-1 显示 Skill 与 precheck 事件（recipe_planning_precheck_completed）协同：precheck 完成后进入原生 provider 调用并生成方案，约束遵守通过。invalid_replacement-1 因超时中断，precheck/fallback 交互未完成，无法评估。Skill 与 precheck 的衔接在正常路径下有效，但异常路径的交互证据不足。</p></section></section><section class="panel section"><span class="eyebrow">Limitations</span><h2>限制与未解决项</h2><p>invalid_replacement-1 因 TimeoutError 中断，其约束与边界结论不可用。removed-1 的通用输出路径来源未完全定位。任务输入、控制组与交互结论部分缺失，相关项按 unresolved 处理。通过试验仅证明声明契约，不构成发布决定。</p></section><details><summary>Technical Evidence（用于复核）</summary><p>默认叙事不暴露原始调用和内部指标；证据包保留可复核的短引用映射。</p><ul class="technical-list"><li><code>enabled-1</code><span>passed</span></li><li><code>invalid_replacement-1-interrupted</code><span>infrastructure_error</span></li><li><code>invalid_replacement-2</code><span>failed</span></li><li><code>related_precheck-1</code><span>passed</span></li><li><code>removed-1</code><span>failed</span></li></ul><p><code>Evidence manifest: 475683d499ee60e1f752a9f797f5ef000cc937026345d882ddf8f2f80437c6f4</code></p><p><code>Analyst: deepseek / deepseek-v4-flash</code></p></details></main></body></html>
+<!doctype html>
+<html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='color-scheme' content='dark'>
+<title>recipe_planning 产品评估</title>
+<style>
+:root{--bg:#070b14;--surface:#0d1423;--surface-2:#111a2d;--line:#24314a;--text:#f3f6fb;--muted:#91a0b8;--accent:#4f7cff;--good:#42d6a4;--warn:#ffb454;--bad:#ff5f70;--radius:14px}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 76% 0,#12213f 0,transparent 32%),var(--bg);color:var(--text);font:15px/1.6 'Segoe UI','Microsoft YaHei UI',system-ui,sans-serif}
+a{color:inherit}code{font-family:'Cascadia Code','SFMono-Regular',monospace;font-size:12px;color:#9eb7ff;overflow-wrap:anywhere}
+.shell{max-width:1440px;margin:auto;padding:30px}.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 0 22px;border-bottom:1px solid var(--line)}
+.brand{display:flex;gap:12px;align-items:center;font-weight:700}.mark{display:grid;place-items:center;width:38px;height:38px;border:1px solid #6688ff;border-radius:12px;color:#a9bbff;background:#101a33}
+.meta{color:var(--muted);font-size:13px}.breadcrumb{margin:26px 0 8px;color:var(--muted)}h1{font-size:34px;line-height:1.2;margin:0 0 9px;letter-spacing:-.02em}h2{font-size:20px;margin:4px 0 0}h3{font-size:17px;margin:4px 0 0}.lede{max-width:850px;color:#c4cee0;margin:0}
+.sample-banner{margin:18px 0;padding:10px 14px;border:1px solid #6c5827;background:#211b0e;color:#ffd78b;border-radius:var(--radius)}.sample-banner.warning{border-color:#754d2c;background:#281912;color:#ffc17e}
+.panel{background:linear-gradient(145deg,rgba(18,28,48,.96),rgba(11,17,30,.96));border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.content{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}.narratives{display:grid;gap:18px}.section-heading{margin-bottom:16px}.section-heading span,.eyebrow{display:block;color:#8fa1be;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.overview-item{padding:15px;background:#0a1120;border:1px solid #2a3957;border-radius:10px}.overview-item span,.context-table th,.analysis-grid span,.scenario-grid span{display:block;color:var(--muted);font-size:12px}
+.overview-item p,.analysis-grid p,.scenario-grid p{margin:4px 0;color:#c8d2e4}.ideal{margin:12px 0 0;padding-left:22px;color:#dfe6f4}
+.context-table{width:100%;border-collapse:collapse;margin-top:8px}.context-table th,.context-table td{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.context-table th{width:160px;color:#aebeff;font-weight:600}.context-table td{color:#dfe6f4}
+.executive{position:relative;overflow:hidden}.executive:after{content:'';position:absolute;inset:auto -90px -110px auto;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(79,124,255,.18),transparent 68%)}.gate{font-size:26px;line-height:1.2;margin:12px 0 8px;font-weight:800}.gate.supported{color:var(--good)}.gate.review{color:var(--warn)}.executive .recommendation-line{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);color:#dfe6f4}
+.finding{display:flex;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}.finding:last-child{border-bottom:0}.finding-mark{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#123c35;color:var(--good);font-weight:800}.finding p{margin:3px 0;color:#c8d2e4}
+.dimension-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}.dimension{padding:14px;border:1px solid #2a3957;border-radius:10px;background:#0a1120}.dimension-label{display:block;color:#aebeff;font-size:12px}.dimension strong{display:block;margin-top:7px}.dimension p{margin:5px 0 0;color:#c8d2e4}
+.experiment-map{display:grid;gap:8px}.experiment-map-item{display:grid;grid-template-columns:30px 1fr;gap:12px;align-items:start;padding:14px;border:1px solid #2a3957;border-radius:10px;background:#0a1120}.map-number{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#17264a;color:#a9bbff;font-weight:700}.experiment-map-item h3{margin:3px 0}.experiment-map-item p{margin:3px 0;color:#c8d2e4}
+.analysis-card,.scenario-card,.recommendation{border-top:1px solid var(--line);padding:16px 0}.analysis-card:first-child,.scenario-card:first-child,.recommendation:first-child{border-top:0;padding-top:0}.card-heading{margin-bottom:10px}.evidence-kind{font-size:12px;color:#aebeff}.analysis-grid,.scenario-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.analysis-grid>div,.scenario-grid>div{padding-top:9px;border-top:1px solid var(--line)}.analysis-grid .wide,.scenario-grid .wide{grid-column:1/-1}.interpretation{margin:14px 0 0;padding:14px 16px;border-left:3px solid var(--accent);background:#0a1020;color:#dfe6f4}.interpretation strong{display:block;color:#aebeff;font-size:12px;margin-bottom:4px}
+.scenario-heading{display:flex;justify-content:space-between;gap:10px;align-items:center}.scenario-title{display:flex;align-items:center;gap:10px;min-width:0}.scenario-title>span{color:#aebeff;font-weight:700}.scenario-id{color:var(--muted);font-size:11px;font-weight:500}.scenario-heading strong{color:var(--good);font-size:12px}.prompt{padding:10px 12px;margin:12px 0;background:#0a1020;color:#dfe6f4;border-left:3px solid #6688ff}
+.finding-list,.limits ul{list-style:none;margin:12px 0 0;padding:0}.finding-list li{position:relative;padding:11px 0;border-bottom:1px solid var(--line)}.finding-list li:last-child{border-bottom:0}.finding-list li span{float:right;color:#ffd080;font-size:12px}
+.priority{float:right;color:#ffd080;font-size:12px}.recommendation h3{display:inline-block}.recommendation p{margin:7px 0;color:#dfe6f4}.muted{color:var(--muted)!important}.next-step{color:#aebeff!important}.next-step strong{margin-right:8px}
+.sidebar{display:grid;gap:18px;position:sticky;top:18px}.side-evidence{padding:12px 0;border-bottom:1px solid var(--line)}.side-evidence:last-child{border-bottom:0}.side-evidence span{color:#aebeff;font-size:12px}.side-evidence p{margin:4px 0;color:#c8d2e4}details{border-top:1px solid var(--line);padding:12px 0}details:first-of-type{border-top:0}summary{cursor:pointer;font-weight:700;color:#dfe6f4}.evidence-value{margin:10px 0;padding:10px;background:#0a1120;border-radius:9px;color:#c8d2e4}.evidence-value strong{display:block;color:var(--muted);font-size:12px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:#101827;color:#dbe7ff;padding:12px;border-radius:10px}.technical{color:var(--muted);font-size:13px}
+footer{margin-top:22px;padding:18px 0;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}
+@media(max-width:980px){.content{grid-template-columns:1fr}.sidebar{position:static}}@media(max-width:680px){.shell{padding:18px}.topbar{align-items:flex-start;gap:12px}.overview-grid,.dimension-grid,.analysis-grid,.scenario-grid{grid-template-columns:1fr}.analysis-grid .wide,.scenario-grid .wide{grid-column:auto}}
+@media print{body{background:#fff;color:#111}.panel{background:#fff;color:#111;border-color:#bbb}.sidebar{position:static}}
+</style></head><body><main class='shell'>
+<header class='topbar'><div class='brand'><div class='mark'>AIG</div><div>Agent Iteration Guard<br><span class='meta'>Agent 产品能力评估</span></div></div><div class='meta'>报告语言 · 简体中文</div></header>
+<div class='breadcrumb'>报告 / Product Evaluation / recipe_planning</div><h1>recipe_planning 产品评估</h1><p class='lede'>在 maintain 目标下为 2 人家庭在工作日 20 分钟内规划餐食，遵守忌口鸡蛋并优先消耗番茄和豆腐库存。</p>
+<section class='panel narrative-panel'><div class='section-heading'><span>1 · Capability Overview</span><h2>这个组件为用户完成什么工作？</h2></div><div class='overview-grid'><div class='overview-item'><span>产品职责</span><p>在 maintain 目标下为 2 人家庭在工作日 20 分钟内规划餐食，遵守忌口鸡蛋并优先消耗番茄和豆腐库存。</p></div><div class='overview-item'><span>为什么需要</span><p>帮助用户在时间紧张、库存有限且存在饮食禁忌时，获得可直接执行的餐食方案，减少临时决策成本。</p></div><div class='overview-item'><span>改善的用户问题</span><p>用户希望获得符合个人约束、时间可行且能减少临时决策成本的餐食计划，但仅靠通用回答容易忽略忌口或库存。</p></div><div class='overview-item'><span>能力边界</span><p>时间过短或输入不完整时应缩小方案范围或请求澄清；不能把近似营养信息表达为医疗级精确结论；不能为了消耗库存而违反明确饮食禁忌。</p></div></div><h3>理想行为</h3><ul class='ideal'><li>识别 maintain、2 人和 20 分钟等任务约束</li><li>不推荐含鸡蛋的菜品</li><li>优先利用番茄和豆腐库存</li><li>输出结构化、可执行的餐食方案和必要的购物建议</li></ul></section>
+<div class='content'><div class='narratives'>
+<section class='panel narrative-panel'><div class='section-heading'><span>2 · Evaluation Context</span><h2>本次评估具体模拟什么用户场景？</h2></div><table class='context-table'><tbody><tr><th>用户任务</th><td>在 maintain 目标下为 2 人家庭规划工作日 20 分钟内的晚餐，遵守忌口鸡蛋并优先消耗番茄和豆腐库存。</td></tr><tr><th>目标与人数</th><td>维持体重（maintain），2 人用餐。</td></tr><tr><th>时间预算</th><td>工作日 20 分钟；边界场景为 5 分钟。</td></tr><tr><th>饮食禁忌</th><td>忌口鸡蛋，不能为了消耗库存而违反禁忌。</td></tr><tr><th>冻结库存</th><td>番茄 2 个、豆腐 1 盒、鸡蛋 6 个，其他调料和主食齐全。</td></tr><tr><th>预期结果</th><td>输出结构化、可执行的餐食方案，不推荐含蛋菜品，优先利用番茄和豆腐，必要时给出购物建议。</td></tr></tbody></table></section>
+<section class='panel executive'><div class='section-heading'><span>3 · Executive Summary</span><h2>评估结果汇总</h2></div><div class='gate supported'>得到支持</div><p>recipe_planning 是满足用户约束的关键组成：启用时 5 个场景全部通过约束检查，移除或替换后 10 个场景全部在约束执行上失败，说明该能力直接决定忌口与库存约束的落实。</p><div class='finding-list'><article class='finding'><span class='finding-mark'>✓</span><div><strong>能力价值：约束执行是核心产出</strong><p>启用 recipe_planning 时，5 个场景全部通过约束检查，正确识别忌口鸡蛋并优先利用番茄和豆腐库存。</p></div></article><article class='finding'><span class='finding-mark'>✓</span><div><strong>能力损失：移除后约束执行失败</strong><p>移除 recipe_planning 后，5 个场景全部在约束执行上失败，基础输出仍在但未遵守忌口与库存约束。</p></div></article><article class='finding'><span class='finding-mark'>✓</span><div><strong>替换风险：候选实现无法保持核心价值</strong><p>替换实现虽产出结构化方案，但 5 个场景全部在约束执行上失败，无法保持忌口与库存约束的核心价值。</p></div></article><article class='finding'><span class='finding-mark'>✓</span><div><strong>稳定性：约束执行跨场景一致</strong><p>启用条件下 5 个不同场景（标准、冲突、边界、鲁棒、交互）均稳定通过约束检查，能力表现一致。</p></div></article></div><p class='recommendation-line'><strong>产品建议</strong>　保留 recipe_planning 作为餐食规划的核心能力，不进行移除或替换；后续优化应聚焦增强边界场景的澄清与简化建议。</p><p class='muted'><strong>后续优化重点</strong>　补充边界场景的澄清与简化建议验证；增加跨日期与更多库存组合样本；验证替换实现能否恢复约束执行</p></section>
+<section class='panel narrative-panel'><div class='section-heading'><span>Evaluation Dimensions</span><h2>四个产品质量维度</h2></div><div class='dimension-grid'><article class='dimension'><span class='dimension-label'>Trigger：能力触发</span><strong>启用时正确进入餐食规划流程，移除或替换后未进入该能力流程。</strong><p>启用 Skill 的 5 个场景均完成规划流程；移除和替换场景均未进入目标能力流程。</p></article><article class='dimension'><span class='dimension-label'>Execution：流程执行</span><strong>启用时完成约束执行，移除或替换后约束执行失败。</strong><p>启用场景约束检查全部通过；移除与替换场景均出现含忌口食材或缺失约束执行。</p></article><article class='dimension'><span class='dimension-label'>Delivery：结果交付</span><strong>启用时交付结构化可执行方案，移除或替换后仍能产出基础输出但约束不达标。</strong><p>三种条件下均返回结构化餐食方案，但移除与替换方案未遵守忌口约束。</p></article><article class='dimension'><span class='dimension-label'>Boundary：能力边界</span><strong>三种条件下均未超出声明范围，未产生额外副作用。</strong><p>所有场景边界行为均符合声明契约，未出现越界或未声明副作用。</p></article></div></section>
+<section class='panel narrative-panel'><div class='section-heading'><span>4 · Experiment Overview</span><h2>实验地图</h2></div><p class='lede'>本评估回答一个产品问题：不同实现是否改变用户实际得到的产品能力。通过保留、移除和替换三种比较，判断 recipe_planning 是否是满足用户约束的关键组成。</p><div class='experiment-map'><article class='experiment-map-item'><span class='map-number'>1</span><div><span class='evidence-kind'>能力保留价值</span><h3>保留 recipe_planning 时用户得到什么产品结果？</h3><p>建立完整能力的产品质量基线，确认约束执行、交付质量与边界控制。</p></div></article><article class='experiment-map-item'><span class='map-number'>2</span><div><span class='evidence-kind'>能力移除损失</span><h3>移除 recipe_planning 后用户结果损失什么？</h3><p>识别该能力是否是满足用户约束的必要组成，以及移除后的能力损失。</p></div></article><article class='experiment-map-item'><span class='map-number'>3</span><div><span class='evidence-kind'>能力替换风险</span><h3>替换实现能否保持 recipe_planning 的核心产品价值？</h3><p>判断未来实现变更是否能在不损失约束执行与交付质量的前提下保持产品价值。</p></div></article></div></section>
+<section class='panel narrative-panel'><div class='section-heading'><span>5 · Experiment Analysis</span><h2>实验明细</h2></div><article class='analysis-card'><div class='card-heading'><span class='evidence-kind'>实验明细</span><h3>保留能力基线：标准场景约束执行</h3></div><div class='analysis-grid'><div><span>Purpose</span><p>验证完整 Agent 在标准条件下能否识别约束并输出可执行方案，建立产品质量基线。</p></div><div><span>Design</span><p>保留 recipe_planning，在 5 个声明的用户任务中运行完整 Agent，检查约束执行、交付结构与边界。</p></div><div class='wide'><span>Input Scenario</span><p>2 人、20 分钟、maintain、忌口鸡蛋，库存含番茄 2 个、豆腐 1 盒、鸡蛋 6 个。</p></div><div><span>Observation</span><p>5 个场景全部通过约束检查，正确识别忌口鸡蛋并优先利用番茄和豆腐库存，输出结构化方案。</p></div><div><span>Result</span><p>保留能力时约束执行全部通过，交付物满足产品定义。</p></div></div><p class='interpretation'><strong>Product Meaning</strong>recipe_planning 正常工作时可稳定满足用户约束，是产品质量基线。</p></article><article class='analysis-card'><div class='card-heading'><span class='evidence-kind'>实验明细</span><h3>移除能力损失：约束执行失败</h3></div><div class='analysis-grid'><div><span>Purpose</span><p>验证移除 recipe_planning 后用户结果是否损失，判断其是否为必要组成。</p></div><div><span>Design</span><p>移除 recipe_planning，保留相同任务、环境和产品约束，与完整能力基线对照。</p></div><div class='wide'><span>Input Scenario</span><p>与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。</p></div><div><span>Observation</span><p>5 个场景全部在约束执行上失败，基础结构化输出仍在但未遵守忌口与库存约束。</p></div><div><span>Result</span><p>移除后约束执行全部失败，基础输出不能替代完整产品能力。</p></div></div><p class='interpretation'><strong>Product Meaning</strong>recipe_planning 是满足用户约束的关键组成，移除后用户会收到违反忌口的方案。</p></article><article class='analysis-card'><div class='card-heading'><span class='evidence-kind'>实验明细</span><h3>替换能力风险：核心价值未保持</h3></div><div class='analysis-grid'><div><span>Purpose</span><p>验证候选实现能否保持 recipe_planning 提供的核心产品价值，而非仅产生输出。</p></div><div><span>Design</span><p>使用候选实现完成相同任务，与完整能力基线按四个维度逐项比较。</p></div><div class='wide'><span>Input Scenario</span><p>与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。</p></div><div><span>Observation</span><p>替换实现虽产出结构化方案，但 5 个场景全部在约束执行上失败，未保持忌口与库存约束。</p></div><div><span>Result</span><p>替换实现无法保持核心约束与交付质量，能力价值未得到保持。</p></div></div><p class='interpretation'><strong>Product Meaning</strong>未来实现变更若不能恢复约束执行，将导致用户结果损失，替换存在高风险。</p></article></section>
+<section class='panel narrative-panel'><div class='section-heading'><span>6 · Scenario Stability</span><h2>跨场景稳定性</h2></div><p>启用条件下 5 个不同场景均稳定通过约束检查；移除与替换条件下 5 个场景均稳定失败，能力表现跨场景一致。</p><p class='interpretation'><strong>结论</strong>5 个场景均有对应证据，覆盖标准、约束冲突、边界、鲁棒与交互类别，稳定性结论充分。</p><article class='scenario-card'><div class='scenario-heading'><div class='scenario-title'><span>标准约束场景</span><code class='scenario-id'>scenario_id: scenario_1</code></div><strong>得到支持</strong></div><p class='prompt'>“工作日晚上只有20分钟做饭，家里就我和我老公两个人，维持体重，冰箱有番茄2个、豆腐1盒、鸡蛋6个，安排今晚晚餐。”</p><div class='scenario-grid'><div><span>目标</span><p>验证标准条件下约束识别与库存利用。</p></div><div><span>观察</span><p>启用时通过约束检查，移除与替换时约束执行失败。</p></div><div class='wide'><span>结果</span><p>保留能力时方案满足约束，移除或替换时违反忌口。</p></div></div></article><article class='scenario-card'><div class='scenario-heading'><div class='scenario-title'><span>约束冲突场景</span><code class='scenario-id'>scenario_id: scenario_2</code></div><strong>得到支持</strong></div><p class='prompt'>“鸡蛋快过期想消耗，但老公对鸡蛋过敏，尽量用掉鸡蛋又不能让他吃到。”</p><div class='scenario-grid'><div><span>目标</span><p>验证消耗库存愿望与饮食禁忌冲突时的处理。</p></div><div><span>观察</span><p>启用时坚持忌口并给出替代方案，移除或替换时违反禁忌。</p></div><div class='wide'><span>结果</span><p>保留能力时坚持禁忌，移除或替换时未遵守。</p></div></div></article><article class='scenario-card'><div class='scenario-heading'><div class='scenario-title'><span>边界时间场景</span><code class='scenario-id'>scenario_id: scenario_3</code></div><strong>得到支持</strong></div><p class='prompt'>“只有5分钟做饭，两个人吃，冰箱剩番茄2个和豆腐1盒，鸡蛋不吃。”</p><div class='scenario-grid'><div><span>目标</span><p>验证时间过短超出能力边界时的处理。</p></div><div><span>观察</span><p>启用时识别时间限制并给出可行方案，移除或替换时约束执行失败。</p></div><div class='wide'><span>结果</span><p>保留能力时方案可行，移除或替换时未遵守约束。</p></div></div></article><article class='scenario-card'><div class='scenario-heading'><div class='scenario-title'><span>鲁棒推断场景</span><code class='scenario-id'>scenario_id: scenario_4</code></div><strong>得到支持</strong></div><p class='prompt'>“随便做点吃的，20分钟以内，冰箱有番茄、豆腐和几个鸡蛋，吃得清淡。”</p><div class='scenario-grid'><div><span>目标</span><p>验证未明确提及忌口时能否正确推断约束。</p></div><div><span>观察</span><p>启用时正确推断忌口并避免含蛋菜品，移除或替换时失败。</p></div><div class='wide'><span>结果</span><p>保留能力时正确推断，移除或替换时违反约束。</p></div></div></article><article class='scenario-card'><div class='scenario-heading'><div class='scenario-title'><span>交互购物场景</span><code class='scenario-id'>scenario_id: scenario_5</code></div><strong>得到支持</strong></div><p class='prompt'>“番茄和豆腐不够做完整饭，帮我看看还缺什么并告诉需要买什么。”</p><div class='scenario-grid'><div><span>目标</span><p>验证库存不足时结合购物建议能力给出补充清单。</p></div><div><span>观察</span><p>启用时给出购物建议并遵守忌口，移除或替换时约束执行失败。</p></div><div class='wide'><span>结果</span><p>保留能力时方案完整，移除或替换时未遵守约束。</p></div></div></article></section>
+<section class='panel narrative-panel'><div class='section-heading'><span>7 · Product Impact</span><h2>产品级有效性</h2></div><p>移除或替换 recipe_planning 后，用户会收到违反忌口鸡蛋或未优先利用库存的方案，导致方案不可用并可能带来饮食风险。</p><ul class='finding-list'><li><strong>约束满足</strong>：该能力稳定满足忌口与库存约束，是用户获得合规方案的关键。<span>high</span></li><li><strong>约束满足</strong>：移除后用户会收到违反忌口的方案，基础输出不能替代完整能力。<span>critical</span></li><li><strong>约束满足</strong>：替换实现无法保持核心约束价值，未来变更存在高风险。<span>high</span></li><li><strong>边界控制</strong>：能力边界控制稳定，未出现越界或未声明副作用。<span>info</span></li></ul></section>
+<section class='panel narrative-panel'><div class='section-heading'><span>8 · Recommendation</span><h2>优化建议</h2></div><article class='recommendation'><div><span class='priority'>critical</span><h3>recipe_planning 能力</h3></div><p>保留 recipe_planning 作为餐食规划核心能力，不进行移除或替换。</p><p class='muted'>移除或替换后约束执行全部失败，用户会收到违反忌口的方案，能力是满足用户约束的关键组成。</p><p class='next-step'><strong>下一步验证</strong>增加跨日期样本；补充更多库存组合</p></article><article class='recommendation'><div><span class='priority'>medium</span><h3>边界场景处理</h3></div><p>增强时间过短或输入不完整时的澄清与简化建议能力。</p><p class='muted'>边界场景虽通过约束检查，但可进一步优化时间过短时的方案范围缩小与澄清。</p><p class='next-step'><strong>下一步验证</strong>补充边界任务样本；验证澄清建议质量</p></article><article class='recommendation'><div><span class='priority'>high</span><h3>替换实现验证</h3></div><p>若未来需替换实现，必须先验证其能恢复约束执行能力。</p><p class='muted'>当前替换实现无法保持核心约束价值，替换前必须验证约束执行恢复。</p><p class='next-step'><strong>下一步验证</strong>验证替换实现约束执行；增加替换场景样本</p></article></section>
+<section class='panel narrative-panel'><div class='section-heading'><span>9 · Limitations</span><h2>结论适用范围</h2></div><ul class='limits ul'><li>交付物内容被截断，无法逐条核对具体菜品是否含蛋，约束结论依赖验证器结果。</li><li>评估基于冻结环境（2 人、20 分钟、忌口鸡蛋），未覆盖其他人数、时间或忌口组合。</li><li>替换实验使用候选实现，未验证其他可能的实现方案是否也能保持能力价值。</li></ul></section>
+</div><aside class='sidebar'><section class='panel'><span class='eyebrow'>Product Evidence</span><h2>产品证据</h2><p class='technical'>从机器证据归纳出的用户结果与产品影响。</p><article class='side-evidence'><span>保留能力约束执行</span><p>启用 recipe_planning 时，5 个场景全部通过约束检查，正确识别忌口鸡蛋并优先利用番茄和豆腐库存。</p></article><article class='side-evidence'><span>移除能力约束失败</span><p>移除 recipe_planning 后，5 个场景全部在约束执行上失败，基础输出仍在但未遵守忌口与库存约束。</p></article><article class='side-evidence'><span>替换能力约束失败</span><p>替换实现虽产出结构化方案，但 5 个场景全部在约束执行上失败，无法保持忌口与库存约束。</p></article><article class='side-evidence'><span>边界行为一致</span><p>三种条件下均未超出声明范围，未产生额外副作用，边界行为符合声明契约。</p></article></section><section class='panel'><span class='eyebrow'>Experiment Evidence</span><h2>实验证据</h2><p class='technical'>展开查看输入任务、参考结果、变化结果及差异。</p><details class='evidence-entry'><summary>保留能力基线：标准场景约束执行</summary><div class='evidence-value'><strong>输入任务</strong>2 人、20 分钟、maintain、忌口鸡蛋，库存含番茄 2 个、豆腐 1 盒、鸡蛋 6 个。</div><div class='evidence-value'><strong>保留能力</strong>5 个场景全部通过约束检查，输出结构化可执行方案。</div><div class='evidence-value'><strong>移除能力</strong>5 个场景全部在约束执行上失败。</div><div class='evidence-value'><strong>差异</strong>移除后约束执行全部失败，基础输出不能替代完整能力。</div></details><details class='evidence-entry'><summary>移除能力损失：约束执行失败</summary><div class='evidence-value'><strong>输入任务</strong>与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。</div><div class='evidence-value'><strong>保留能力</strong>约束执行全部通过，方案满足用户约束。</div><div class='evidence-value'><strong>移除能力</strong>约束执行全部失败，未遵守忌口与库存约束。</div><div class='evidence-value'><strong>差异</strong>移除导致用户收到违反忌口的方案，能力损失明确。</div></details><details class='evidence-entry'><summary>替换能力风险：核心价值未保持</summary><div class='evidence-value'><strong>输入任务</strong>与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。</div><div class='evidence-value'><strong>保留能力</strong>约束执行全部通过，交付质量达标。</div><div class='evidence-value'><strong>替换能力</strong>约束执行全部失败，虽产出结构化方案。</div><div class='evidence-value'><strong>差异</strong>替换实现无法保持核心约束与交付质量，存在高风险。</div></details></section><section class='panel'><span class='eyebrow'>Technical Evidence</span><h2>技术证据</h2><p class='technical'>机器级证据只用于审计和追溯，不参与主叙事。</p><details class='technical-record'><summary>artifact · evidence_0c9e7b54daa6ff1e</summary><pre>{
+  &quot;record_id&quot;: &quot;record_0c9e7b54daa6ff1e&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_0c9e7b54daa6ff1e&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;enabled&quot;,
+    &quot;verifier_status&quot;: &quot;passed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A complete trace contains at least one event after the Skill trigger.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target-generated recipe ingredients exclude the approved disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_1&quot;,
+      &quot;user_prompt&quot;: &quot;工作日晚上只有20分钟做饭，家里就我和我老公两个人。我们最近在维持体重，不想吃太油腻的。冰箱里有番茄2个、豆腐1盒、鸡蛋6个，其他调料和主食都有。帮我安排一下今晚的晚餐，最好能把番茄和豆腐用上，别太复杂，能直接照着做的那种。&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_ef9528cf&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;优先消耗临期豆腐，结合番茄制作快手家常菜，避开鸡蛋，20分钟内完成2人份。&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: []
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_generated&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_a8ad263d850b3936&quot;,
+      &quot;evidence_10824739effb49d5&quot;,
+      &quot;evidence_0b07ff46a949c7c8&quot;,
+      &quot;evidence_97980b9eea1a5724&quot;,
+      &quot;evidence_126e75df07711e2e&quot;,
+      &quot;evidence_cd62c6508674e957&quot;,
+      &quot;evidence_80d40a85ed8d6f7d&quot;,
+      &quot;evidence_82d01ad24d086878&quot;,
+      &quot;evidence_53256c6a0361213f&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_a8ad263d850b3936&quot;,
+    &quot;evidence_10824739effb49d5&quot;,
+    &quot;evidence_0b07ff46a949c7c8&quot;,
+    &quot;evidence_97980b9eea1a5724&quot;,
+    &quot;evidence_126e75df07711e2e&quot;,
+    &quot;evidence_cd62c6508674e957&quot;,
+    &quot;evidence_80d40a85ed8d6f7d&quot;,
+    &quot;evidence_82d01ad24d086878&quot;,
+    &quot;evidence_53256c6a0361213f&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_81bd146f32b35cb5</summary><pre>{
+  &quot;record_id&quot;: &quot;record_81bd146f32b35cb5&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_81bd146f32b35cb5&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;replacement&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;A fallback path was used and cannot support real Skill acceptance.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_1&quot;,
+      &quot;user_prompt&quot;: &quot;工作日晚上只有20分钟做饭，家里就我和我老公两个人。我们最近在维持体重，不想吃太油腻的。冰箱里有番茄2个、豆腐1盒、鸡蛋6个，其他调料和主食都有。帮我安排一下今晚的晚餐，最好能把番茄和豆腐用上，别太复杂，能直接照着做的那种。&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_05586147&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 20 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_fallback&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: true,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_d1f5f034ce547232&quot;,
+      &quot;evidence_25c82440de784430&quot;,
+      &quot;evidence_f8f22531f366e2f5&quot;,
+      &quot;evidence_3bb4246528a22f96&quot;,
+      &quot;evidence_259addf567694df4&quot;,
+      &quot;evidence_313ca2fffe09646e&quot;,
+      &quot;evidence_bfb80e5b7d1684bb&quot;,
+      &quot;evidence_5097dfe758e08a4d&quot;,
+      &quot;evidence_0385e2f1b904ee06&quot;,
+      &quot;evidence_f24f48b905bb4fe0&quot;,
+      &quot;evidence_19f38a14294568bc&quot;,
+      &quot;evidence_ce5986a3030d98c9&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_d1f5f034ce547232&quot;,
+    &quot;evidence_25c82440de784430&quot;,
+    &quot;evidence_f8f22531f366e2f5&quot;,
+    &quot;evidence_3bb4246528a22f96&quot;,
+    &quot;evidence_259addf567694df4&quot;,
+    &quot;evidence_313ca2fffe09646e&quot;,
+    &quot;evidence_bfb80e5b7d1684bb&quot;,
+    &quot;evidence_5097dfe758e08a4d&quot;,
+    &quot;evidence_0385e2f1b904ee06&quot;,
+    &quot;evidence_f24f48b905bb4fe0&quot;,
+    &quot;evidence_19f38a14294568bc&quot;,
+    &quot;evidence_ce5986a3030d98c9&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_52d3f5aea6a96d90</summary><pre>{
+  &quot;record_id&quot;: &quot;record_52d3f5aea6a96d90&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_52d3f5aea6a96d90&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;disabled&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;No target-native provider request was recorded.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_1&quot;,
+      &quot;user_prompt&quot;: &quot;工作日晚上只有20分钟做饭，家里就我和我老公两个人。我们最近在维持体重，不想吃太油腻的。冰箱里有番茄2个、豆腐1盒、鸡蛋6个，其他调料和主食都有。帮我安排一下今晚的晚餐，最好能把番茄和豆腐用上，别太复杂，能直接照着做的那种。&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_7a01ec9e&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 20 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;recipe_planning_removed&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_81d3009e92e4dcdc&quot;,
+      &quot;evidence_465c42d671cd5dd7&quot;,
+      &quot;evidence_938bd599a32d48e3&quot;,
+      &quot;evidence_87edce14f9605030&quot;,
+      &quot;evidence_c39ea0eb6c71afc1&quot;,
+      &quot;evidence_8fb7684880923c2d&quot;,
+      &quot;evidence_a2ea178dc6e73aad&quot;,
+      &quot;evidence_2264806ab3430d40&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_81d3009e92e4dcdc&quot;,
+    &quot;evidence_465c42d671cd5dd7&quot;,
+    &quot;evidence_938bd599a32d48e3&quot;,
+    &quot;evidence_87edce14f9605030&quot;,
+    &quot;evidence_c39ea0eb6c71afc1&quot;,
+    &quot;evidence_8fb7684880923c2d&quot;,
+    &quot;evidence_a2ea178dc6e73aad&quot;,
+    &quot;evidence_2264806ab3430d40&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_c6825bc3dc613e2e</summary><pre>{
+  &quot;record_id&quot;: &quot;record_c6825bc3dc613e2e&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_c6825bc3dc613e2e&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;enabled&quot;,
+    &quot;verifier_status&quot;: &quot;passed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A complete trace contains at least one event after the Skill trigger.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target-generated recipe ingredients exclude the approved disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_2&quot;,
+      &quot;user_prompt&quot;: &quot;今晚想做个快手的家常菜，20分钟内搞定，两个人吃。家里有番茄、豆腐和6个鸡蛋，鸡蛋快过期了想赶紧消耗掉，但我和老公最近在控制体重，而且我老公对鸡蛋过敏。能不能帮我安排一下，尽量把鸡蛋用掉但又不能让他吃到？&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_636f9d67&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;优先消耗临期豆腐，搭配番茄和鸡蛋（忌口鸡蛋，故不用），生成三套快手家常方案，均无需额外采购。&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [],
+      &quot;debug_retrieval&quot;: []
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_generated&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_6cf10006d0cf0dac&quot;,
+      &quot;evidence_ffce0159f66a475a&quot;,
+      &quot;evidence_8e9a1270d3d3a7ae&quot;,
+      &quot;evidence_aa64ff9b487866b4&quot;,
+      &quot;evidence_49ee6419cfa60b0f&quot;,
+      &quot;evidence_51bed833ca32129e&quot;,
+      &quot;evidence_3a23bd29b2cc793b&quot;,
+      &quot;evidence_336af39872287786&quot;,
+      &quot;evidence_3b93b1fc734c85f8&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_6cf10006d0cf0dac&quot;,
+    &quot;evidence_ffce0159f66a475a&quot;,
+    &quot;evidence_8e9a1270d3d3a7ae&quot;,
+    &quot;evidence_aa64ff9b487866b4&quot;,
+    &quot;evidence_49ee6419cfa60b0f&quot;,
+    &quot;evidence_51bed833ca32129e&quot;,
+    &quot;evidence_3a23bd29b2cc793b&quot;,
+    &quot;evidence_336af39872287786&quot;,
+    &quot;evidence_3b93b1fc734c85f8&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_7bc76a9937c896b0</summary><pre>{
+  &quot;record_id&quot;: &quot;record_7bc76a9937c896b0&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_7bc76a9937c896b0&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;replacement&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;A fallback path was used and cannot support real Skill acceptance.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_2&quot;,
+      &quot;user_prompt&quot;: &quot;今晚想做个快手的家常菜，20分钟内搞定，两个人吃。家里有番茄、豆腐和6个鸡蛋，鸡蛋快过期了想赶紧消耗掉，但我和老公最近在控制体重，而且我老公对鸡蛋过敏。能不能帮我安排一下，尽量把鸡蛋用掉但又不能让他吃到？&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_674dee0c&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 20 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_fallback&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: true,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_a883594ad9aec17c&quot;,
+      &quot;evidence_561a9086222c2e8c&quot;,
+      &quot;evidence_d15d37f1e322f42d&quot;,
+      &quot;evidence_daab19e3af80643b&quot;,
+      &quot;evidence_8ff77310b142d563&quot;,
+      &quot;evidence_362b474c24246bd2&quot;,
+      &quot;evidence_91dd0896a1f0fef4&quot;,
+      &quot;evidence_1f618e32ee29b7b6&quot;,
+      &quot;evidence_d75f0356a3dcdc9a&quot;,
+      &quot;evidence_61db958c0a87c312&quot;,
+      &quot;evidence_c4f41b765d86c32a&quot;,
+      &quot;evidence_41c8f636b0dfc655&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_a883594ad9aec17c&quot;,
+    &quot;evidence_561a9086222c2e8c&quot;,
+    &quot;evidence_d15d37f1e322f42d&quot;,
+    &quot;evidence_daab19e3af80643b&quot;,
+    &quot;evidence_8ff77310b142d563&quot;,
+    &quot;evidence_362b474c24246bd2&quot;,
+    &quot;evidence_91dd0896a1f0fef4&quot;,
+    &quot;evidence_1f618e32ee29b7b6&quot;,
+    &quot;evidence_d75f0356a3dcdc9a&quot;,
+    &quot;evidence_61db958c0a87c312&quot;,
+    &quot;evidence_c4f41b765d86c32a&quot;,
+    &quot;evidence_41c8f636b0dfc655&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_375e758d4bc54fde</summary><pre>{
+  &quot;record_id&quot;: &quot;record_375e758d4bc54fde&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_375e758d4bc54fde&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;disabled&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;No target-native provider request was recorded.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_2&quot;,
+      &quot;user_prompt&quot;: &quot;今晚想做个快手的家常菜，20分钟内搞定，两个人吃。家里有番茄、豆腐和6个鸡蛋，鸡蛋快过期了想赶紧消耗掉，但我和老公最近在控制体重，而且我老公对鸡蛋过敏。能不能帮我安排一下，尽量把鸡蛋用掉但又不能让他吃到？&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_6174a2f9&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 20 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;recipe_planning_removed&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_2524f9cab1eae92a&quot;,
+      &quot;evidence_6da12ec21152374c&quot;,
+      &quot;evidence_e50aa3c9251394b2&quot;,
+      &quot;evidence_277dedc5e7f1065b&quot;,
+      &quot;evidence_0e767c7dd2184d6d&quot;,
+      &quot;evidence_1209dfc4051df74e&quot;,
+      &quot;evidence_aa009da3bed54559&quot;,
+      &quot;evidence_5acd333787ed839f&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_2524f9cab1eae92a&quot;,
+    &quot;evidence_6da12ec21152374c&quot;,
+    &quot;evidence_e50aa3c9251394b2&quot;,
+    &quot;evidence_277dedc5e7f1065b&quot;,
+    &quot;evidence_0e767c7dd2184d6d&quot;,
+    &quot;evidence_1209dfc4051df74e&quot;,
+    &quot;evidence_aa009da3bed54559&quot;,
+    &quot;evidence_5acd333787ed839f&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_2696f8375b7ec832</summary><pre>{
+  &quot;record_id&quot;: &quot;record_2696f8375b7ec832&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_2696f8375b7ec832&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;enabled&quot;,
+    &quot;verifier_status&quot;: &quot;passed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A complete trace contains at least one event after the Skill trigger.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target-generated recipe ingredients exclude the approved disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_3&quot;,
+      &quot;user_prompt&quot;: &quot;我只有5分钟时间做饭，两个人吃，冰箱里就剩番茄2个和豆腐1盒了，鸡蛋也有但我不吃。帮我做个晚餐吧，越快越好。&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_c6087ccc&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;优先消耗临期豆腐，搭配番茄和鸡蛋（忌口鸡蛋，需避开），生成2-3个快手菜谱，控制在20分钟内。&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: []
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_generated&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_a5cfd22ca40a3202&quot;,
+      &quot;evidence_ce9e3f92d60ac619&quot;,
+      &quot;evidence_842d26246820603c&quot;,
+      &quot;evidence_34e7ace2e1161cc8&quot;,
+      &quot;evidence_def6b4a120fbdf13&quot;,
+      &quot;evidence_793b59184d1f99e6&quot;,
+      &quot;evidence_8c0322ddb39293b8&quot;,
+      &quot;evidence_f3a7133e9ffe59f4&quot;,
+      &quot;evidence_47346ab27e27aab0&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_a5cfd22ca40a3202&quot;,
+    &quot;evidence_ce9e3f92d60ac619&quot;,
+    &quot;evidence_842d26246820603c&quot;,
+    &quot;evidence_34e7ace2e1161cc8&quot;,
+    &quot;evidence_def6b4a120fbdf13&quot;,
+    &quot;evidence_793b59184d1f99e6&quot;,
+    &quot;evidence_8c0322ddb39293b8&quot;,
+    &quot;evidence_f3a7133e9ffe59f4&quot;,
+    &quot;evidence_47346ab27e27aab0&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_bb9f9dbb9837acc7</summary><pre>{
+  &quot;record_id&quot;: &quot;record_bb9f9dbb9837acc7&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_bb9f9dbb9837acc7&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;replacement&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;A fallback path was used and cannot support real Skill acceptance.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_3&quot;,
+      &quot;user_prompt&quot;: &quot;我只有5分钟时间做饭，两个人吃，冰箱里就剩番茄2个和豆腐1盒了，鸡蛋也有但我不吃。帮我做个晚餐吧，越快越好。&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_11dd9379&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 5 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_fallback&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: true,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_e94bdab369542e01&quot;,
+      &quot;evidence_6af45ff636ca7bf2&quot;,
+      &quot;evidence_897f6380ab4f59f5&quot;,
+      &quot;evidence_e89c8c0f2678f88b&quot;,
+      &quot;evidence_cc13af605b134647&quot;,
+      &quot;evidence_627a2dc06c9bfc72&quot;,
+      &quot;evidence_bff782737fa7e9cf&quot;,
+      &quot;evidence_1a98ec0de4135646&quot;,
+      &quot;evidence_b5ce7e52720d9555&quot;,
+      &quot;evidence_5a029c5e9f332331&quot;,
+      &quot;evidence_62d0abb88d459ac5&quot;,
+      &quot;evidence_a39fa39b107c4326&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_e94bdab369542e01&quot;,
+    &quot;evidence_6af45ff636ca7bf2&quot;,
+    &quot;evidence_897f6380ab4f59f5&quot;,
+    &quot;evidence_e89c8c0f2678f88b&quot;,
+    &quot;evidence_cc13af605b134647&quot;,
+    &quot;evidence_627a2dc06c9bfc72&quot;,
+    &quot;evidence_bff782737fa7e9cf&quot;,
+    &quot;evidence_1a98ec0de4135646&quot;,
+    &quot;evidence_b5ce7e52720d9555&quot;,
+    &quot;evidence_5a029c5e9f332331&quot;,
+    &quot;evidence_62d0abb88d459ac5&quot;,
+    &quot;evidence_a39fa39b107c4326&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_3de1889351ca7861</summary><pre>{
+  &quot;record_id&quot;: &quot;record_3de1889351ca7861&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_3de1889351ca7861&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;disabled&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;No target-native provider request was recorded.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_3&quot;,
+      &quot;user_prompt&quot;: &quot;我只有5分钟时间做饭，两个人吃，冰箱里就剩番茄2个和豆腐1盒了，鸡蛋也有但我不吃。帮我做个晚餐吧，越快越好。&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_788312bf&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 5 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;recipe_planning_removed&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_d526897e0289d2d2&quot;,
+      &quot;evidence_33264930ff903ce3&quot;,
+      &quot;evidence_a4344fd9f12464a2&quot;,
+      &quot;evidence_3be3c34ba53eefb1&quot;,
+      &quot;evidence_17c37e0c67f892b6&quot;,
+      &quot;evidence_7c053c12c6ac15cd&quot;,
+      &quot;evidence_71bb27ce7d741994&quot;,
+      &quot;evidence_5a8299fed0c3da5e&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_d526897e0289d2d2&quot;,
+    &quot;evidence_33264930ff903ce3&quot;,
+    &quot;evidence_a4344fd9f12464a2&quot;,
+    &quot;evidence_3be3c34ba53eefb1&quot;,
+    &quot;evidence_17c37e0c67f892b6&quot;,
+    &quot;evidence_7c053c12c6ac15cd&quot;,
+    &quot;evidence_71bb27ce7d741994&quot;,
+    &quot;evidence_5a8299fed0c3da5e&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_fae1c7ff2d15427b</summary><pre>{
+  &quot;record_id&quot;: &quot;record_fae1c7ff2d15427b&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_fae1c7ff2d15427b&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;enabled&quot;,
+    &quot;verifier_status&quot;: &quot;passed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A complete trace contains at least one event after the Skill trigger.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target-generated recipe ingredients exclude the approved disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_4&quot;,
+      &quot;user_prompt&quot;: &quot;今晚就我和我老公，随便做点吃的，别太麻烦，20分钟以内吧。冰箱里有番茄、豆腐，还有几个鸡蛋。我们最近吃得比较清淡，你看着安排。&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_aba14b75&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;优先消耗临期豆腐，结合番茄和鸡蛋（忌口鸡蛋，故不用），设计三道快手菜，避免额外采购。&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: []
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_generated&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_bb6353d15d7f0362&quot;,
+      &quot;evidence_8d3f17f3c3fce5e1&quot;,
+      &quot;evidence_9c7568ab6feff84d&quot;,
+      &quot;evidence_90aca07d9bb3a667&quot;,
+      &quot;evidence_a9739b6f93de02e1&quot;,
+      &quot;evidence_04745de68c3b6035&quot;,
+      &quot;evidence_cb38db076c1bb941&quot;,
+      &quot;evidence_fae1b08a8989c54e&quot;,
+      &quot;evidence_c2ae346b6dafd5f7&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_bb6353d15d7f0362&quot;,
+    &quot;evidence_8d3f17f3c3fce5e1&quot;,
+    &quot;evidence_9c7568ab6feff84d&quot;,
+    &quot;evidence_90aca07d9bb3a667&quot;,
+    &quot;evidence_a9739b6f93de02e1&quot;,
+    &quot;evidence_04745de68c3b6035&quot;,
+    &quot;evidence_cb38db076c1bb941&quot;,
+    &quot;evidence_fae1b08a8989c54e&quot;,
+    &quot;evidence_c2ae346b6dafd5f7&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_46886f54fa6cb2a0</summary><pre>{
+  &quot;record_id&quot;: &quot;record_46886f54fa6cb2a0&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_46886f54fa6cb2a0&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;replacement&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;A fallback path was used and cannot support real Skill acceptance.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_4&quot;,
+      &quot;user_prompt&quot;: &quot;今晚就我和我老公，随便做点吃的，别太麻烦，20分钟以内吧。冰箱里有番茄、豆腐，还有几个鸡蛋。我们最近吃得比较清淡，你看着安排。&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_bc9498dc&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 20 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_fallback&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: true,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_8182e824b75d08c8&quot;,
+      &quot;evidence_70002b4a59be315d&quot;,
+      &quot;evidence_459e8aa0fa1301d6&quot;,
+      &quot;evidence_a86f0050d1f6914c&quot;,
+      &quot;evidence_ce31bd5581437355&quot;,
+      &quot;evidence_edcd7103b1200bdd&quot;,
+      &quot;evidence_1ca852e40d876c82&quot;,
+      &quot;evidence_1ca7bd1266d5d448&quot;,
+      &quot;evidence_43829d952d27ac14&quot;,
+      &quot;evidence_ef3538fd9939aa21&quot;,
+      &quot;evidence_3771546b9a64bcc8&quot;,
+      &quot;evidence_ff8b68dba54af535&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_8182e824b75d08c8&quot;,
+    &quot;evidence_70002b4a59be315d&quot;,
+    &quot;evidence_459e8aa0fa1301d6&quot;,
+    &quot;evidence_a86f0050d1f6914c&quot;,
+    &quot;evidence_ce31bd5581437355&quot;,
+    &quot;evidence_edcd7103b1200bdd&quot;,
+    &quot;evidence_1ca852e40d876c82&quot;,
+    &quot;evidence_1ca7bd1266d5d448&quot;,
+    &quot;evidence_43829d952d27ac14&quot;,
+    &quot;evidence_ef3538fd9939aa21&quot;,
+    &quot;evidence_3771546b9a64bcc8&quot;,
+    &quot;evidence_ff8b68dba54af535&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_3ffa7c86a4060feb</summary><pre>{
+  &quot;record_id&quot;: &quot;record_3ffa7c86a4060feb&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_3ffa7c86a4060feb&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;disabled&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;No target-native provider request was recorded.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_4&quot;,
+      &quot;user_prompt&quot;: &quot;今晚就我和我老公，随便做点吃的，别太麻烦，20分钟以内吧。冰箱里有番茄、豆腐，还有几个鸡蛋。我们最近吃得比较清淡，你看着安排。&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_5b7fca2b&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 20 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;recipe_planning_removed&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_1774e06e626941ec&quot;,
+      &quot;evidence_9adf083a7b1d64fc&quot;,
+      &quot;evidence_debd89182de69e1f&quot;,
+      &quot;evidence_1d9e8a6b168be0cc&quot;,
+      &quot;evidence_3078c69331bdc46e&quot;,
+      &quot;evidence_595ad562948208d1&quot;,
+      &quot;evidence_11e8701f08c56e15&quot;,
+      &quot;evidence_d5d36223d1e71d08&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_1774e06e626941ec&quot;,
+    &quot;evidence_9adf083a7b1d64fc&quot;,
+    &quot;evidence_debd89182de69e1f&quot;,
+    &quot;evidence_1d9e8a6b168be0cc&quot;,
+    &quot;evidence_3078c69331bdc46e&quot;,
+    &quot;evidence_595ad562948208d1&quot;,
+    &quot;evidence_11e8701f08c56e15&quot;,
+    &quot;evidence_d5d36223d1e71d08&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_8227b030a8b29f1c</summary><pre>{
+  &quot;record_id&quot;: &quot;record_8227b030a8b29f1c&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_8227b030a8b29f1c&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;enabled&quot;,
+    &quot;verifier_status&quot;: &quot;passed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A complete trace contains at least one event after the Skill trigger.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target-generated recipe ingredients exclude the approved disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_5&quot;,
+      &quot;user_prompt&quot;: &quot;今晚20分钟做两个人的晚餐，冰箱里有番茄2个、豆腐1盒、鸡蛋6个，但我不吃鸡蛋。番茄和豆腐感觉不太够做一顿完整的饭，能不能帮我看看还缺什么，顺便告诉我需要买点什么？&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_b9692e4b&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;优先消耗临期豆腐，搭配番茄和鸡蛋（忌口鸡蛋，故不使用），设计两道快手家常菜，避免额外采购。&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: []
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_generated&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_6a8817b90ce551df&quot;,
+      &quot;evidence_b5cd07fc6d499f73&quot;,
+      &quot;evidence_c1f18320f87345ab&quot;,
+      &quot;evidence_5551aadc245b9b13&quot;,
+      &quot;evidence_1bd8164f10de19b5&quot;,
+      &quot;evidence_a6e2d61323e9b962&quot;,
+      &quot;evidence_0e424aa1a50bfd18&quot;,
+      &quot;evidence_10c9e4e0c0403b28&quot;,
+      &quot;evidence_a798292b3a4593d6&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_6a8817b90ce551df&quot;,
+    &quot;evidence_b5cd07fc6d499f73&quot;,
+    &quot;evidence_c1f18320f87345ab&quot;,
+    &quot;evidence_5551aadc245b9b13&quot;,
+    &quot;evidence_1bd8164f10de19b5&quot;,
+    &quot;evidence_a6e2d61323e9b962&quot;,
+    &quot;evidence_0e424aa1a50bfd18&quot;,
+    &quot;evidence_10c9e4e0c0403b28&quot;,
+    &quot;evidence_a798292b3a4593d6&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_83cc5c7b192d0b50</summary><pre>{
+  &quot;record_id&quot;: &quot;record_83cc5c7b192d0b50&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_83cc5c7b192d0b50&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;replacement&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The target runtime recorded at least one native provider request.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;A fallback path was used and cannot support real Skill acceptance.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_5&quot;,
+      &quot;user_prompt&quot;: &quot;今晚20分钟做两个人的晚餐，冰箱里有番茄2个、豆腐1盒、鸡蛋6个，但我不吃鸡蛋。番茄和豆腐感觉不太够做一顿完整的饭，能不能帮我看看还缺什么，顺便告诉我需要买点什么？&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_0bceb985&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 20 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_completed&quot;,
+      &quot;recipe_planning_fallback&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: true,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_2657d95d15ca5887&quot;,
+      &quot;evidence_4e6d420ebff3e588&quot;,
+      &quot;evidence_7dba89e90b6e70d9&quot;,
+      &quot;evidence_97b5dfa0a4d64d03&quot;,
+      &quot;evidence_312005c1811b69fc&quot;,
+      &quot;evidence_79b23d3efa451fb9&quot;,
+      &quot;evidence_03522615fc67a122&quot;,
+      &quot;evidence_462d3175291c5595&quot;,
+      &quot;evidence_6c28e09215b65e69&quot;,
+      &quot;evidence_54ab8b0081b85d1f&quot;,
+      &quot;evidence_724a0bf2b351e3f9&quot;,
+      &quot;evidence_597b5ccaa0e0f58f&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_2657d95d15ca5887&quot;,
+    &quot;evidence_4e6d420ebff3e588&quot;,
+    &quot;evidence_7dba89e90b6e70d9&quot;,
+    &quot;evidence_97b5dfa0a4d64d03&quot;,
+    &quot;evidence_312005c1811b69fc&quot;,
+    &quot;evidence_79b23d3efa451fb9&quot;,
+    &quot;evidence_03522615fc67a122&quot;,
+    &quot;evidence_462d3175291c5595&quot;,
+    &quot;evidence_6c28e09215b65e69&quot;,
+    &quot;evidence_54ab8b0081b85d1f&quot;,
+    &quot;evidence_724a0bf2b351e3f9&quot;,
+    &quot;evidence_597b5ccaa0e0f58f&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>artifact · evidence_b5a52a3cc08270f4</summary><pre>{
+  &quot;record_id&quot;: &quot;record_b5a52a3cc08270f4&quot;,
+  &quot;record_type&quot;: &quot;artifact&quot;,
+  &quot;source_ref&quot;: &quot;evidence_b5a52a3cc08270f4&quot;,
+  &quot;payload&quot;: {
+    &quot;intervention&quot;: &quot;disabled&quot;,
+    &quot;verifier_status&quot;: &quot;failed&quot;,
+    &quot;runtime_error&quot;: null,
+    &quot;skill_profile&quot;: {
+      &quot;name&quot;: &quot;recipe_planning&quot;,
+      &quot;kind&quot;: &quot;declared_capability&quot;,
+      &quot;trigger&quot;: &quot;The target begins the native recipe-planning provider call.&quot;,
+      &quot;execution&quot;: &quot;Native target recipe planner uses the declared provider.&quot;,
+      &quot;deliverable&quot;: &quot;Structured meal-plan options.&quot;,
+      &quot;termination&quot;: &quot;Plan generated or fallback trace emitted.&quot;,
+      &quot;boundary_expectation&quot;: &quot;none&quot;
+    },
+    &quot;verification_criteria&quot;: [
+      {
+        &quot;name&quot;: &quot;target_runtime&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target runtime completed without an infrastructure error.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;real_llm_execution&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;No target-native provider request was recorded.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;provider_usage_evidence&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Every native provider request has non-secret token accounting.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;skill_trigger&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;The declared Skill trigger was recorded with an approved event type.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;post_trigger_trace&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Trace is incomplete or contains no post-trigger event.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;deliverable&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A structured target deliverable is linked to immutable evidence.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;independent_deliverable_verifier&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;A target-specific independent verifier scored the deliverable.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;target_response_shape&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Target returned a non-empty structured meal-plan response.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;generated_constraint_adherence&quot;,
+        &quot;status&quot;: &quot;failed&quot;,
+        &quot;detail&quot;: &quot;Generated-plan trace is absent or includes the disliked ingredient.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;sqlite_write_boundary&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Only the declared recommendation-history/shopping-list state changed.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;boundary_behavior&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;Boundary behavior matches the declared contract.&quot;
+      },
+      {
+        &quot;name&quot;: &quot;no_fallback&quot;,
+        &quot;status&quot;: &quot;passed&quot;,
+        &quot;detail&quot;: &quot;No deterministic or alternate target path was used.&quot;
+      }
+    ],
+    &quot;preserved_task_observation&quot;: {
+      &quot;scenario_id&quot;: &quot;scenario_5&quot;,
+      &quot;user_prompt&quot;: &quot;今晚20分钟做两个人的晚餐，冰箱里有番茄2个、豆腐1盒、鸡蛋6个，但我不吃鸡蛋。番茄和豆腐感觉不太够做一顿完整的饭，能不能帮我看看还缺什么，顺便告诉我需要买点什么？&quot;,
+      &quot;operation&quot;: {
+        &quot;name&quot;: &quot;[truncated]&quot;,
+        &quot;method&quot;: &quot;[truncated]&quot;,
+        &quot;path&quot;: &quot;[truncated]&quot;,
+        &quot;payload&quot;: &quot;[truncated]&quot;,
+        &quot;timeout_seconds&quot;: &quot;[truncated]&quot;
+      }
+    },
+    &quot;preserved_deliverable_observation&quot;: {
+      &quot;request_id&quot;: &quot;req_0bbe375e&quot;,
+      &quot;profile_summary&quot;: &quot;目标：maintain；人数：2；工作日预算：20 分钟；每周采购：2 次；BMI：22.5；忌口：鸡蛋；厨艺水平：home_cook&quot;,
+      &quot;strategy_summary&quot;: &quot;库存优先，通用饮食规则，时间预算 20 分钟&quot;,
+      &quot;plans&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;shopping_suggestions&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ],
+      &quot;debug_retrieval&quot;: [
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;,
+        &quot;[truncated]&quot;
+      ]
+    },
+    &quot;trace_event_types&quot;: [
+      &quot;recipe_planning_removed&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;,
+      &quot;native_provider_request_started&quot;
+    ],
+    &quot;fallback_used&quot;: false,
+    &quot;boundary_outcome&quot;: &quot;none&quot;,
+    &quot;evidence_refs&quot;: [
+      &quot;evidence_1cc1422c3cfcb1d4&quot;,
+      &quot;evidence_247eb68de386ab68&quot;,
+      &quot;evidence_b006c5447c48b9b9&quot;,
+      &quot;evidence_fc5387645b23fd58&quot;,
+      &quot;evidence_41de499559fda0ab&quot;,
+      &quot;evidence_6237786060d92edf&quot;,
+      &quot;evidence_f25fed2e91396f4e&quot;,
+      &quot;evidence_9344e4b4ae030817&quot;
+    ]
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_1cc1422c3cfcb1d4&quot;,
+    &quot;evidence_247eb68de386ab68&quot;,
+    &quot;evidence_b006c5447c48b9b9&quot;,
+    &quot;evidence_fc5387645b23fd58&quot;,
+    &quot;evidence_41de499559fda0ab&quot;,
+    &quot;evidence_6237786060d92edf&quot;,
+    &quot;evidence_f25fed2e91396f4e&quot;,
+    &quot;evidence_9344e4b4ae030817&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>启用 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_b0d0e1f29c70be3b&quot;,
+  &quot;label&quot;: &quot;启用 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: true,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_0eda16c82b310320&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>启用 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_6b77b1a50dfa2fc9&quot;,
+  &quot;label&quot;: &quot;启用 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: true,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_28710f0e561fe02f&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>启用 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_462100e4d9183878&quot;,
+  &quot;label&quot;: &quot;启用 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: true,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_119745d274ee45ca&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>启用 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_44d37ca5d7e22e29&quot;,
+  &quot;label&quot;: &quot;启用 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: true,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_07b89d4423fee919&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>启用 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_1d2adb31828da660&quot;,
+  &quot;label&quot;: &quot;启用 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: true,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_1b3940c789e0d1f2&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>移除 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_e4c2f15a83706a18&quot;,
+  &quot;label&quot;: &quot;移除 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_3388f64f70059def&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>移除 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_5afcd5ccaaf0dd6e&quot;,
+  &quot;label&quot;: &quot;移除 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_4f63937ce3ef5216&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>移除 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_fef3a9d00cf471dd&quot;,
+  &quot;label&quot;: &quot;移除 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_0e2b890a90548706&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>移除 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_cdcbf5703eb5a710&quot;,
+  &quot;label&quot;: &quot;移除 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_3321ad5bb57bae14&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>移除 Skill 测试的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_dfc5e626f1519c36&quot;,
+  &quot;label&quot;: &quot;移除 Skill 测试的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: false,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_14cfce4a30d9f4b4&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>Capability Equivalence Test的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_2121d302aae371f8&quot;,
+  &quot;label&quot;: &quot;Capability Equivalence Test的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: true,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_12b3dd98990c7be3&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>Capability Equivalence Test的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_d7944ddaa618d5cd&quot;,
+  &quot;label&quot;: &quot;Capability Equivalence Test的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: true,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_177a8040939d9460&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>Capability Equivalence Test的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_4321b91a8b814b17&quot;,
+  &quot;label&quot;: &quot;Capability Equivalence Test的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: true,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_0d38f21bb8dfab97&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>Capability Equivalence Test的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_7a9a5b28683be6c7&quot;,
+  &quot;label&quot;: &quot;Capability Equivalence Test的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: true,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_16456428a917042f&quot;
+  ]
+}</pre></details><details class='technical-record'><summary>Capability Equivalence Test的行为观察</summary><pre>{
+  &quot;fact_id&quot;: &quot;fact_011f65e9b988adcc&quot;,
+  &quot;label&quot;: &quot;Capability Equivalence Test的行为观察&quot;,
+  &quot;fact_type&quot;: &quot;behavior_observation&quot;,
+  &quot;value&quot;: {
+    &quot;structured_output&quot;: true,
+    &quot;constraint_adherence&quot;: false,
+    &quot;side_effect_boundary&quot;: &quot;within_declared_boundary&quot;,
+    &quot;fallback_used&quot;: true,
+    &quot;runtime_completed&quot;: true,
+    &quot;deliverable_present&quot;: true
+  },
+  &quot;evidence_level&quot;: &quot;verified&quot;,
+  &quot;evidence_refs&quot;: [
+    &quot;evidence_3aa4cc625dfdd107&quot;
+  ]
+}</pre></details></section></aside></div>
+<footer>证据状态：evidence_complete · 叙事层为 inferred，仅帮助阅读，不能改变 Immutable Evidence Bundle。Report hash：5de72cc7dba2318742931f104eeb30191cab6fa1be431986fa9b6910660ddc53</footer></main></body></html>

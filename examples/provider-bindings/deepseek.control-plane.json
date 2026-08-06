@@ -9,6 +9,7 @@
   "timeout_seconds": 60,
   "allowed_hosts": ["api.deepseek.com"],
   "data_retention_policy": "non-secret metadata only",
+  "max_output_tokens": 8000,
   "input_price_per_million_usd": 0.14,
   "output_price_per_million_usd": 0.28,
   "cache_hit_price_per_million_usd": 0.0028,

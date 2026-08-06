@@ -18,6 +18,7 @@ from .target_onboarding import (
     resolve_target_provider_environment,
     verify_target_trace,
 )
+from .scenario_contracts import ScenarioTraceContract
 from .targets import TargetInfrastructureError
 
 
@@ -76,14 +77,18 @@ class TargetRuntimeAdapter:
         credential_reader: Callable[[str], str | None] = os.getenv,
         trace_path: Path | None = None,
         trial_environment: dict[str, str] | None = None,
+        command_template: tuple[str, ...] | None = None,
+        command_variables: dict[str, object] | None = None,
+        timeout_seconds: float | None = None,
     ) -> NativeCommandEvidence:
         if self.manifest.runtime.kind != "native_command":
             raise TargetInfrastructureError("run_command requires a native_command target manifest.")
-        return self._command_runner().run(
+        return self._command_runner(command_template, timeout_seconds=timeout_seconds).run(
             source=self.source,
             state_path=state_path,
             operation=operation,
             environment_overrides=self._overrides(binding, credential_reader, trace_path, trial_environment),
+            command_variables=command_variables,
         )
 
     def start_service(
@@ -133,7 +138,12 @@ class TargetRuntimeAdapter:
             raise TargetInfrastructureError("Target manifest does not support HTTP execution.")
         return NativeHttpProcessRunner.execute(service.base_url, operation)
 
-    def read_trace(self, trace_path: Path) -> TargetTraceEvidence:
+    def read_trace(
+        self,
+        trace_path: Path,
+        *,
+        scenario_trace: ScenarioTraceContract | None = None,
+    ) -> TargetTraceEvidence:
         if not self.manifest.trace:
             raise TargetInfrastructureError("Target manifest does not declare a trace contract.")
         if not trace_path.is_file():
@@ -149,10 +159,15 @@ class TargetRuntimeAdapter:
             if not isinstance(payload, dict):
                 raise TargetInfrastructureError(f"Target trace line {line_number} is not a JSON object.")
             events.append(payload)
-        verification = verify_target_trace(self.manifest, events)
+        verification = verify_target_trace(self.manifest, events, scenario_trace=scenario_trace)
         return TargetTraceEvidence(tuple(events), verification)
 
-    def _command_runner(self, command: tuple[str, ...] | None = None) -> NativeCommandRunner:
+    def _command_runner(
+        self,
+        command: tuple[str, ...] | None = None,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> NativeCommandRunner:
         runtime = self.manifest.runtime
         return NativeCommandRunner(
             self.runtime_executable,
@@ -162,7 +177,7 @@ class TargetRuntimeAdapter:
                 required_source_files=tuple(runtime.required_source_files),
                 environment_templates=runtime.environment_templates,
                 cleared_secret_environment=tuple(runtime.cleared_secret_environment),
-                timeout_seconds=runtime.operation_timeout_seconds,
+                timeout_seconds=timeout_seconds or runtime.operation_timeout_seconds,
             ),
         )
 

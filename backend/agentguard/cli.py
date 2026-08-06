@@ -1,8 +1,13 @@
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+from .benchmark_evidence import BenchmarkEvidence
+from .evaluation_memory import EvaluationKnowledge
 from .domain import (
     HistoricalReplayEvidence,
     NativeHarnessContract,
@@ -15,11 +20,38 @@ from .domain import (
 )
 from .evolution import EvolutionIntakeError
 from .integrations.native_http import HttpOperation
-from .product_reporting import (
-    build_product_evaluation_evidence,
-    generate_product_report_analysis,
-    load_skill_ablation_artifact,
-    write_product_evaluation_report,
+from .product_reporting import load_skill_ablation_artifact
+from .evaluation_adapters import AdapterContext
+from .evaluation_request import EvaluationRequest
+from .evaluation_execution import (
+    build_evaluation_execution_mapping,
+    parse_execution_scenario_mapping,
+)
+from .change_adapters import build_v1_evaluation_adapter_layer
+from .evaluation_planning import EvaluationPlan, build_evolution_evaluation_plan
+from .evaluation_scenario_generator import LLMEvaluationScenarioGenerator, ScenarioEvidenceRequirementsGenerator
+from .interaction_matrix import execute_interaction_matrix
+from .interaction_runner import ManifestInteractionTrialRunner, SubprocessInteractionOracle
+from .product_evaluation_analyst import ProductAnalystInput, ProductEvaluationAnalyst
+from .product_evaluation_report import assemble_product_evaluation_report
+from .product_evaluation_report import ProductEvaluationReport
+from .product_evaluation_renderers import write_product_evaluation_outputs
+from .product_report_template import load_product_report_template
+from .project_intelligence import ProjectIntelligenceRegistration
+from .project_scanner import ProjectScanRequest
+from .release_decision_gate import evaluate_release_decision
+from .scenario_contracts import check_evaluation_plan_readiness
+from .skill_pair_evaluation import build_skill_pair_evaluation_change, build_skill_pair_evaluation_target, skill_pair_experiment_ids_by_condition
+from .tool_regression import validate_tool_regression_artifact
+from .semantic_reporting import (
+    ProductDefinition,
+    build_skill_ablation_analyst_input,
+    product_definition_from_skill_artifact,
+)
+from .skill_ablation_adapter import (
+    build_skill_ablation_change,
+    build_skill_evaluation_target,
+    skill_ablation_experiment_ids_by_condition,
 )
 from .provider_runtime import ProviderRuntimeError, build_control_plane_client
 from .service import AssistantInputError, ProductNotFoundError, Service
@@ -33,6 +65,93 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--format", choices=["text", "json"], default="text")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init")
+
+    project = commands.add_parser("project").add_subparsers(dest="subcommand", required=True)
+    project_register = project.add_parser("register")
+    project_register.add_argument("--project-id", required=True)
+    project_register.add_argument("--input", required=True, help="Project Intelligence registration JSON; secrets are not accepted.")
+    project_register.add_argument("--benchmark-result", action="append", help="Optional external benchmark result JSON; repeatable and never executed by AIG.")
+    project_snapshot = project.add_parser("snapshot")
+    project_snapshot.add_argument("--project-id", required=True)
+    project_snapshot.add_argument("--input", required=True, help="New immutable Agent Snapshot registration JSON.")
+    project_scan = project.add_parser("scan")
+    project_scan.add_argument("--project-id", required=True)
+    project_scan.add_argument("--source", required=True, help="Local repository/package directory, archive, Dockerfile directory, or image reference.")
+    project_scan.add_argument("--source-kind", choices=["repository", "package", "docker_image"], required=True)
+    project_scan.add_argument("--version", required=True)
+    project_scan.add_argument("--entrypoint")
+    project_scan.add_argument("--runtime-kind", choices=["native_http", "native_command", "package", "docker"])
+    project_scan.add_argument("--declaration-file", help="Optional project-neutral declaration path inside the source.")
+    project_preflight = project.add_parser("runtime-preflight")
+    project_preflight.add_argument("--project-id", required=True)
+    project_preflight.add_argument("--version", required=True)
+    project_preflight.add_argument("--source-root")
+    project_compare = project.add_parser("runtime-compare")
+    project_compare.add_argument("--project-id", required=True)
+    project_compare.add_argument("--baseline-version", required=True)
+    project_compare.add_argument("--candidate-version", required=True)
+    project_compare.add_argument("--baseline-source-root")
+    project_compare.add_argument("--candidate-source-root")
+    project_get = project.add_parser("get")
+    project_get.add_argument("project_id")
+
+    evaluation = commands.add_parser("evaluation").add_subparsers(dest="subcommand", required=True)
+    evaluation_create = evaluation.add_parser("create")
+    evaluation_create.add_argument("--input", required=True, help="EvaluationRequest JSON; candidate availability is checked before persistence.")
+    evaluation_create.add_argument("--candidate-artifact-dir", action="append", help="Persisted Skill Ablation artifact directory; repeatable.")
+    evaluation_create.add_argument("--candidate-available", action="store_true", help="Use when a non-Skill candidate revision is available outside the artifact loader.")
+    evaluation_get = evaluation.add_parser("get")
+    evaluation_get.add_argument("project_id")
+    evaluation_get.add_argument("request_id")
+    evaluation_plan = evaluation.add_parser("plan")
+    evaluation_plan.add_argument("--project-id", required=True)
+    evaluation_plan.add_argument("--evaluation-request-id", required=True)
+    evaluation_plan.add_argument("--binding", required=True, help="Non-secret control_plane ProviderBinding JSON.")
+    evaluation_plan.add_argument("--product-definition", required=True)
+    evaluation_plan.add_argument("--evaluation-name", default="Skill Pair Evaluation")
+    evaluation_plan.add_argument("--knowledge-pattern")
+    evaluation_plan.add_argument("--output")
+    evaluation_readiness = evaluation.add_parser("readiness")
+    evaluation_readiness.add_argument("--project-id", required=True)
+    evaluation_readiness.add_argument("--plan", required=True, help="Persisted EvaluationPlan JSON.")
+    evaluation_readiness.add_argument("--fixture-root", help="Root for project-declared file and directory fixtures.")
+
+    memory = commands.add_parser("memory").add_subparsers(dest="subcommand", required=True)
+    memory_list = memory.add_parser("list")
+    memory_list.add_argument("--project-id", required=True)
+    memory_list.add_argument("--component-pattern")
+    memory_record = memory.add_parser("record")
+    memory_record.add_argument("--project-id", required=True)
+    memory_record.add_argument("--input", required=True, help="Evaluation Knowledge JSON.")
+    memory_from_report = memory.add_parser("from-report")
+    memory_from_report.add_argument("--project-id", required=True)
+    memory_from_report.add_argument("--report", required=True)
+    memory_from_report.add_argument("--component-pattern", required=True)
+
+    benchmark = commands.add_parser("benchmark").add_subparsers(dest="subcommand", required=True)
+    benchmark_import = benchmark.add_parser("import")
+    benchmark_import.add_argument("--project-id", required=True)
+    benchmark_import.add_argument("--input", required=True, help="External benchmark result JSON; AIG imports only its summary.")
+    benchmark_import.add_argument("--source-ref")
+    benchmark_list = benchmark.add_parser("list")
+    benchmark_list.add_argument("--project-id", required=True)
+
+    evaluation_matrix = evaluation.add_parser("interaction-matrix")
+    evaluation_matrix.add_argument("--project-id", required=True)
+    evaluation_matrix.add_argument("--plan", required=True, help="Persisted EvaluationPlan JSON.")
+    evaluation_matrix.add_argument("--manifest", required=True, help="Target manifest declaring an interaction command.")
+    evaluation_matrix.add_argument("--cache-root", required=True, help="Imported target environment cache root.")
+    evaluation_matrix.add_argument("--fixture-root", help="Root for project-declared file and directory fixtures.")
+    evaluation_matrix.add_argument("--run-root", required=True, help="Root for one immutable matrix run.")
+    evaluation_matrix.add_argument("--output", required=True, help="Interaction matrix artifact JSON output path.")
+    evaluation_matrix.add_argument("--interaction-name", required=True)
+    evaluation_matrix.add_argument("--evaluation-id", required=True)
+    evaluation_matrix.add_argument("--oracle-command-part", action="append", required=True)
+    evaluation_matrix.add_argument("--oracle-id", required=True)
+    evaluation_matrix.add_argument("--oracle-type", choices=["rule_based", "frozen_lookup", "structured_state"], default="rule_based")
+    evaluation_matrix.add_argument("--oracle-version", default="1.0")
+    evaluation_matrix.add_argument("--oracle-cwd")
+    evaluation_matrix.add_argument("--binding", help="Optional target-native ProviderBinding JSON.")
 
     target = commands.add_parser("target").add_subparsers(dest="subcommand", required=True)
     target_init = target.add_parser("init")
@@ -48,6 +167,7 @@ def build_parser() -> argparse.ArgumentParser:
     target_init.add_argument("--runtime-requirement", action="append", help="JSON runtime requirement; repeatable.")
     target_init.add_argument("--sut-provider", help="Path to a non-secret target Provider mapping JSON.")
     target_init.add_argument("--trace", help="Path to a non-secret target trace contract JSON.")
+    target_init.add_argument("--interaction", help="Path to a non-secret target Interaction command contract JSON.")
     target_init.add_argument("--output", required=True)
     target_inspect = target.add_parser("inspect")
     target_inspect.add_argument("--manifest", required=True)
@@ -84,10 +204,58 @@ def build_parser() -> argparse.ArgumentParser:
     report = commands.add_parser("report").add_subparsers(dest="subcommand", required=True)
     product_report = report.add_parser("product")
     product_report.add_argument("--project-name", required=True)
+    product_report.add_argument("--evaluation-request-id", help="Validated EvaluationRequest ID; binds the report to Project Intelligence and versions.")
     product_report.add_argument("--artifact-dir", action="append", required=True, help="Persisted Skill-ablation artifact directory; repeatable.")
     product_report.add_argument("--binding", required=True, help="Path to a non-secret control_plane ProviderBinding JSON.")
-    product_report.add_argument("--output-dir", required=True)
+    product_report.add_argument(
+        "--output-dir",
+        default=str(Path(__file__).parents[2] / "examples" / "reports"),
+        help="Directory for ProductEvaluationReport projections; defaults to the repository examples/reports directory.",
+    )
     product_report.add_argument("--evaluation-name", default="Skill Ablation")
+    product_report.add_argument("--knowledge-pattern", help="Optional reusable Evaluation Knowledge pattern key.")
+    product_report.add_argument("--product-definition", help="Path to a declared product component definition JSON.")
+    product_report.add_argument(
+        "--scenario-map",
+        help="Optional JSON mapping of persisted trial_ref values to Evaluation Plan scenario_id values.",
+    )
+    product_report.add_argument(
+        "--evaluation-plan",
+        help="Optional persisted EvaluationPlan JSON, or a ProductEvaluationReport JSON containing evaluation_plan.",
+    )
+    product_report.add_argument(
+        "--report-template",
+        help="Optional ProductReportTemplate JSON; defaults to the repository product-evaluation template.",
+    )
+    product_report.add_argument("--benchmark-evidence", action="append", help="Optional imported BenchmarkEvidence JSON; repeatable.")
+    pair_report = report.add_parser("pair")
+    pair_report.add_argument("--project-name", required=True)
+    pair_report.add_argument("--evaluation-request-id", required=True)
+    pair_report.add_argument("--artifact", required=True, help="Skill Pair evidence artifact JSON.")
+    pair_report.add_argument("--binding", required=True)
+    pair_report.add_argument("--product-definition", required=True)
+    pair_report.add_argument("--output-dir", required=True)
+    pair_report.add_argument("--evaluation-name", default="Skill Pair Evaluation")
+    pair_report.add_argument("--knowledge-pattern", help="Optional reusable Evaluation Knowledge pattern key.")
+    pair_report.add_argument("--evaluation-plan")
+    pair_report.add_argument("--report-template")
+    pair_report.add_argument("--benchmark-evidence", action="append", help="Optional imported BenchmarkEvidence JSON; repeatable.")
+    tool_report = report.add_parser("tool")
+    tool_report.add_argument("--project-name", required=True)
+    tool_report.add_argument("--evaluation-request-id", required=True)
+    tool_report.add_argument("--artifact", required=True, help="Tool Regression evidence artifact JSON.")
+    tool_report.add_argument("--binding", required=True)
+    tool_report.add_argument("--product-definition", required=True)
+    tool_report.add_argument("--output-dir", required=True)
+    tool_report.add_argument("--evaluation-name", default="Tool Regression")
+    tool_report.add_argument("--knowledge-pattern", help="Optional reusable Evaluation Knowledge pattern key.")
+    tool_report.add_argument("--report-template")
+    tool_report.add_argument("--benchmark-evidence", action="append", help="Optional imported BenchmarkEvidence JSON; repeatable.")
+
+    release = commands.add_parser("release").add_subparsers(dest="subcommand", required=True)
+    release_gate = release.add_parser("gate")
+    release_gate.add_argument("--report", dest="report_path", required=True, help="Completed ProductEvaluationReport JSON.")
+    release_gate.add_argument("--output", help="Optional path for the deterministic Release Decision result JSON.")
 
     evolution = commands.add_parser("evolution").add_subparsers(dest="subcommand", required=True)
     intake = evolution.add_parser("intake")
@@ -157,6 +325,56 @@ def _load_json_object(path: Path) -> dict[str, object]:
     return payload
 
 
+def _load_benchmark_evidence(path: Path) -> BenchmarkEvidence:
+    payload = _load_json_object(path)
+    raw = payload.get("data", payload)
+    if isinstance(raw, dict) and "benchmark_evidence" in raw:
+        raw = raw["benchmark_evidence"]
+    if isinstance(raw, list):
+        if len(raw) != 1:
+            raise ValueError(f"{path} must contain exactly one BenchmarkEvidence object.")
+        raw = raw[0]
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path} does not contain a BenchmarkEvidence object.")
+    return BenchmarkEvidence.model_validate(raw)
+
+
+def _supplementary_evidence(service: Service, project_id: str, paths: list[str] | None) -> list[BenchmarkEvidence]:
+    records = {item.evidence_id: item for item in service.benchmark_evidence(project_id)}
+    for path in paths or []:
+        evidence = _load_benchmark_evidence(Path(path))
+        if evidence.project_id != project_id:
+            raise ValueError("Benchmark evidence project_id does not match the report project.")
+        records[evidence.evidence_id] = evidence
+    return [records[key] for key in sorted(records)]
+
+
+def _load_evaluation_plan(path: Path) -> EvaluationPlan:
+    payload = _load_json_object(path)
+    raw_plan = payload.get("evaluation_plan", payload)
+    if not isinstance(raw_plan, dict):
+        raise ValueError(f"{path} does not contain an EvaluationPlan object.")
+    return EvaluationPlan.model_validate(raw_plan)
+
+
+def _validate_evaluation_plan_identity(plan: EvaluationPlan, target, change) -> None:
+    expected = {
+        "project_id": target.project_id,
+        "target_id": target.target_id,
+        "change_id": change.change_id,
+        "component_type": target.component_type,
+        "component_name": target.name,
+        "evaluation_type": change.evaluation_type,
+    }
+    mismatches = {
+        key: (getattr(plan, key), value)
+        for key, value in expected.items()
+        if getattr(plan, key) != value
+    }
+    if mismatches:
+        raise ValueError(f"Persisted EvaluationPlan does not match the current artifacts: {mismatches}")
+
+
 def _provider_from_binding(binding: ProviderBinding):
     from dotenv import load_dotenv
 
@@ -167,12 +385,367 @@ def _provider_from_binding(binding: ProviderBinding):
     return build_control_plane_client(binding, api_key)
 
 
+def _validated_request_for_report(service: Service, project_id: str, request_id: str, component_type: str):
+    request = service.evaluation_request(project_id, request_id)
+    if request is None:
+        raise ValueError(f"EvaluationRequest {request_id} was not found for project {project_id}.")
+    if request.component_type != component_type:
+        raise ValueError(
+            f"EvaluationRequest {request_id} targets {request.component_type}, not {component_type}."
+        )
+    return service.create_evaluation_request(request, candidate_available=True)
+
+
+def _report_output(report, args) -> dict[str, object]:
+    report_template = load_product_report_template(Path(args.report_template)) if args.report_template else None
+    paths = write_product_evaluation_outputs(Path(args.output_dir), report, report_template)
+    return {
+        **{f"{name}_path": str(path) for name, path in paths.items()},
+        "evidence_manifest_sha256": report.evidence.artifact_manifest_hash,
+        "report": report.model_dump(mode="json"),
+    }
+
+
+def _run_skill_pair_report(args, service: Service) -> dict[str, object]:
+    request = _validated_request_for_report(service, args.project_name, args.evaluation_request_id, "skill_pair")
+    intelligence = service.project_intelligence(args.project_name)
+    if intelligence is None:
+        raise ProductNotFoundError(args.project_name)
+    product_definition = ProductDefinition.model_validate(_load_json_object(Path(args.product_definition)))
+    target = build_skill_pair_evaluation_target(intelligence, request.component_name, product_definition)
+    target = target.model_copy(update={
+        "component_pattern": args.knowledge_pattern or target.component_type,
+        "evaluation_knowledge": service.evaluation_knowledge_for_target(
+            args.project_name,
+            component_pattern=args.knowledge_pattern or target.component_type,
+            component_type=target.component_type,
+        )
+    })
+    change = build_skill_pair_evaluation_change(request, evaluation_name=args.evaluation_name)
+    binding = ProviderBinding.model_validate({**_load_json_object(Path(args.binding)), "project_id": args.project_name})
+    if binding.role != "control_plane":
+        raise ValueError("Skill Pair report requires a control_plane ProviderBinding")
+    provider = build_control_plane_client(binding, _provider_api_key(binding))
+    plan = (
+        _load_evaluation_plan(Path(args.evaluation_plan))
+        if args.evaluation_plan
+        else build_evolution_evaluation_plan(
+            target,
+            change,
+            scenario_generator=LLMEvaluationScenarioGenerator(provider, binding),
+            evidence_requirements_generator=ScenarioEvidenceRequirementsGenerator(),
+        )
+    )
+    _validate_evaluation_plan_identity(plan, target, change)
+    artifact = _load_json_object(Path(args.artifact))
+    context = AdapterContext(
+                project_id=args.project_name,
+                evaluation_name=args.evaluation_name,
+                evaluation_type="skill_pair_evaluation",
+                component_name=request.component_name,
+                source_ref=str(Path(args.artifact).resolve()),
+        evaluation_request_id=request.request_id,
+        baseline_version=request.baseline_version,
+        candidate_version=request.candidate_version,
+        evaluation_plan_id=plan.plan_id,
+        experiment_ids_by_condition=skill_pair_experiment_ids_by_condition(plan),
+    )
+    evidence = build_v1_evaluation_adapter_layer().adapt(
+        "skill_pair_evaluation", artifact, context=context
+    )
+    analyst_input = ProductAnalystInput(
+        project_id=args.project_name,
+        evaluation_name=args.evaluation_name,
+        evaluation_type="skill_pair_evaluation",
+        evaluation_question=plan.comparison_question,
+        hypothesis=plan.hypothesis,
+        product_definition=product_definition,
+        evidence=evidence,
+        evaluation_plan=plan,
+    )
+    analyst_result = ProductEvaluationAnalyst().analyze(
+        analyst_input,
+        provider=provider,
+        binding=binding,
+        forbidden_tokens=set(),
+    )
+    return _report_output(
+        assemble_product_evaluation_report(
+            analyst_input,
+            analyst_result,
+            supplementary_evidence=_supplementary_evidence(service, args.project_name, args.benchmark_evidence),
+        ),
+        args,
+    )
+
+
+def _run_tool_regression_report(args, service: Service) -> dict[str, object]:
+    request = _validated_request_for_report(service, args.project_name, args.evaluation_request_id, "tool")
+    intelligence = service.project_intelligence(args.project_name)
+    if intelligence is None:
+        raise ProductNotFoundError(args.project_name)
+    product_definition = ProductDefinition.model_validate(_load_json_object(Path(args.product_definition)))
+    if product_definition.component_type != "tool" or product_definition.component_name != request.component_name:
+        raise ValueError("Tool product definition and EvaluationRequest component do not match.")
+    capability = next(
+        (
+            item for item in intelligence.capability_registry
+            if item.component_type == "tool" and item.name == request.component_name
+        ),
+        None,
+    )
+    if capability is None:
+        raise ValueError(f"Tool {request.component_name} is not registered for project {args.project_name}.")
+    artifact = _load_json_object(Path(args.artifact))
+    validate_tool_regression_artifact(artifact, expected_tool_name=request.component_name)
+    binding = ProviderBinding.model_validate({**_load_json_object(Path(args.binding)), "project_id": args.project_name})
+    if binding.role != "control_plane":
+        raise ValueError("Tool Regression report requires a control_plane ProviderBinding")
+    provider = build_control_plane_client(binding, _provider_api_key(binding))
+    context = AdapterContext(
+        project_id=args.project_name,
+        evaluation_name=args.evaluation_name,
+        evaluation_type="tool_regression",
+        component_name=request.component_name,
+        source_ref=str(Path(args.artifact).resolve()),
+        evaluation_request_id=request.request_id,
+        baseline_version=request.baseline_version,
+        candidate_version=request.candidate_version,
+    )
+    evidence = build_v1_evaluation_adapter_layer().adapt(
+        "tool_regression", artifact, context=context
+    )
+    analyst_input = ProductAnalystInput(
+        project_id=args.project_name,
+        evaluation_name=args.evaluation_name,
+        evaluation_type="tool_regression",
+        evaluation_question="Did the Tool change preserve product task success while keeping call correctness, latency, and cost acceptable?",
+        hypothesis="The candidate Tool may change downstream task success even when the Tool call itself succeeds.",
+        product_definition=product_definition,
+        evidence=evidence,
+    )
+    analyst_result = ProductEvaluationAnalyst().analyze(
+        analyst_input,
+        provider=provider,
+        binding=binding,
+        forbidden_tokens=set(),
+    )
+    return _report_output(
+        assemble_product_evaluation_report(
+            analyst_input,
+            analyst_result,
+            supplementary_evidence=_supplementary_evidence(service, args.project_name, args.benchmark_evidence),
+        ),
+        args,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    load_dotenv(Path(__file__).parents[2] / ".env", override=False)
     args = build_parser().parse_args(argv)
     service = Service(args.db)
     try:
         if args.command == "init":
             output = {"db": args.db}
+        elif args.command == "project" and args.subcommand == "register":
+            payload = _load_json_object(Path(args.input))
+            payload["project_id"] = args.project_id
+            registration = ProjectIntelligenceRegistration.model_validate(payload)
+            output = service.register_project_intelligence(registration).model_dump(mode="json")
+            if args.benchmark_result:
+                output["benchmark_evidence"] = [
+                    service.import_benchmark_evidence(
+                        args.project_id,
+                        _load_json_object(Path(path)),
+                        source_ref=str(Path(path).resolve()),
+                        source_bytes=Path(path).read_bytes(),
+                    ).model_dump(mode="json")
+                    for path in args.benchmark_result
+                ]
+        elif args.command == "project" and args.subcommand == "snapshot":
+            payload = _load_json_object(Path(args.input))
+            payload["project_id"] = args.project_id
+            registration = ProjectIntelligenceRegistration.model_validate(payload)
+            output = service.register_project_snapshot(registration).model_dump(mode="json")
+        elif args.command == "project" and args.subcommand == "scan":
+            output = service.scan_project(ProjectScanRequest(
+                project_id=args.project_id,
+                source_kind=args.source_kind,
+                source_ref=args.source,
+                version=args.version,
+                entrypoint=args.entrypoint,
+                runtime_kind=args.runtime_kind,
+                declaration_file=args.declaration_file,
+            )).model_dump(mode="json")
+        elif args.command == "project" and args.subcommand == "runtime-preflight":
+            output = service.runtime_preflight(
+                args.project_id,
+                args.version,
+                source_root=Path(args.source_root) if args.source_root else None,
+            ).model_dump(mode="json")
+        elif args.command == "project" and args.subcommand == "runtime-compare":
+            output = service.runtime_comparability(
+                args.project_id,
+                args.baseline_version,
+                args.candidate_version,
+                baseline_source_root=Path(args.baseline_source_root) if args.baseline_source_root else None,
+                candidate_source_root=Path(args.candidate_source_root) if args.candidate_source_root else None,
+            ).model_dump(mode="json")
+        elif args.command == "project" and args.subcommand == "get":
+            intelligence = service.project_intelligence(args.project_id)
+            if intelligence is None:
+                raise ProductNotFoundError(args.project_id)
+            output = intelligence.model_dump(mode="json")
+        elif args.command == "memory" and args.subcommand == "list":
+            output = {
+                "knowledge": [
+                    item.model_dump(mode="json")
+                    for item in service.evaluation_knowledge(args.project_id, args.component_pattern)
+                ]
+            }
+        elif args.command == "memory" and args.subcommand == "record":
+            payload = _load_json_object(Path(args.input))
+            payload["project_id"] = args.project_id
+            output = service.record_evaluation_knowledge(
+                EvaluationKnowledge.model_validate(payload)
+            ).model_dump(mode="json")
+        elif args.command == "memory" and args.subcommand == "from-report":
+            report = ProductEvaluationReport.model_validate(_load_json_object(Path(args.report)))
+            output = service.record_evaluation_knowledge_from_report(
+                args.project_id, report, component_pattern=args.component_pattern
+            ).model_dump(mode="json")
+        elif args.command == "benchmark" and args.subcommand == "import":
+            source_path = Path(args.input)
+            output = service.import_benchmark_evidence(
+                args.project_id,
+                _load_json_object(source_path),
+                source_ref=args.source_ref or str(source_path.resolve()),
+                source_bytes=source_path.read_bytes(),
+            ).model_dump(mode="json")
+        elif args.command == "benchmark" and args.subcommand == "list":
+            output = {
+                "benchmark_evidence": [
+                    item.model_dump(mode="json") for item in service.benchmark_evidence(args.project_id)
+                ]
+            }
+        elif args.command == "evaluation" and args.subcommand == "create":
+            request = EvaluationRequest.model_validate(_load_json_object(Path(args.input)))
+            artifact_dirs = [Path(path) for path in (args.candidate_artifact_dir or [])]
+            artifacts = [load_skill_ablation_artifact(request.project_id, path) for path in artifact_dirs]
+            candidate_component_name = None
+            if artifacts:
+                candidate_component_name = artifacts[0].contract.skill_name
+            output = service.create_evaluation_request(
+                request,
+                candidate_available=bool(artifacts) or args.candidate_available,
+                candidate_component_name=candidate_component_name,
+            ).model_dump(mode="json")
+        elif args.command == "evaluation" and args.subcommand == "get":
+            request = service.evaluation_request(args.project_id, args.request_id)
+            if request is None:
+                raise ProductNotFoundError(args.request_id)
+            output = request.model_dump(mode="json")
+        elif args.command == "evaluation" and args.subcommand == "plan":
+            intelligence = service.project_intelligence(args.project_id)
+            if intelligence is None:
+                raise ProductNotFoundError(args.project_id)
+            request = service.evaluation_request(args.project_id, args.evaluation_request_id)
+            if request is None:
+                raise ProductNotFoundError(args.evaluation_request_id)
+            if request.component_type != "skill_pair":
+                raise ValueError("The current CLI plan entry point supports component_type=skill_pair.")
+            product_definition = ProductDefinition.model_validate(_load_json_object(Path(args.product_definition)))
+            target = build_skill_pair_evaluation_target(intelligence, request.component_name, product_definition)
+            pattern = args.knowledge_pattern or target.component_type
+            target = target.model_copy(update={
+                "component_pattern": pattern,
+                "evaluation_knowledge": service.evaluation_knowledge_for_target(
+                    args.project_id, component_pattern=pattern, component_type=target.component_type
+                ),
+            })
+            change = build_skill_pair_evaluation_change(request, evaluation_name=args.evaluation_name)
+            binding = ProviderBinding.model_validate({
+                **_load_json_object(Path(args.binding)),
+                "project_id": args.project_id,
+            })
+            if binding.role != "control_plane":
+                raise ValueError("Evaluation Plan generation requires a control_plane ProviderBinding.")
+            plan = build_evolution_evaluation_plan(
+                target,
+                change,
+                scenario_generator=LLMEvaluationScenarioGenerator(_provider_from_binding(binding), binding),
+                evidence_requirements_generator=ScenarioEvidenceRequirementsGenerator(),
+            )
+            service.save_evaluation_plan(plan)
+            if args.output:
+                output_path = Path(args.output).resolve()
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(json.dumps(plan.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            output = {
+                "plan": plan.model_dump(mode="json"),
+                "knowledge_hit_ids": [item.knowledge_id for item in plan.evaluation_knowledge],
+                "scenario_categories": [item.category for item in plan.scenarios],
+                "scenario_hashes": [item.scenario_hash for item in plan.scenarios],
+                "output": str(Path(args.output).resolve()) if args.output else None,
+            }
+        elif args.command == "evaluation" and args.subcommand == "readiness":
+            intelligence = service.project_intelligence(args.project_id)
+            if intelligence is None:
+                raise ProductNotFoundError(args.project_id)
+            plan = _load_evaluation_plan(Path(args.plan))
+            if plan.project_id != args.project_id:
+                raise ValueError("Evaluation Plan project_id does not match --project-id.")
+            readiness = check_evaluation_plan_readiness(
+                plan,
+                intelligence.runtime_profile.fixture_catalog,
+                fixture_root=Path(args.fixture_root) if args.fixture_root else None,
+            )
+            output = readiness.model_dump(mode="json")
+        elif args.command == "evaluation" and args.subcommand == "interaction-matrix":
+            intelligence = service.project_intelligence(args.project_id)
+            if intelligence is None:
+                raise ProductNotFoundError(args.project_id)
+            plan = _load_evaluation_plan(Path(args.plan))
+            if plan.project_id != args.project_id:
+                raise ValueError("Evaluation Plan project_id does not match --project-id.")
+            fixture_root = Path(args.fixture_root) if args.fixture_root else None
+            readiness = check_evaluation_plan_readiness(
+                plan,
+                intelligence.runtime_profile.fixture_catalog,
+                fixture_root=fixture_root,
+            )
+            target = TargetRuntimeAdapter(Path(args.manifest), Path(args.cache_root))
+            binding = None
+            if args.binding:
+                binding = ProviderBinding.model_validate(_load_json_object(Path(args.binding)))
+                if binding.project_id != args.project_id:
+                    raise ValueError("Target ProviderBinding project_id does not match --project-id.")
+            oracle = SubprocessInteractionOracle(
+                tuple(args.oracle_command_part),
+                verifier_id=args.oracle_id,
+                oracle_type=args.oracle_type,
+                oracle_version=args.oracle_version,
+                working_directory=Path(args.oracle_cwd) if args.oracle_cwd else None,
+            )
+            runner = ManifestInteractionTrialRunner(
+                target,
+                fixture_catalog=intelligence.runtime_profile.fixture_catalog,
+                fixture_root=fixture_root,
+                oracle=oracle,
+                binding=binding,
+            )
+            artifact = execute_interaction_matrix(
+                plan,
+                interaction_name=args.interaction_name,
+                evaluation_id=args.evaluation_id,
+                readiness=readiness,
+                runner=runner,
+                run_root=Path(args.run_root),
+                output_path=Path(args.output),
+            )
+            output = artifact.model_dump(mode="json")
         elif args.command == "target" and args.subcommand == "init":
             output = initialize_target_manifest(
                 source=Path(args.source), output=Path(args.output), target_id=args.target_id, kind=args.kind,
@@ -181,6 +754,7 @@ def main(argv: list[str] | None = None) -> int:
                 runtime_requirements=[json.loads(item) for item in args.runtime_requirement or []],
                 sut_provider=_load_json_object(Path(args.sut_provider)) if args.sut_provider else None,
                 trace=_load_json_object(Path(args.trace)) if args.trace else None,
+                interaction=_load_json_object(Path(args.interaction)) if args.interaction else None,
             ).model_dump()
         elif args.command == "target" and args.subcommand == "inspect":
             output = inspect_target_manifest(Path(args.manifest))
@@ -213,15 +787,132 @@ def main(argv: list[str] | None = None) -> int:
             output = {"product": product.model_dump()}
         elif args.command == "version":
             output = {"version": service.import_version(args.product_id, Path(args.source), args.label).model_dump()}
-        elif args.command == "report":
+        elif args.command == "report" and args.subcommand == "pair":
+            output = _run_skill_pair_report(args, service)
+        elif args.command == "report" and args.subcommand == "tool":
+            output = _run_tool_regression_report(args, service)
+        elif args.command == "release" and args.subcommand == "gate":
+            report = ProductEvaluationReport.model_validate(_load_json_object(Path(args.report_path)))
+            decision = evaluate_release_decision(report)
+            output = decision.model_dump(mode="json")
+            if args.output:
+                output_path = Path(args.output).resolve()
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(json.dumps(output, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                output["output_path"] = str(output_path)
+        elif args.command == "report" and args.subcommand == "product":
             binding = ProviderBinding.model_validate({**_load_json_object(Path(args.binding)), "project_id": args.project_name})
             if binding.role != "control_plane":
                 raise ValueError("Product report requires a control_plane ProviderBinding")
             artifacts = [load_skill_ablation_artifact(args.project_name, Path(path)) for path in args.artifact_dir]
-            evidence = build_product_evaluation_evidence(args.project_name, artifacts, evaluation_name=args.evaluation_name)
-            report = generate_product_report_analysis(evidence, binding=binding, api_key=_provider_api_key(binding))
-            evidence_path, report_path, html_path = write_product_evaluation_report(Path(args.output_dir), evidence, report)
-            output = {"evidence_path": str(evidence_path), "report_path": str(report_path), "html_path": str(html_path), "evidence_manifest_sha256": evidence["evidence_manifest_sha256"]}
+            evaluation_request = None
+            if args.evaluation_request_id:
+                evaluation_request = service.evaluation_request(args.project_name, args.evaluation_request_id)
+                if evaluation_request is None:
+                    raise ValueError(f"EvaluationRequest {args.evaluation_request_id} was not found for project {args.project_name}.")
+                service.create_evaluation_request(
+                    evaluation_request,
+                    candidate_available=True,
+                    candidate_component_name=artifacts[0].contract.skill_name,
+                    skill_artifacts=artifacts,
+                )
+            product_definition = ProductDefinition.model_validate(_load_json_object(Path(args.product_definition))) if args.product_definition else None
+            if product_definition is None:
+                product_definition = product_definition_from_skill_artifact(artifacts[0])
+            target = build_skill_evaluation_target(artifacts[0], product_definition)
+            target = target.model_copy(update={
+                "component_pattern": args.knowledge_pattern or target.component_type,
+                "evaluation_knowledge": service.evaluation_knowledge_for_target(
+                    args.project_name,
+                    component_pattern=args.knowledge_pattern or target.component_type,
+                    component_type=target.component_type,
+                ),
+            })
+            change = build_skill_ablation_change(artifacts[0], evaluation_name=args.evaluation_name)
+            control_plane = build_control_plane_client(binding, _provider_api_key(binding))
+            evaluation_plan = (
+                _load_evaluation_plan(Path(args.evaluation_plan))
+                if args.evaluation_plan
+                else build_evolution_evaluation_plan(
+                    target,
+                    change,
+                    scenario_generator=LLMEvaluationScenarioGenerator(control_plane, binding),
+                    evidence_requirements_generator=ScenarioEvidenceRequirementsGenerator(),
+                )
+            )
+            _validate_evaluation_plan_identity(evaluation_plan, target, change)
+            scenario_ids_by_trial_ref = {
+                artifact.evidence.trial_ref: artifact.evidence.scenario_id
+                for artifact in artifacts
+                if artifact.evidence.scenario_id is not None
+            }
+            if args.scenario_map:
+                scenario_ids_by_trial_ref = parse_execution_scenario_mapping(
+                    _load_json_object(Path(args.scenario_map))
+                )
+            execution_mapping = None
+            if scenario_ids_by_trial_ref:
+                execution_mapping = build_evaluation_execution_mapping(
+                    evaluation_plan,
+                    [artifact.evidence.trial_ref for artifact in artifacts],
+                    scenario_ids_by_trial_ref,
+                )
+            adapter_context = AdapterContext(
+                project_id=args.project_name,
+                evaluation_name=args.evaluation_name,
+                evaluation_type="skill_ablation",
+                component_name=artifacts[0].contract.skill_name,
+                source_ref=",".join(str(Path(path).resolve()) for path in args.artifact_dir),
+                evaluation_request_id=evaluation_request.request_id if evaluation_request else None,
+                baseline_version=evaluation_request.baseline_version if evaluation_request else None,
+                candidate_version=evaluation_request.candidate_version if evaluation_request else None,
+                product_definition_ref=str(Path(args.product_definition).resolve()) if args.product_definition else None,
+                evaluation_plan_id=evaluation_plan.plan_id,
+                experiment_ids_by_condition=skill_ablation_experiment_ids_by_condition(evaluation_plan),
+                scenario_ids_by_trial_ref=execution_mapping.by_trial_ref() if execution_mapping else {},
+            )
+            evidence_bundle = build_v1_evaluation_adapter_layer().adapt(
+                "skill_ablation",
+                artifacts,
+                context=adapter_context,
+            )
+            legacy_input, _raw_evidence = build_skill_ablation_analyst_input(
+                args.project_name,
+                artifacts,
+                product_definition=product_definition,
+                evaluation_name=args.evaluation_name,
+                evidence_bundle=evidence_bundle,
+            )
+            analyst_input = ProductAnalystInput(
+                project_id=legacy_input.project_id,
+                evaluation_name=legacy_input.evaluation_name,
+                evaluation_type="skill_ablation",
+                evaluation_question=evaluation_plan.comparison_question,
+                hypothesis=evaluation_plan.hypothesis,
+                product_definition=legacy_input.product_definition,
+                evidence=legacy_input.evidence,
+                evaluation_plan=evaluation_plan,
+            )
+            analyst_run = ProductEvaluationAnalyst().analyze(
+                analyst_input,
+                provider=control_plane,
+                binding=binding,
+                forbidden_tokens={artifact.evidence.trial_ref for artifact in artifacts},
+            )
+            report = assemble_product_evaluation_report(
+                analyst_input,
+                analyst_run,
+                supplementary_evidence=_supplementary_evidence(
+                    service, args.project_name, args.benchmark_evidence
+                ),
+            )
+            report_template = load_product_report_template(Path(args.report_template)) if args.report_template else None
+            paths = write_product_evaluation_outputs(Path(args.output_dir), report, report_template)
+            output = {
+                **{f"{name}_path": str(path) for name, path in paths.items()},
+                "evidence_manifest_sha256": report.evidence.artifact_manifest_hash,
+                "report": report.model_dump(mode="json"),
+            }
         elif args.command == "evolution" and args.subcommand == "intake":
             output = service.intake_agent_evolution(args.project_id, Path(args.source), args.baseline, args.candidate, repository_url=args.repository_url, declared_entrypoint=args.entrypoint).as_dict()
         elif args.command == "evolution" and args.subcommand == "propagate-stale":
@@ -266,11 +957,21 @@ def main(argv: list[str] | None = None) -> int:
         else:
             output = service.evolution_report(args.project_id, args.report_id).model_dump()
     except ProductNotFoundError:
-        output = {"ok": False, "error": {"stage": "lookup", "reason": "product not found"}}
+        reason = "project not found" if args.command in {"project", "evaluation"} else "product not found"
+        output = {"ok": False, "error": {"stage": "lookup", "reason": reason}}
         print(json.dumps(output, ensure_ascii=False) if args.format == "json" else output)
         return 2
     except (AssistantInputError, EvolutionIntakeError, ProviderRuntimeError, ValueError) as error:
-        stage = "target_onboarding" if args.command == "target" else "control_plane"
+        if args.command == "target":
+            stage = "target_onboarding"
+        elif args.command == "project":
+            stage = "project_intelligence"
+        elif args.command == "evaluation":
+            stage = "evaluation_validation"
+        elif args.command == "release":
+            stage = "release_gate"
+        else:
+            stage = "control_plane"
         print(json.dumps({"ok": False, "error": {"stage": stage, "reason": str(error)}}, ensure_ascii=False) if args.format == "json" else str(error))
         return 3
     print(json.dumps({"ok": True, "data": output}, ensure_ascii=False) if args.format == "json" else {"ok": True, "data": output})
