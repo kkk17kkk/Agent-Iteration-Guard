@@ -3,6 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable
 import hashlib
 import json
+import os
+import shutil
+import sys
+import tempfile
 from pathlib import Path
 
 from .artifacts import snapshot_manifest
@@ -36,10 +40,15 @@ from .evaluation_request import (
     validate_evaluation_request,
     validate_skill_artifacts,
 )
+from .evaluation_execution_config import (
+    EvaluationExecutionConfiguration,
+    EvaluationExecutionConfigurationRepository,
+)
 from .evaluation_memory import EvaluationKnowledge, EvaluationKnowledgeRepository, knowledge_from_report
 from .benchmark_evidence import BenchmarkEvidence, BenchmarkEvidenceRepository
 from .reporting import REPORT_SYSTEM_PROMPT, ReportNarrativeAdapter, build_report_manifest, record_blocked_report
 from .project_intelligence import (
+    CapabilityRecord,
     ProjectIntelligence,
     ProjectIntelligenceRegistration,
     ProjectIntelligenceRepository,
@@ -51,9 +60,27 @@ from .project_scanner import (
     ProjectScanResult,
     ProjectScanner,
     ProjectScannerRepository,
+    _safe_extract_archive,
+)
+from .runtime_onboarding import (
+    RuntimeConfigurationDraft,
+    RuntimeConfigurationDraftRepository,
+    RuntimeDraftReview,
+    build_runtime_draft,
+)
+from .target_onboarding import (
+    TargetEnvironmentCache,
+    TargetInteractionSpec,
+    TargetManifest,
+    TargetRuntimeSpec,
+    TargetSourceSpec,
+    source_working_tree_fingerprint,
 )
 from .runtime_comparability import RuntimeComparabilityResult, RuntimePreflightResult, compare_runtime_snapshots, preflight_runtime
 from .evaluation_planning import EvaluationPlan
+from .evaluation_run import EvaluationRun, EvaluationRunRepository
+from .evaluation_report import EvaluationReportRecord, EvaluationReportRepository
+from .project_upload import ProjectUpload, ProjectUploadRepository
 from .skill_ablation import record_skill_ablation
 from .skill_ablation_analysis import SKILL_ABLATION_ANALYSIS_SYSTEM_PROMPT, SkillAblationEvidenceAdapter
 from .store import Store
@@ -84,6 +111,11 @@ class Service:
         self.evaluation_memory_store = EvaluationKnowledgeRepository(self.store)
         self.benchmark_evidence_store = BenchmarkEvidenceRepository(self.store)
         self.evaluation_request_store = EvaluationRequestRepository(self.store)
+        self.evaluation_execution_config_store = EvaluationExecutionConfigurationRepository(self.store)
+        self.evaluation_run_store = EvaluationRunRepository(self.store)
+        self.evaluation_report_store = EvaluationReportRepository(self.store)
+        self.project_upload_store = ProjectUploadRepository(self.store)
+        self.runtime_draft_store = RuntimeConfigurationDraftRepository(self.store)
         self.project_scanner = ProjectScanner()
         self.project_scan_store = ProjectScannerRepository(self.store)
 
@@ -94,6 +126,9 @@ class Service:
 
     def project_intelligence(self, project_id: str) -> ProjectIntelligence | None:
         return self.project_intelligence_store.get(project_id)
+
+    def project_intelligences(self) -> list[ProjectIntelligence]:
+        return self.project_intelligence_store.list()
 
     def register_project_snapshot(
         self, registration: ProjectIntelligenceRegistration
@@ -134,8 +169,7 @@ class Service:
                 "intelligence": intelligence,
                 "snapshot_diff": snapshot_diff,
             }
-        )
-
+    )
     def project_scans(self, project_id: str) -> list[ProjectScanRecord]:
         return self.project_scan_store.list(project_id)
 
@@ -256,6 +290,9 @@ class Service:
     def evaluation_request(self, project_id: str, request_id: str) -> EvaluationRequest | None:
         return self.evaluation_request_store.get(project_id, request_id)
 
+    def bind_evaluation_request_scope(self, request: EvaluationRequest, scope_id: str) -> EvaluationRequest:
+        return self.evaluation_request_store.bind_scope(request, scope_id)
+
     def save_evaluation_plan(self, plan: EvaluationPlan) -> EvaluationPlan:
         """Persist one immutable plan so readiness and reports share its identity."""
 
@@ -270,6 +307,159 @@ class Service:
         if plan is None or plan.project_id != project_id:
             return None
         return plan
+
+    def save_evaluation_run(self, run: EvaluationRun) -> EvaluationRun:
+        return self.evaluation_run_store.save(run)
+
+    def evaluation_run(self, project_id: str, run_id: str) -> EvaluationRun | None:
+        return self.evaluation_run_store.get(project_id, run_id)
+
+    def evaluation_runs(self, project_id: str, evaluation_request_id: str) -> list[EvaluationRun]:
+        return self.evaluation_run_store.list_for_request(project_id, evaluation_request_id)
+
+    def save_evaluation_report(self, record: EvaluationReportRecord) -> EvaluationReportRecord:
+        return self.evaluation_report_store.save(record)
+
+    def evaluation_report(self, project_id: str, report_id: str) -> EvaluationReportRecord | None:
+        return self.evaluation_report_store.get(project_id, report_id)
+
+    def evaluation_report_for_run(self, project_id: str, run_id: str) -> EvaluationReportRecord | None:
+        return self.evaluation_report_store.by_run(project_id, run_id)
+
+    def evaluation_reports(self, project_id: str) -> list[EvaluationReportRecord]:
+        return self.evaluation_report_store.list(project_id)
+
+    def save_evaluation_execution_configuration(
+        self, config: EvaluationExecutionConfiguration
+    ) -> EvaluationExecutionConfiguration:
+        if self.project_intelligence(config.project_id) is None and self.product(config.project_id) is None:
+            raise ProductNotFoundError(config.project_id)
+        return self.evaluation_execution_config_store.save(config)
+
+    def evaluation_execution_configuration(
+        self, project_id: str, config_id: str
+    ) -> EvaluationExecutionConfiguration | None:
+        return self.evaluation_execution_config_store.get(project_id, config_id)
+
+    def evaluation_execution_configurations(
+        self, project_id: str
+    ) -> list[EvaluationExecutionConfiguration]:
+        if self.project_intelligence(project_id) is None and self.product(project_id) is None:
+            raise ProductNotFoundError(project_id)
+        return self.evaluation_execution_config_store.list(project_id)
+
+    def runtime_configuration_draft(
+        self, project_id: str, snapshot_version: str
+    ) -> RuntimeConfigurationDraft:
+        intelligence = self.project_intelligence(project_id)
+        if intelligence is None:
+            raise ProductNotFoundError(project_id)
+        snapshot = next((item for item in intelligence.snapshot_history if item.version == snapshot_version), None)
+        if snapshot is None and intelligence.baseline_snapshot.baseline_version != snapshot_version:
+            raise ValueError(f"Snapshot {snapshot_version} was not found.")
+        runtime = snapshot.runtime_profile if snapshot is not None else intelligence.baseline_snapshot.runtime_snapshot
+        existing = self.runtime_draft_store.latest(project_id, runtime.source_fingerprint or "")
+        if existing:
+            return existing
+        source_root = self._materialize_runtime_source(project_id, runtime.source_fingerprint)
+        draft = build_runtime_draft(
+            intelligence, snapshot_version=snapshot_version, source_root=source_root,
+        )
+        return self.runtime_draft_store.save(draft)
+
+    def save_reviewed_runtime_configuration(
+        self,
+        project_id: str,
+        draft_id: str,
+        review: RuntimeDraftReview,
+    ) -> EvaluationExecutionConfiguration:
+        intelligence = self.project_intelligence(project_id)
+        if intelligence is None:
+            raise ProductNotFoundError(project_id)
+        drafts = [item for item in self.store.list("runtime_configuration_draft", RuntimeConfigurationDraft, project_id) if item.draft_id == draft_id]
+        if not drafts:
+            raise ValueError("Runtime configuration draft was not found for this project.")
+        draft = drafts[0]
+        source_root = self._materialize_runtime_source(project_id, draft.source_fingerprint)
+        entrypoint_path = _entrypoint_path(review.entrypoint)
+        if entrypoint_path is None or not (source_root / entrypoint_path).is_file():
+            raise ValueError("Reviewed entrypoint must name an existing source file.")
+        manifest_root = _runtime_storage_root() / "manifests" / project_id / draft.snapshot_fingerprint
+        manifest_root.mkdir(parents=True, exist_ok=True)
+        manifest_path = manifest_root / f"{draft.draft_id}.json"
+        runtime_command = _runtime_command(review.entrypoint)
+        interaction_command = _materialize_command(review.interaction_command)
+        oracle_command = _materialize_command(review.oracle_command)
+        manifest = TargetManifest(
+            target_id=_target_id(project_id, draft.snapshot_fingerprint),
+            source=TargetSourceSpec(path=str(source_root), revision=f"tree:{source_working_tree_fingerprint(source_root)}"),
+            runtime=TargetRuntimeSpec(
+                kind="native_command",
+                command=runtime_command,
+                required_source_files=[entrypoint_path],
+            ),
+            interaction=TargetInteractionSpec(command=interaction_command),
+        )
+        manifest_path.write_text(json.dumps(manifest.model_dump(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        cache_root = _runtime_storage_root() / "cache" / project_id
+        runtime_executable = Path(sys.executable)
+        if draft.language == "node":
+            node = shutil.which("node")
+            if not node:
+                raise ValueError("Node runtime is not available on this server; runtime review cannot be saved.")
+            runtime_executable = Path(node)
+        TargetEnvironmentCache(cache_root).import_environment(manifest_path, runtime_executable)
+        config = EvaluationExecutionConfiguration(
+            project_id=project_id,
+            name=review.name,
+            manifest_path=str(manifest_path),
+            cache_root=str(cache_root),
+            run_root_parent=str(_runtime_storage_root() / "runs" / project_id),
+            oracle_command=oracle_command,
+            oracle_id=review.oracle_id,
+            oracle_type=review.oracle_type,
+            oracle_version=review.oracle_version,
+            oracle_cwd=str(source_root),
+            runtime_draft_id=draft.draft_id,
+            snapshot_version=draft.snapshot_version,
+            snapshot_fingerprint=draft.snapshot_fingerprint,
+        )
+        return self.save_evaluation_execution_configuration(config)
+
+    def _materialize_runtime_source(self, project_id: str, source_fingerprint: str | None) -> Path:
+        if not source_fingerprint:
+            raise ValueError("Runtime source fingerprint is unavailable; rescan the project before configuring runtime.")
+        upload = next(
+            (item for item in reversed(self.project_uploads(project_id)) if item.source_fingerprint == source_fingerprint),
+            None,
+        )
+        if upload is None or upload.source_kind != "package":
+            raise ValueError("Runtime onboarding currently requires the uploaded source package for this snapshot.")
+        destination = _runtime_storage_root() / "sources" / project_id / source_fingerprint
+        if not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(prefix="aig-runtime-source-") as temporary:
+                staged = Path(temporary) / "source"
+                staged.mkdir()
+                _safe_extract_archive(Path(upload.source_path), staged)
+                shutil.move(str(staged), str(destination))
+        nested = [item for item in destination.iterdir() if item.is_dir()]
+        return nested[0] if len(nested) == 1 else destination
+
+    def save_project_upload(self, upload: ProjectUpload) -> ProjectUpload:
+        """Persist an intake artifact before the first project snapshot exists.
+
+        Browser upload is the first step of onboarding, so it cannot require
+        Project Intelligence that is only created by the subsequent scan.
+        The scan still owns runtime admission and registration.
+        """
+        return self.project_upload_store.save(upload)
+
+    def project_upload(self, project_id: str, upload_id: str) -> ProjectUpload | None:
+        return self.project_upload_store.get(project_id, upload_id)
+
+    def project_uploads(self, project_id: str) -> list[ProjectUpload]:
+        return self.project_upload_store.list(project_id)
 
     def create(self, name: str, description: str = "") -> tuple[Product, Version]:
         product = Product(name=name, description=description)
@@ -354,6 +544,27 @@ class Service:
         if not binding or binding.project_id != project_id:
             raise EvolutionIntakeError("ProviderBinding not found in this project.")
         return binding
+
+    def provider_bindings(self, project_id: str) -> list[ProviderBinding]:
+        if self.project_intelligence(project_id) is None and self.product(project_id) is None:
+            raise ProductNotFoundError(project_id)
+        return self.store.list("provider_binding", ProviderBinding, project_id)
+
+    def save_skill_pair(self, project_id: str, name: str, members: list[str]) -> CapabilityRecord:
+        intelligence = self.project_intelligence(project_id)
+        if intelligence is None:
+            raise ProductNotFoundError(project_id)
+        skills = {item.name for item in intelligence.capability_registry if item.component_type == "skill"}
+        if len(members) != 2 or len(set(members)) != 2 or not set(members).issubset(skills):
+            raise ValueError("Reusable Skill Pair must contain two discovered distinct Skills.")
+        pair = CapabilityRecord(
+            capability_id="skill_pair_" + hashlib.sha256(f"{project_id}:{'|'.join(sorted(members))}".encode("utf-8")).hexdigest()[:16],
+            project_id=project_id, component_type="skill_pair", name=name,
+            responsibility=f"Coordinate {members[0]} and {members[1]}.", dependencies=members,
+            boundary=[], status="declared", source_refs=["user:pair-registration"],
+        )
+        self.store.save("project_intelligence_capability", pair.capability_id, project_id, pair)
+        return pair
 
     def run_evolution_control_plane_smoke(
         self,
@@ -510,3 +721,41 @@ class Service:
         if not self.product(project_id):
             raise ProductNotFoundError(project_id)
         return self.evolution.propagate_stale(project_id, evolution_changeset_id)
+
+
+def _runtime_storage_root() -> Path:
+    return Path(os.getenv("AGENTGUARD_RUNTIME_SOURCE_ROOT", "D:/codexdata/agentguard-runtime")).resolve()
+
+
+def _entrypoint_path(entrypoint: str) -> str | None:
+    parts = entrypoint.replace("\\", "/").split()
+    candidate = next((part for part in reversed(parts) if part.endswith((".py", ".js", ".ts"))), None)
+    if candidate is None:
+        return None
+    path = Path(candidate)
+    if path.is_absolute() or ".." in path.parts:
+        return None
+    return path.as_posix()
+
+
+def _runtime_command(entrypoint: str) -> list[str]:
+    path = _entrypoint_path(entrypoint)
+    if path is None:
+        raise ValueError("Reviewed entrypoint must be a relative Python or Node source file.")
+    return ["{python}", path]
+
+
+def _materialize_command(command: list[str]) -> list[str]:
+    executable = str(Path(sys.executable).resolve())
+    node = shutil.which("node")
+    if any(item in {"{node}", "node"} for item in command) and not node:
+        raise ValueError("Node runtime is not available on this server; choose a Python adapter or configure a Node runtime.")
+    return [
+        executable if item in {"{python}", "python"} else str(Path(node).resolve()) if item in {"{node}", "node"} else item
+        for item in command
+    ]
+
+
+def _target_id(project_id: str, snapshot_fingerprint: str) -> str:
+    normalized = "".join(char.lower() if char.isalnum() else "-" for char in project_id).strip("-")
+    return f"{normalized[:48] or 'project'}-{snapshot_fingerprint[:12]}"

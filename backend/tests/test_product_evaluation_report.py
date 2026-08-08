@@ -132,6 +132,28 @@ def test_report_binds_optional_external_benchmark_evidence_into_hash() -> None:
     assert report.recompute_report_hash() == report.report_hash
 
 
+def test_report_hash_survives_browser_json_number_normalization() -> None:
+    analyst_input, analyst_result = _input_and_result()
+    evidence = analyst_input.evidence.model_copy(update={"summary": {"failure_rate": 0.0}})
+    report = assemble_product_evaluation_report(
+        analyst_input.model_copy(update={"evidence": evidence}),
+        analyst_result,
+    )
+    payload = product_evaluation_report_api_payload(report)
+
+    def browser_json_numbers(value):
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, dict):
+            return {key: browser_json_numbers(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [browser_json_numbers(item) for item in value]
+        return value
+
+    restored = ProductEvaluationReport.model_validate(browser_json_numbers(payload))
+    assert restored.recompute_report_hash() == restored.report_hash
+
+
 def test_generic_report_api_validates_project_binding() -> None:
     analyst_input, result = _input_and_result()
     report = assemble_product_evaluation_report(analyst_input, result)

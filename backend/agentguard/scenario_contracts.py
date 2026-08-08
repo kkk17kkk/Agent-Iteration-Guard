@@ -176,6 +176,7 @@ class EvaluationReadinessResult(BaseModel):
     evaluation_plan_id: str = Field(min_length=1)
     status: ScenarioReadinessStatus
     scenarios: list[ScenarioReadinessResult] = Field(min_length=1, max_length=200)
+    runtime_checks: list[ScenarioReadinessCheck] = Field(default_factory=list, max_length=32)
     blocking_reasons: list[str] = Field(default_factory=list, max_length=200)
 
 

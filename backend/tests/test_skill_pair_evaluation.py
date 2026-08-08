@@ -86,3 +86,23 @@ def test_skill_pair_target_resolves_registered_members_and_change() -> None:
     assert change.change_id == request.request_id
     assert change.change_type == "interaction"
     assert change.evaluation_type == "skill_pair_evaluation"
+
+
+def test_skill_pair_target_resolves_temporary_members_without_a_pair_registry_record() -> None:
+    definition = ProductDefinition(
+        component_type="skill_pair",
+        component_name="result_delivery__task_planning",
+        description="Evaluate the discovered pair.",
+        product_responsibility="Complete a user task.",
+        user_job="Receive a usable result.",
+    )
+
+    target = build_skill_pair_evaluation_target(
+        _intelligence(),
+        "result_delivery__task_planning",
+        definition,
+        pair_members=["task_planning", "result_delivery"],
+    )
+
+    assert target.target_id.startswith("temporary_pair_")
+    assert target.component_members == ["task_planning", "result_delivery"]

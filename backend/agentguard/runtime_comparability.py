@@ -78,7 +78,7 @@ def preflight_runtime(
     """
 
     checks: list[RuntimeCheck] = []
-    checks.append(_declared_check("entrypoint", bool(profile.entrypoint.strip()), "entrypoint is declared"))
+    checks.append(_declared_check("entrypoint", bool(profile.entrypoint and profile.entrypoint.strip()), "entrypoint is declared"))
     checks.append(_declared_check("source_ref", bool(profile.source_ref.strip()), "source reference is declared"))
     checks.append(_declared_check(
         "execution_requirements",
@@ -231,14 +231,11 @@ def _compare_declared_runtime(baseline: RuntimeProfile, candidate: RuntimeProfil
         candidate.fixture_catalog.model_dump(mode="json"),
     ))
 
-    if baseline.source_kind is None or candidate.source_kind is None:
-        checks.append(RuntimeCheck(
-            name="source_kind",
-            status="passed",
-            detail="legacy source kind is not declared; source_ref remains the comparison identity",
-        ))
-    else:
-        checks.append(_equal_check("source_kind", baseline.source_kind, candidate.source_kind))
+    checks.append(RuntimeCheck(
+        name="source_kind",
+        status="passed",
+        detail="repository/package provenance may change; runtime contract is compared independently",
+    ))
     if baseline.runtime_version != candidate.runtime_version:
         checks.append(RuntimeCheck(
             name="runtime_version",
@@ -311,7 +308,9 @@ def _source_path_checks(profile: RuntimeProfile, source_root: Path) -> list[Runt
     return checks
 
 
-def _entrypoint_path(entrypoint: str) -> str | None:
+def _entrypoint_path(entrypoint: str | None) -> str | None:
+    if not entrypoint:
+        return None
     try:
         tokens = shlex.split(entrypoint, posix=False)
     except ValueError:

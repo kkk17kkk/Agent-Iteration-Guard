@@ -163,6 +163,8 @@ def _run(command: list[str], cwd: Path | None = None) -> str:
 
 def source_working_tree_fingerprint(source: Path) -> str:
     """Fingerprint changed and untracked source files without recording their contents."""
+    if not (source / ".git").exists():
+        return _source_tree_fingerprint(source)
     status = _run(["git", "status", "--porcelain=v1", "--untracked-files=all"], source)
     entries: list[dict[str, str]] = []
     for line in status.splitlines():
@@ -176,6 +178,18 @@ def source_working_tree_fingerprint(source: Path) -> str:
         entries.append({"status": line[:2], "path": relative.replace("\\", "/"), "sha256": digest})
     encoded = json.dumps(entries, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _source_tree_fingerprint(source: Path) -> str:
+    entries = []
+    for path in sorted(source.rglob("*")):
+        if not path.is_file() or any(part in {".git", ".venv", "node_modules", "__pycache__"} for part in path.parts):
+            continue
+        entries.append({
+            "path": path.relative_to(source).as_posix(),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        })
+    return hashlib.sha256(json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
 def _resolve(base: Path, value: str | None) -> Path | None:
@@ -242,7 +256,7 @@ def inspect_target_manifest(path: Path) -> dict[str, object]:
     source = _resolve(path.parent, manifest.source.path)
     if source is None or not source.is_dir():
         raise ValueError("target source path does not exist")
-    observed_revision = _run(["git", "rev-parse", "HEAD"], source)
+    observed_revision = _run(["git", "rev-parse", "HEAD"], source) if (source / ".git").exists() else f"tree:{_source_tree_fingerprint(source)}"
     checks: list[dict[str, str]] = [{
         "name": "source_revision",
         "status": "passed" if observed_revision == manifest.source.revision else "failed",

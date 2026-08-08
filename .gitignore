@@ -12,5 +12,4 @@ frontend/dist/
 frontend/.vite/
 .planning/
 docs/
-artifacts/
-corpus/stage1/
+Images/svg

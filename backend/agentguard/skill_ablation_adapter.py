@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from .evaluation_adapters import AdapterContext, EvaluationAdapterLayer
 from .evaluation_execution import EvaluationExecutionError
 from .evaluation_planning import EvaluationChange, EvaluationPlan, EvaluationTarget
+from .evaluation_request import EvaluationRequest
+from .interaction_matrix import EvaluationMatrixArtifact
 from .product_reporting import SkillAblationArtifact
 from .semantic_reporting import ProductDefinition, ImmutableEvidenceBundle, build_skill_ablation_evidence_bundle
 
@@ -57,15 +59,50 @@ def build_skill_ablation_change(
     )
 
 
+def build_skill_evaluation_change(
+    request: EvaluationRequest,
+    *,
+    evaluation_name: str,
+) -> EvaluationChange:
+    """Translate a persisted Skill request for the generic Planner path.
+
+    Skill Ablation is intentionally limited to removal/replacement requests;
+    other change types need a declared strategy rather than being silently
+    mapped to an unrelated experiment.
+    """
+
+    if request.component_type != "skill":
+        raise ValueError("Skill change translation requires component_type=skill.")
+    if request.change_type not in {"remove", "replace"}:
+        raise ValueError(
+            "Skill evaluation currently supports remove and replace through the Skill Ablation strategy."
+        )
+    return EvaluationChange(
+        change_id=request.request_id,
+        project_id=request.project_id,
+        change_type="ablation",
+        evaluation_type="skill_ablation",
+        evaluation_name=evaluation_name,
+        summary=f"Evaluate the product contribution of {request.component_name}.",
+        baseline_ref=request.baseline_version,
+        candidate_ref=request.candidate_version,
+    )
+
+
 def skill_ablation_experiment_ids_by_condition(plan: EvaluationPlan) -> dict[str, str]:
     """Map technical persisted conditions to generic plan experiments at the adapter boundary."""
 
     if plan.component_type != "skill" or plan.change_type != "ablation":
         raise ValueError("Skill Ablation condition mapping requires a skill ablation Evaluation Plan.")
+    baseline_id = plan.experiment_for_kind("baseline").experiment_id
+    removal_id = plan.experiment_for_kind("removal").experiment_id
+    replacement_id = plan.experiment_for_kind("equivalence").experiment_id
     return {
-        "enabled": plan.experiment_for_kind("baseline").experiment_id,
-        "disabled": plan.experiment_for_kind("removal").experiment_id,
-        "replacement": plan.experiment_for_kind("equivalence").experiment_id,
+        "baseline": baseline_id,
+        "removal": removal_id,
+        "replacement": replacement_id,
+        "enabled": baseline_id,
+        "disabled": removal_id,
     }
 
 
@@ -80,10 +117,17 @@ class SkillAblationEvaluationAdapter:
 
     def adapt(
         self,
-        artifact: Sequence[SkillAblationArtifact],
+        artifact: Sequence[SkillAblationArtifact] | Mapping[str, object] | object,
         *,
         context: AdapterContext,
     ) -> ImmutableEvidenceBundle:
+        if isinstance(artifact, (Mapping, EvaluationMatrixArtifact)):
+            from .evaluation_matrix_adapter import EvaluationMatrixEvidenceAdapter
+
+            return EvaluationMatrixEvidenceAdapter(
+                self.evaluation_type,
+                ("baseline", "removal", "replacement"),
+            ).adapt(artifact, context=context)
         if not isinstance(artifact, Sequence) or isinstance(artifact, (str, bytes)):
             raise TypeError("Skill Ablation adapter expects a sequence of persisted artifacts.")
         artifacts = list(artifact)
@@ -147,6 +191,7 @@ __all__ = [
     "SkillAblationEvaluationAdapter",
     "build_default_evaluation_adapter_layer",
     "build_skill_ablation_change",
+    "build_skill_evaluation_change",
     "build_skill_evaluation_target",
     "skill_ablation_experiment_ids_by_condition",
 ]

@@ -240,6 +240,24 @@ def test_interaction_adapter_normalizes_scenario_matrix_for_pair_reuse() -> None
     assert bundle.conditions[-1].experiment_id == "experiment-combined"
 
 
+def test_interaction_adapter_accepts_frozen_evaluation_name_from_executor() -> None:
+    artifact = _interaction_artifact()
+    artifact["interaction_name"] = "Skill Pair Evaluation"
+
+    bundle = SkillPairEvaluationAdapter().adapt(
+        artifact,
+        context=AdapterContext(
+            project_id="demo",
+            evaluation_name="Skill Pair Evaluation",
+            evaluation_type="skill_pair_evaluation",
+            component_name="recipe_planning_and_nutrition_check",
+            source_ref="artifact:interaction",
+        ),
+    )
+
+    assert bundle.type_data["interaction_name"] == "Skill Pair Evaluation"
+
+
 def test_interaction_adapter_rejects_incomplete_scenario_matrix() -> None:
     artifact = _interaction_artifact()
     artifact["conditions"] = artifact["conditions"][:-1]

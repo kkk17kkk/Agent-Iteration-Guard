@@ -37,11 +37,13 @@ class EvaluationRequest(BaseModel):
     project_id: str = Field(min_length=1)
     component_type: RequestComponentType
     component_name: str = Field(min_length=1)
+    pair_members: list[str] = Field(default_factory=list, max_length=2)
     change_type: RequestChangeType
     candidate_version: str = Field(min_length=1)
     baseline_version: str = Field(min_length=1)
     status: RequestStatus = "created"
     runtime_comparability: RuntimeComparabilityResult | None = None
+    evaluation_scope_id: str | None = Field(default=None, min_length=16)
     created_at: str = Field(default_factory=_now)
 
 
@@ -94,7 +96,47 @@ def validate_evaluation_request(
             ),
             None,
         )
-    if capability is None:
+    pair_members = list(request.pair_members)
+    if request.component_type == "skill_pair":
+        if pair_members:
+            if len(pair_members) != 2 or len(set(pair_members)) != 2:
+                raise EvaluationRequestValidationError(
+                    "E_PAIR_MEMBERS_INVALID",
+                    "A Skill Pair request must name exactly two distinct Skill members.",
+                )
+            registered_members = list(capability.dependencies) if capability and capability.component_type == "skill_pair" else None
+            if registered_members is not None and set(registered_members) != set(pair_members):
+                raise EvaluationRequestValidationError(
+                    "E_PAIR_MEMBERS_MISMATCH",
+                    "The supplied Skill Pair members do not match the registered Pair dependencies.",
+                )
+            if registered_members is not None:
+                pair_members = registered_members
+            available_skills = {
+                item.name
+                for item in intelligence.capability_registry
+                if item.component_type == "skill"
+            }
+            available_skills.update(
+                item.name
+                for snapshot in snapshot_history
+                for item in snapshot.capability_registry
+                if item.component_type == "skill"
+            )
+            missing_members = sorted(set(pair_members) - available_skills)
+            if missing_members:
+                raise EvaluationRequestValidationError(
+                    "E_PAIR_MEMBER_NOT_FOUND",
+                    f"Skill Pair members were not discovered in this project's frozen snapshots: {missing_members}.",
+                )
+        elif capability is not None and capability.component_type == "skill_pair":
+            pair_members = list(capability.dependencies)
+        else:
+            raise EvaluationRequestValidationError(
+                "E_COMPONENT_NOT_FOUND",
+                f"Temporary Skill Pair {request.component_name} requires exactly two discovered pair_members.",
+            )
+    if capability is None and request.component_type != "skill_pair":
         raise EvaluationRequestValidationError(
             "E_COMPONENT_NOT_FOUND",
             f"Component {request.component_type}/{request.component_name} is not registered for project {request.project_id}.",
@@ -106,7 +148,16 @@ def validate_evaluation_request(
             f"Baseline version {request.baseline_version} is not the registered baseline {intelligence.baseline_snapshot.baseline_version}.",
         )
 
-    if not candidate_available:
+    known_snapshot_versions = {
+        intelligence.baseline_snapshot.baseline_version,
+        *(snapshot.version for snapshot in snapshot_history),
+    }
+    # A first import has one immutable snapshot.  It is valid to evaluate a
+    # discovered capability inside that frozen runtime; this is a capability
+    # evaluation, not a claim that a version-to-version regression was run.
+    # Older artifact-owned callers may still provide candidate_available until
+    # they are migrated to snapshot registration.
+    if request.candidate_version not in known_snapshot_versions and not candidate_available:
         raise EvaluationRequestValidationError(
             "E_CANDIDATE_NOT_FOUND",
             f"Candidate version {request.candidate_version} is not available for evaluation.",
@@ -137,8 +188,8 @@ def validate_evaluation_request(
                 "E_CANDIDATE_NOT_FOUND",
                 f"Candidate snapshot {request.candidate_version} is not present in Project Intelligence history.",
             )
-        baseline_component = _component_in_snapshot(baseline_snapshot, request)
-        candidate_component = _component_in_snapshot(candidate_snapshot, request)
+        baseline_component = _component_in_snapshot(baseline_snapshot, request, pair_members=pair_members)
+        candidate_component = _component_in_snapshot(candidate_snapshot, request, pair_members=pair_members)
         expected = {
             "add": (False, True),
             "remove": (True, False),
@@ -152,13 +203,9 @@ def validate_evaluation_request(
                 f"Change type {request.change_type} expects baseline/candidate component presence {expected}, observed {observed}.",
             )
         runtime_comparability = compare_runtime_snapshots(baseline_snapshot, candidate_snapshot)
-        if runtime_comparability.status != "comparable":
-            raise EvaluationRequestValidationError(
-                "E_RUNTIME_NOT_COMPARABLE",
-                "Baseline and candidate runtime profiles are not comparable: "
-                f"{runtime_comparability.status}; "
-                f"checks={[item.name for item in runtime_comparability.checks if item.status != 'passed']}",
-            )
+        # Snapshot/runtime differences remain evidence for later Readiness, but
+        # a request only freezes the target and versions.  Requiring a runnable
+        # runtime here makes first import impossible before runtime review.
 
     if candidate_component_name is not None and candidate_component_name != request.component_name:
         raise EvaluationRequestValidationError(
@@ -166,17 +213,18 @@ def validate_evaluation_request(
             f"Candidate artifact targets {candidate_component_name}, not {request.component_name}.",
         )
 
-    runtime = intelligence.runtime_profile
-    if not runtime.entrypoint.strip() or not runtime.source_ref.strip() or not runtime.execution_requirements:
-        raise EvaluationRequestValidationError(
-            "E_RUNTIME_NOT_REPRODUCIBLE",
-            "Registered runtime profile is incomplete; entrypoint, source_ref, and execution requirements are required.",
-        )
-
-    return request.model_copy(update={"status": "validated", "runtime_comparability": runtime_comparability})
+    return request.model_copy(update={"pair_members": pair_members, "status": "validated", "runtime_comparability": runtime_comparability})
 
 
-def _component_in_snapshot(snapshot, request: EvaluationRequest):
+def _component_in_snapshot(snapshot, request: EvaluationRequest, *, pair_members: list[str] | None = None):
+    if request.component_type == "skill_pair" and pair_members:
+        member_names = set(pair_members)
+        snapshot_skills = {
+            item.name
+            for item in snapshot.capability_registry
+            if item.component_type == "skill"
+        }
+        return request if member_names.issubset(snapshot_skills) else None
     return next(
         (
             item
@@ -260,6 +308,16 @@ class EvaluationRequestRepository:
         if request is None or request.project_id != project_id:
             return None
         return request
+
+    def bind_scope(self, request: EvaluationRequest, scope_id: str) -> EvaluationRequest:
+        if request.evaluation_scope_id not in {None, scope_id}:
+            raise EvaluationRequestValidationError(
+                "E_SCOPE_CONFLICT",
+                f"EvaluationRequest {request.request_id} is already bound to a different Evaluation Scope.",
+            )
+        bound = request.model_copy(update={"evaluation_scope_id": scope_id})
+        self.store.save(self._KIND, bound.request_id, bound.project_id, bound)
+        return bound
 
 
 __all__ = [

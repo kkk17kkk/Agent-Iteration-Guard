@@ -5,7 +5,9 @@ import pytest
 
 from agentguard.cli import main
 from agentguard.project_intelligence import (
+    AgentSnapshot,
     AgentManifest,
+    BaselineSnapshot,
     CapabilityRecord,
     ProjectIntelligenceError,
     ProjectIntelligenceRegistration,
@@ -164,6 +166,31 @@ def test_project_snapshot_history_produces_component_change_suggestions(tmp_path
     assert result.diff.runtime_changed is True
     assert len(result.intelligence.snapshot_history) == 2
     assert repository.register_snapshot(candidate).snapshot.snapshot_id == result.snapshot.snapshot_id
+
+
+def test_project_snapshot_history_rehydrates_legacy_baseline(tmp_path: Path) -> None:
+    repository = ProjectIntelligenceRepository(Store(str(tmp_path / "legacy-snapshots.db")))
+    initial = registration()
+    repository.register(initial)
+
+    store = repository.store
+    baseline = store.list(repository._BASELINE_KIND, BaselineSnapshot, initial.project_id)[0]
+    baseline_agent = store.list(repository._SNAPSHOT_KIND, AgentSnapshot, initial.project_id)[0]
+    with store.connect() as connection:
+        connection.execute(
+            "DELETE FROM records WHERE kind=? AND id=?",
+            (repository._SNAPSHOT_KIND, baseline_agent.snapshot_id),
+        )
+
+    candidate = initial.model_copy(update={"snapshot_version": "git:def456"})
+    result = repository.register_snapshot(candidate)
+
+    assert result.intelligence is not None
+    assert [item.version for item in result.intelligence.snapshot_history] == [
+        initial.baseline_version,
+        "git:def456",
+    ]
+    assert result.snapshot.parent_snapshot_id == baseline.snapshot_id
 
 
 def test_project_intelligence_cli_register_and_get_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -200,6 +200,10 @@ def _canonical_report_payload(payload: dict[str, object]) -> dict[str, object]:
             return None
         if key == "supplementary_evidence" and value == []:
             return None
+        if isinstance(value, float) and value.is_integer():
+            # Browser JSON serializers emit 0.0/1.0 as 0/1.  Canonicalize
+            # equivalent JSON numbers before hashing the report contents.
+            return int(value)
         if isinstance(value, dict):
             normalized: dict[str, object] = {}
             for item_key, item_value in value.items():

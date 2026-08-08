@@ -49,6 +49,14 @@ class InteractionRunnerError(ValueError):
     """Raised when a target or independent Oracle violates the protocol."""
 
 
+class TargetExecutionError(InteractionRunnerError):
+    """Raised when the target returns an invalid or unsuccessful trial result."""
+
+
+class OracleExecutionError(InteractionRunnerError):
+    """Raised when the independent Oracle cannot produce its contract."""
+
+
 class InteractionFixtureBinding(BaseModel):
     """Non-secret fixture metadata sent to the target on stdin."""
 
@@ -84,6 +92,9 @@ class TargetInteractionObservation(BaseModel):
     trace: list[dict[str, object]] = Field(default_factory=list, max_length=10000)
     observations: dict[str, object] = Field(default_factory=dict)
     metrics: dict[str, int | float | str] = Field(min_length=2)
+    provider_request_ids: list[str] = Field(default_factory=list, max_length=32)
+    usage: dict[str, int | float | str] = Field(default_factory=dict)
+    output_artifact_ref: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def validate_metrics(self) -> "TargetInteractionObservation":
@@ -94,6 +105,8 @@ class TargetInteractionObservation(BaseModel):
         for event in self.trace:
             if not isinstance(event.get("event_type"), str) or not str(event["event_type"]).strip():
                 raise ValueError("target observation trace events require event_type")
+        if any(not isinstance(item, str) or not item.strip() for item in self.provider_request_ids):
+            raise ValueError("target observation provider_request_ids must contain non-empty strings")
         return self
 
 
@@ -272,27 +285,27 @@ class SubprocessInteractionOracle:
                 shell=False,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
-            raise InteractionRunnerError(
+            raise OracleExecutionError(
                 f"Independent Oracle {self.verifier_id} failed: {type(error).__name__}"
             ) from error
         if len(result.stdout.encode("utf-8")) > self.max_output_bytes:
-            raise InteractionRunnerError("Independent Oracle output exceeded the approved limit.")
+            raise OracleExecutionError("Independent Oracle output exceeded the approved limit.")
         if result.returncode != 0:
-            raise InteractionRunnerError(
+            raise OracleExecutionError(
                 f"Independent Oracle {self.verifier_id} returned exit code {result.returncode}."
             )
         try:
             payload = json.loads(result.stdout)
         except json.JSONDecodeError as error:
-            raise InteractionRunnerError("Independent Oracle did not return JSON.") from error
+            raise OracleExecutionError("Independent Oracle did not return JSON.") from error
         try:
             oracle = IndependentOracleResult.model_validate(payload)
         except ValueError as error:
-            raise InteractionRunnerError("Independent Oracle returned an invalid result contract.") from error
+            raise OracleExecutionError("Independent Oracle returned an invalid result contract.") from error
         if oracle.verifier_id != self.verifier_id:
-            raise InteractionRunnerError("Independent Oracle verifier_id does not match its binding.")
+            raise OracleExecutionError("Independent Oracle verifier_id does not match its binding.")
         if oracle.oracle_type != self.oracle_type or oracle.oracle_version != self.oracle_version:
-            raise InteractionRunnerError("Independent Oracle type/version does not match its binding.")
+            raise OracleExecutionError("Independent Oracle type/version does not match its binding.")
         return oracle
 
 
@@ -310,9 +323,9 @@ class ManifestInteractionTrialRunner:
         fixture_provider: FilesystemScenarioFixtureProvider | None = None,
     ) -> None:
         if target.manifest.interaction is None:
-            raise InteractionRunnerError("Target manifest does not declare an interaction command.")
+            raise TargetExecutionError("Target manifest does not declare an interaction command.")
         if isinstance(oracle, SubprocessInteractionOracle) and tuple(oracle.command) == tuple(target.manifest.interaction.command):
-            raise InteractionRunnerError("Independent Oracle command must be separate from the target interaction command.")
+            raise TargetExecutionError("Independent Oracle command must be separate from the target interaction command.")
         self.target = target
         self.fixture_catalog = fixture_catalog
         self.fixture_root = fixture_root.resolve() if fixture_root else None
@@ -374,28 +387,28 @@ class ManifestInteractionTrialRunner:
                 timeout_seconds=interaction.timeout_seconds,
             )
         except TargetInfrastructureError as error:
-            raise InteractionRunnerError(str(error)) from error
+            raise
         if evidence.exit_code != interaction.required_exit_code:
-            raise InteractionRunnerError(
+            raise TargetExecutionError(
                 f"Target interaction command returned exit code {evidence.exit_code}; "
                 f"expected {interaction.required_exit_code}."
             )
         try:
             observation = TargetInteractionObservation.model_validate(evidence.stdout)
         except ValueError as error:
-            raise InteractionRunnerError("Target interaction command returned an invalid observation contract.") from error
+            raise TargetExecutionError("Target interaction command returned an invalid observation contract.") from error
 
         trace = observation.trace
         scenario_trace = scenario.input_contract.trace_for_condition(condition_kind)
         if self.target.manifest.trace:
             if trace_path is None:
-                raise InteractionRunnerError("Target trace contract did not receive a trace path.")
+                raise TargetExecutionError("Target trace contract did not receive a trace path.")
             try:
                 target_trace = self.target.read_trace(trace_path, scenario_trace=scenario_trace)
             except TargetInfrastructureError as error:
-                raise InteractionRunnerError(str(error)) from error
+                raise
             if target_trace.verification.get("status") != "passed":
-                raise InteractionRunnerError("Target trace did not satisfy its declared contract.")
+                raise TargetExecutionError("Target trace did not satisfy its declared contract.")
             trace = list(target_trace.events)
         violations = verify_scenario_trace_contract(
             scenario.input_contract,
@@ -403,9 +416,9 @@ class ManifestInteractionTrialRunner:
             condition_kind=condition_kind,
         )
         if violations:
-            raise InteractionRunnerError("Scenario trace contract failed: " + "; ".join(violations))
+            raise TargetExecutionError("Scenario trace contract failed: " + "; ".join(violations))
         if not trace:
-            raise InteractionRunnerError("Target interaction must provide a non-empty structured trace.")
+            raise TargetExecutionError("Target interaction must provide a non-empty structured trace.")
 
         metrics = dict(observation.metrics)
         metrics["latency_ms"] = round(evidence.duration_seconds * 1000, 3)
@@ -434,6 +447,9 @@ class ManifestInteractionTrialRunner:
             metrics=metrics,
             oracle=oracle.model_dump(mode="json"),
             evidence_refs=refs,
+            provider_request_ids=list(persisted_observation.provider_request_ids),
+            usage=dict(persisted_observation.usage),
+            output_artifact_ref=persisted_observation.output_artifact_ref,
         )
 
     def _materialize_fixtures(
@@ -477,6 +493,8 @@ __all__ = [
     "InteractionOracle",
     "InteractionRequest",
     "InteractionRunnerError",
+    "OracleExecutionError",
+    "TargetExecutionError",
     "ManifestInteractionTrialRunner",
     "OracleAssertion",
     "OracleType",

@@ -82,7 +82,10 @@ class RuntimeProfile(BaseModel):
     schema_version: Literal["aig.runtime-profile.v1"] = "aig.runtime-profile.v1"
     profile_id: str = Field(default="", min_length=0)
     project_id: str = Field(min_length=1)
-    entrypoint: str = Field(min_length=1)
+    # Discovery is allowed to establish a project snapshot before a safe
+    # runtime command is known.  A reviewed Execution Configuration, not this
+    # preliminary profile, is the Readiness/Run contract.
+    entrypoint: str | None = Field(default=None, min_length=1)
     runtime_kind: RuntimeKind
     environment: dict[str, str] = Field(default_factory=dict)
     dependencies: list[str] = Field(default_factory=list)
@@ -348,14 +351,21 @@ class ProjectIntelligenceRepository:
                 "Project Intelligence records are incomplete or contain multiple baselines."
             )
         baseline = snapshots[0]
+        baseline_agent_snapshot = self._legacy_agent_snapshot(manifest, capabilities, runtime, baseline)
         if not agent_snapshots:
-            agent_snapshots = [self._legacy_agent_snapshot(manifest, capabilities, runtime, baseline)]
+            agent_snapshots = [baseline_agent_snapshot]
+        elif not any(item.version == baseline.baseline_version for item in agent_snapshots):
+            # Older databases persisted the immutable baseline separately and only
+            # started persisting AgentSnapshot records for later candidates. Keep
+            # the public history contiguous so scope freezing can resolve both
+            # versions without requiring a data migration.
+            agent_snapshots = [baseline_agent_snapshot, *agent_snapshots]
         latest = agent_snapshots[-1]
         latest_diff = next(
             (item for item in diffs if item.candidate_snapshot_id == latest.snapshot_id),
             None,
         )
-        return self._aggregate(
+        intelligence = self._aggregate(
             latest.agent_manifest,
             latest.capability_registry,
             latest.runtime_profile,
@@ -363,6 +373,16 @@ class ProjectIntelligenceRepository:
             agent_snapshots,
             latest_diff,
         )
+        persistent_pairs = [item for item in capabilities if item.component_type == "skill_pair"]
+        if persistent_pairs:
+            merged = { (item.component_type, item.name): item for item in intelligence.capability_registry }
+            merged.update({(item.component_type, item.name): item for item in persistent_pairs})
+            intelligence = intelligence.model_copy(update={"capability_registry": sorted(merged.values(), key=lambda item: (item.component_type, item.name))})
+        return intelligence
+
+    def list(self) -> list[ProjectIntelligence]:
+        project_ids = sorted({item.project_id for item in self.store.list(self._MANIFEST_KIND, AgentManifest)})
+        return [intelligence for project_id in project_ids if (intelligence := self.get(project_id)) is not None]
 
     def _normalize(
         self,

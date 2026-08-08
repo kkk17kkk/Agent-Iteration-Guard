@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -19,7 +19,16 @@ from .evaluation_planning import EvaluationPlan, EvaluationScenario, scenario_ha
 from .scenario_contracts import EvaluationReadinessResult
 
 
-ConditionKind = Literal["a_only", "b_only", "combined"]
+EvaluationConditionKind = Literal[
+    "a_only",
+    "b_only",
+    "combined",
+    "baseline",
+    "removal",
+    "replacement",
+]
+ConditionKind = EvaluationConditionKind
+PAIR_INTERACTION_CONDITIONS: tuple[ConditionKind, ...] = ("a_only", "b_only", "combined")
 
 
 class InteractionExecutionError(ValueError):
@@ -41,6 +50,9 @@ class InteractionTrialResult(BaseModel):
     metrics: dict[str, int | float | str] = Field(min_length=2)
     oracle: dict[str, object]
     evidence_refs: list[str] = Field(min_length=1, max_length=100)
+    provider_request_ids: list[str] = Field(default_factory=list, max_length=32)
+    usage: dict[str, int | float | str] = Field(default_factory=dict)
+    output_artifact_ref: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def validate_evidence_shape(self) -> "InteractionTrialResult":
@@ -83,6 +95,7 @@ class InteractionMatrixArtifact(BaseModel):
     evaluation_id: str = Field(min_length=1)
     evaluation_type: str = Field(min_length=1)
     interaction_name: str = Field(min_length=1)
+    scope_id: str | None = Field(default=None, min_length=16)
     evaluation_plan_id: str = Field(min_length=1)
     scenario_readiness: EvaluationReadinessResult
     interaction_hypothesis: dict[str, object] | None = None
@@ -94,17 +107,40 @@ class InteractionMatrixArtifact(BaseModel):
     artifact_manifest_hash: str = Field(min_length=16)
 
 
-def execute_interaction_matrix(
+class EvaluationMatrixArtifact(BaseModel):
+    """Type-neutral scenario matrix artifact used by Skill and future Tool runs."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal["aig.evaluation-matrix-artifact.v1"] = "aig.evaluation-matrix-artifact.v1"
+    evaluation_id: str = Field(min_length=1)
+    evaluation_type: str = Field(min_length=1)
+    evaluation_name: str = Field(min_length=1)
+    scope_id: str | None = Field(default=None, min_length=16)
+    evaluation_plan_id: str = Field(min_length=1)
+    scenario_readiness: EvaluationReadinessResult
+    interaction_hypothesis: dict[str, object] | None = None
+    scenarios: list[dict[str, object]] = Field(min_length=1, max_length=200)
+    condition_kinds: list[str] = Field(min_length=1, max_length=8)
+    conditions: list[dict[str, object]] = Field(min_length=1, max_length=200)
+    metrics: dict[str, int | float | str]
+    evidence_refs: list[str] = Field(min_length=1)
+    integrity: dict[str, object]
+    artifact_manifest_hash: str = Field(min_length=16)
+
+
+def execute_evaluation_matrix(
     plan: EvaluationPlan,
     *,
-    interaction_name: str,
+    evaluation_name: str,
     evaluation_id: str,
     readiness: EvaluationReadinessResult,
     runner: InteractionTrialRunner,
+    condition_kinds: Sequence[EvaluationConditionKind],
     run_root: Path,
     output_path: Path | None = None,
-) -> InteractionMatrixArtifact:
-    """Run exactly every planned scenario under A-only, B-only, and combined."""
+) -> EvaluationMatrixArtifact:
+    """Run every frozen scenario under an explicit condition set."""
 
     if readiness.evaluation_plan_id != plan.plan_id:
         raise InteractionExecutionError("Scenario Readiness result does not match the Evaluation Plan.")
@@ -113,18 +149,25 @@ def execute_interaction_matrix(
             "Interaction matrix cannot start because Scenario Readiness is blocked: "
             + "; ".join(readiness.blocking_reasons)
         )
-    _validate_frozen_interaction_plan(plan)
+    condition_kinds = tuple(condition_kinds)
+    if not condition_kinds or len(set(condition_kinds)) != len(condition_kinds):
+        raise InteractionExecutionError("Evaluation matrix requires a non-empty unique condition set.")
+    if any(not isinstance(condition, str) or not condition.strip() for condition in condition_kinds):
+        raise InteractionExecutionError("Evaluation matrix conditions must be non-empty strings.")
+    _validate_frozen_evaluation_plan(plan)
+    if plan.evaluation_type in {"skill_pair_evaluation", "tool_skill_interaction"}:
+        _validate_frozen_interaction_plan(plan)
     run_root = run_root.resolve()
     run_root.mkdir(parents=True, exist_ok=True)
     conditions: list[dict[str, object]] = []
     expected_keys = {
         (scenario.scenario_id, condition_kind)
         for scenario in plan.scenarios
-        for condition_kind in ("a_only", "b_only", "combined")
+        for condition_kind in condition_kinds
     }
 
     for scenario in plan.scenarios:
-        for condition_kind in ("a_only", "b_only", "combined"):
+        for condition_kind in condition_kinds:
             trial_root = run_root / scenario.scenario_id / condition_kind
             trial_root.mkdir(parents=True, exist_ok=True)
             try:
@@ -170,10 +213,11 @@ def execute_interaction_matrix(
         if ref not in evidence_refs
     )
     unsigned = {
-        "schema_version": "aig.interaction-matrix-artifact.v1",
+        "schema_version": "aig.evaluation-matrix-artifact.v1",
         "evaluation_id": evaluation_id,
         "evaluation_type": plan.evaluation_type,
-        "interaction_name": interaction_name,
+        "evaluation_name": evaluation_name,
+        "scope_id": plan.evaluation_scope.scope_id if plan.evaluation_scope else None,
         "evaluation_plan_id": plan.plan_id,
         "scenario_readiness": readiness.model_dump(mode="json"),
         "interaction_hypothesis": (
@@ -182,6 +226,7 @@ def execute_interaction_matrix(
             else None
         ),
         "scenarios": [scenario.model_dump(mode="json") for scenario in plan.scenarios],
+        "condition_kinds": list(condition_kinds),
         "conditions": conditions,
         "metrics": {
             "scenario_count": len(plan.scenarios),
@@ -201,7 +246,7 @@ def execute_interaction_matrix(
     manifest_hash = "sha256:" + hashlib.sha256(
         json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    artifact = InteractionMatrixArtifact(
+    artifact = EvaluationMatrixArtifact(
         **unsigned,
         artifact_manifest_hash=manifest_hash,
     )
@@ -210,6 +255,72 @@ def execute_interaction_matrix(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(artifact.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return artifact
+
+
+def execute_interaction_matrix(
+    plan: EvaluationPlan,
+    *,
+    interaction_name: str,
+    evaluation_id: str,
+    readiness: EvaluationReadinessResult,
+    runner: InteractionTrialRunner,
+    run_root: Path,
+    output_path: Path | None = None,
+) -> InteractionMatrixArtifact:
+    """Run the Pair matrix through the common condition-set executor."""
+
+    generic = execute_evaluation_matrix(
+        plan,
+        evaluation_name=interaction_name,
+        evaluation_id=evaluation_id,
+        readiness=readiness,
+        runner=runner,
+        condition_kinds=PAIR_INTERACTION_CONDITIONS,
+        run_root=run_root,
+    )
+    unsigned = {
+        "schema_version": "aig.interaction-matrix-artifact.v1",
+        "evaluation_id": generic.evaluation_id,
+        "evaluation_type": generic.evaluation_type,
+        "interaction_name": generic.evaluation_name,
+        "scope_id": generic.scope_id,
+        "evaluation_plan_id": generic.evaluation_plan_id,
+        "scenario_readiness": generic.scenario_readiness.model_dump(mode="json"),
+        "interaction_hypothesis": generic.interaction_hypothesis,
+        "scenarios": generic.scenarios,
+        "conditions": generic.conditions,
+        "metrics": generic.metrics,
+        "evidence_refs": generic.evidence_refs,
+        "integrity": generic.integrity,
+    }
+    manifest_hash = "sha256:" + hashlib.sha256(
+        json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    artifact = InteractionMatrixArtifact(**unsigned, artifact_manifest_hash=manifest_hash)
+    if output_path is not None:
+        output_path = output_path.resolve()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(artifact.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return artifact
+
+
+def _validate_frozen_evaluation_plan(plan: EvaluationPlan) -> None:
+    """Require every generated scenario to remain bound to its frozen content."""
+
+    for scenario in plan.scenarios:
+        if not scenario.scenario_hash or scenario_hash_for(scenario.model_dump(mode="json")) != scenario.scenario_hash:
+            raise InteractionExecutionError(
+                f"Evaluation scenario is not frozen to its content: {scenario.scenario_id}."
+            )
+        provenance = scenario.scenario_provenance
+        if provenance is None or provenance.frozen is not True:
+            raise InteractionExecutionError(
+                f"Evaluation scenario has no frozen provenance: {scenario.scenario_id}."
+            )
+        if provenance.scenario_hash != scenario.scenario_hash:
+            raise InteractionExecutionError(
+                f"Evaluation scenario provenance hash mismatch: {scenario.scenario_id}."
+            )
 
 
 def _validate_frozen_interaction_plan(plan: EvaluationPlan) -> None:
@@ -244,9 +355,13 @@ def _validate_frozen_interaction_plan(plan: EvaluationPlan) -> None:
 
 __all__ = [
     "ConditionKind",
+    "EvaluationConditionKind",
     "InteractionExecutionError",
     "InteractionMatrixArtifact",
+    "EvaluationMatrixArtifact",
     "InteractionTrialResult",
     "InteractionTrialRunner",
+    "PAIR_INTERACTION_CONDITIONS",
+    "execute_evaluation_matrix",
     "execute_interaction_matrix",
 ]

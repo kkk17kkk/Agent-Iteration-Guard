@@ -9,6 +9,7 @@ description = "Local-first regression harness for Tool and Skill agents"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.119,<1",
+  "python-multipart>=0.0.9,<1",
   "uvicorn[standard]>=0.34,<0.35",
   "pydantic>=2.10,<3",
   "langgraph>=0.2.60,<0.3",

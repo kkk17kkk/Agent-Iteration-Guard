@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -27,11 +28,23 @@ from .evaluation_execution import (
     build_evaluation_execution_mapping,
     parse_execution_scenario_mapping,
 )
+from .evaluation_execution_config import EvaluationExecutionConfiguration, metadata as execution_configuration_metadata
 from .change_adapters import build_v1_evaluation_adapter_layer
-from .evaluation_planning import EvaluationPlan, build_evolution_evaluation_plan
+from .evaluation_planning import EvaluationPlan, bind_evaluation_scope, build_evolution_evaluation_plan
+from .evaluation_dispatch import build_evaluation_plan_for_request
+from .evaluation_orchestration import (
+    adapt_evaluation_run_evidence,
+    build_product_evaluation_report,
+    execute_evaluation_run,
+    planned_trial_count,
+)
+from .evaluation_run import EvaluationRun, content_ref
+from .evaluation_report import EvaluationReportRecord
+from .evaluation_scope import freeze_evaluation_scope
 from .evaluation_scenario_generator import LLMEvaluationScenarioGenerator, ScenarioEvidenceRequirementsGenerator
 from .interaction_matrix import execute_interaction_matrix
 from .interaction_runner import ManifestInteractionTrialRunner, SubprocessInteractionOracle
+from .interaction_runner import InteractionRunnerError, OracleExecutionError, TargetExecutionError
 from .product_evaluation_analyst import ProductAnalystInput, ProductEvaluationAnalyst
 from .product_evaluation_report import assemble_product_evaluation_report
 from .product_evaluation_report import ProductEvaluationReport
@@ -48,6 +61,7 @@ from .semantic_reporting import (
     build_skill_ablation_analyst_input,
     product_definition_from_skill_artifact,
 )
+from .skill_pair_evaluation import build_skill_pair_evaluation_change, build_skill_pair_evaluation_target, skill_pair_experiment_ids_by_condition
 from .skill_ablation_adapter import (
     build_skill_ablation_change,
     build_skill_evaluation_target,
@@ -57,6 +71,20 @@ from .provider_runtime import ProviderRuntimeError, build_control_plane_client
 from .service import AssistantInputError, ProductNotFoundError, Service
 from .target_onboarding import TargetEnvironmentCache, initialize_target_manifest, inspect_target_manifest, target_golden_path
 from .target_runtime import TargetRuntimeAdapter
+from .targets import TargetInfrastructureError
+
+
+def _run_failure_classification(error: Exception) -> str:
+    cause = error
+    while cause.__cause__ is not None:
+        cause = cause.__cause__
+    if isinstance(cause, OracleExecutionError):
+        return "oracle_failure"
+    if isinstance(cause, (TargetExecutionError, InteractionRunnerError)):
+        return "target_failure"
+    if isinstance(cause, TargetInfrastructureError):
+        return "infrastructure_failure"
+    return "validation_failure"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -103,18 +131,51 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation_get = evaluation.add_parser("get")
     evaluation_get.add_argument("project_id")
     evaluation_get.add_argument("request_id")
+    evaluation_execution_config = evaluation.add_parser("execution-config").add_subparsers(
+        dest="execution_config_subcommand", required=True
+    )
+    execution_config_register = evaluation_execution_config.add_parser("register")
+    execution_config_register.add_argument("--project-id", required=True)
+    execution_config_register.add_argument("--input", required=True, help="Server-owned target and Oracle contract JSON.")
+    execution_config_list = evaluation_execution_config.add_parser("list")
+    execution_config_list.add_argument("--project-id", required=True)
     evaluation_plan = evaluation.add_parser("plan")
     evaluation_plan.add_argument("--project-id", required=True)
     evaluation_plan.add_argument("--evaluation-request-id", required=True)
     evaluation_plan.add_argument("--binding", required=True, help="Non-secret control_plane ProviderBinding JSON.")
     evaluation_plan.add_argument("--product-definition", required=True)
-    evaluation_plan.add_argument("--evaluation-name", default="Skill Pair Evaluation")
+    evaluation_plan.add_argument("--evaluation-name", default="Evaluation")
     evaluation_plan.add_argument("--knowledge-pattern")
+    evaluation_plan.add_argument("--target-binding", help="Optional target-native ProviderBinding JSON frozen into the Scope.")
     evaluation_plan.add_argument("--output")
     evaluation_readiness = evaluation.add_parser("readiness")
     evaluation_readiness.add_argument("--project-id", required=True)
     evaluation_readiness.add_argument("--plan", required=True, help="Persisted EvaluationPlan JSON.")
     evaluation_readiness.add_argument("--fixture-root", help="Root for project-declared file and directory fixtures.")
+    evaluation_run = evaluation.add_parser("run")
+    evaluation_run.add_argument("--project-id", required=True)
+    evaluation_run.add_argument("--plan", required=True, help="Persisted frozen EvaluationPlan JSON.")
+    evaluation_run.add_argument("--manifest", required=True, help="Target manifest declaring the interaction command.")
+    evaluation_run.add_argument("--cache-root", required=True)
+    evaluation_run.add_argument("--fixture-root")
+    evaluation_run.add_argument("--run-root", required=True)
+    evaluation_run.add_argument("--evaluation-id")
+    evaluation_run.add_argument("--oracle-command-part", action="append", required=True)
+    evaluation_run.add_argument("--oracle-id", required=True)
+    evaluation_run.add_argument("--oracle-type", choices=["rule_based", "frozen_lookup", "structured_state"], default="rule_based")
+    evaluation_run.add_argument("--oracle-version", default="1.0")
+    evaluation_run.add_argument("--oracle-cwd")
+    evaluation_run.add_argument("--target-binding", help="Optional target-native ProviderBinding JSON.")
+    evaluation_run.add_argument("--output", help="Optional completed EvaluationRun JSON output.")
+    evaluation_evidence = evaluation.add_parser("evidence")
+    evaluation_evidence.add_argument("--project-id", required=True)
+    evaluation_evidence.add_argument("--run-id", required=True)
+    evaluation_report = evaluation.add_parser("report")
+    evaluation_report.add_argument("--project-id", required=True)
+    evaluation_report.add_argument("--run-id", required=True)
+    evaluation_report.add_argument("--binding", required=True, help="Non-secret control_plane ProviderBinding JSON.")
+    evaluation_report.add_argument("--product-definition", required=True)
+    evaluation_report.add_argument("--output")
 
     memory = commands.add_parser("memory").add_subparsers(dest="subcommand", required=True)
     memory_list = memory.add_parser("list")
@@ -412,7 +473,12 @@ def _run_skill_pair_report(args, service: Service) -> dict[str, object]:
     if intelligence is None:
         raise ProductNotFoundError(args.project_name)
     product_definition = ProductDefinition.model_validate(_load_json_object(Path(args.product_definition)))
-    target = build_skill_pair_evaluation_target(intelligence, request.component_name, product_definition)
+    target = build_skill_pair_evaluation_target(
+        intelligence,
+        request.component_name,
+        product_definition,
+        request.pair_members,
+    )
     target = target.model_copy(update={
         "component_pattern": args.knowledge_pattern or target.component_type,
         "evaluation_knowledge": service.evaluation_knowledge_for_target(
@@ -654,30 +720,50 @@ def main(argv: list[str] | None = None) -> int:
             request = service.evaluation_request(args.project_id, args.evaluation_request_id)
             if request is None:
                 raise ProductNotFoundError(args.evaluation_request_id)
-            if request.component_type != "skill_pair":
-                raise ValueError("The current CLI plan entry point supports component_type=skill_pair.")
             product_definition = ProductDefinition.model_validate(_load_json_object(Path(args.product_definition)))
-            target = build_skill_pair_evaluation_target(intelligence, request.component_name, product_definition)
-            pattern = args.knowledge_pattern or target.component_type
-            target = target.model_copy(update={
-                "component_pattern": pattern,
-                "evaluation_knowledge": service.evaluation_knowledge_for_target(
-                    args.project_id, component_pattern=pattern, component_type=target.component_type
-                ),
-            })
-            change = build_skill_pair_evaluation_change(request, evaluation_name=args.evaluation_name)
+            pattern = args.knowledge_pattern or request.component_type
             binding = ProviderBinding.model_validate({
                 **_load_json_object(Path(args.binding)),
                 "project_id": args.project_id,
             })
             if binding.role != "control_plane":
                 raise ValueError("Evaluation Plan generation requires a control_plane ProviderBinding.")
-            plan = build_evolution_evaluation_plan(
-                target,
-                change,
+            target_binding = None
+            if args.target_binding:
+                target_payload = _load_json_object(Path(args.target_binding))
+                if not target_payload.get("provider_binding_id"):
+                    raise ValueError(
+                        "Target ProviderBinding JSON must declare provider_binding_id when it is frozen into Evaluation Scope."
+                    )
+                target_binding = ProviderBinding.model_validate({
+                    **target_payload,
+                    "project_id": args.project_id,
+                })
+                if target_binding.role != "sut_native":
+                    raise ValueError("Evaluation Scope target binding requires a sut_native ProviderBinding.")
+            plan = build_evaluation_plan_for_request(
+                request,
+                intelligence,
+                product_definition,
+                evaluation_name=args.evaluation_name,
                 scenario_generator=LLMEvaluationScenarioGenerator(_provider_from_binding(binding), binding),
                 evidence_requirements_generator=ScenarioEvidenceRequirementsGenerator(),
+                knowledge_pattern=pattern,
+                evaluation_knowledge=service.evaluation_knowledge_for_target(
+                    args.project_id, component_pattern=pattern, component_type=request.component_type
+                ),
             )
+            plan = bind_evaluation_scope(
+                plan,
+                freeze_evaluation_scope(
+                    request,
+                    intelligence,
+                    binding,
+                    planned_trial_count=planned_trial_count(plan),
+                    target_binding=target_binding,
+                ),
+            )
+            service.bind_evaluation_request_scope(request, plan.evaluation_scope.scope_id)
             service.save_evaluation_plan(plan)
             if args.output:
                 output_path = Path(args.output).resolve()
@@ -689,6 +775,26 @@ def main(argv: list[str] | None = None) -> int:
                 "scenario_categories": [item.category for item in plan.scenarios],
                 "scenario_hashes": [item.scenario_hash for item in plan.scenarios],
                 "output": str(Path(args.output).resolve()) if args.output else None,
+            }
+        elif args.command == "evaluation" and args.subcommand == "execution-config" and args.execution_config_subcommand == "register":
+            payload = _load_json_object(Path(args.input))
+            config = EvaluationExecutionConfiguration.model_validate({
+                **payload,
+                "project_id": args.project_id,
+            })
+            if config.target_provider_binding_id:
+                binding = service.provider_binding(args.project_id, config.target_provider_binding_id)
+                if binding.role != "sut_native":
+                    raise ValueError("Execution Configuration target binding must be sut_native.")
+            output = execution_configuration_metadata(
+                service.save_evaluation_execution_configuration(config)
+            ).model_dump(mode="json")
+        elif args.command == "evaluation" and args.subcommand == "execution-config" and args.execution_config_subcommand == "list":
+            output = {
+                "execution_configurations": [
+                    execution_configuration_metadata(item).model_dump(mode="json")
+                    for item in service.evaluation_execution_configurations(args.project_id)
+                ]
             }
         elif args.command == "evaluation" and args.subcommand == "readiness":
             intelligence = service.project_intelligence(args.project_id)
@@ -703,6 +809,175 @@ def main(argv: list[str] | None = None) -> int:
                 fixture_root=Path(args.fixture_root) if args.fixture_root else None,
             )
             output = readiness.model_dump(mode="json")
+        elif args.command == "evaluation" and args.subcommand == "run":
+            intelligence = service.project_intelligence(args.project_id)
+            if intelligence is None:
+                raise ProductNotFoundError(args.project_id)
+            plan = _load_evaluation_plan(Path(args.plan))
+            if plan.project_id != args.project_id:
+                raise ValueError("Evaluation Plan project_id does not match --project-id.")
+            if plan.evaluation_scope is None:
+                raise ValueError("Evaluation execution requires a frozen Evaluation Scope.")
+            request = service.evaluation_request(args.project_id, plan.change_id)
+            if request is None:
+                raise ProductNotFoundError(plan.change_id)
+            run = EvaluationRun(
+                evaluation_id=args.evaluation_id or f"evaluation_{plan.plan_id}",
+                project_id=args.project_id,
+                evaluation_request_id=request.request_id,
+                evaluation_plan_id=plan.plan_id,
+                scope_id=plan.evaluation_scope.scope_id,
+                status="running",
+            )
+            service.save_evaluation_run(run)
+            try:
+                target_binding = None
+                if args.target_binding:
+                    target_payload = _load_json_object(Path(args.target_binding))
+                    if not target_payload.get("provider_binding_id"):
+                        raise ValueError(
+                            "Target ProviderBinding JSON must declare provider_binding_id when it is frozen into Evaluation Scope."
+                        )
+                    target_binding = ProviderBinding.model_validate({
+                        **target_payload,
+                        "project_id": args.project_id,
+                    })
+                    if target_binding.role != "sut_native":
+                        raise ValueError("Target execution requires a sut_native ProviderBinding.")
+                if plan.evaluation_scope.target_provider_binding_id != (
+                    target_binding.provider_binding_id if target_binding else None
+                ):
+                    raise ValueError("Target ProviderBinding does not match the frozen Evaluation Scope.")
+                artifact = execute_evaluation_run(
+                    plan,
+                    intelligence,
+                    manifest_path=Path(args.manifest),
+                    cache_root=Path(args.cache_root),
+                    fixture_root=Path(args.fixture_root) if args.fixture_root else None,
+                    run_root=Path(args.run_root),
+                    evaluation_id=run.evaluation_id,
+                    oracle_command=tuple(args.oracle_command_part),
+                    oracle_id=args.oracle_id,
+                    oracle_type=args.oracle_type,
+                    oracle_version=args.oracle_version,
+                    oracle_cwd=Path(args.oracle_cwd) if args.oracle_cwd else None,
+                    target_binding=target_binding,
+                )
+                artifact_payload = artifact.model_dump(mode="json")
+                evidence = adapt_evaluation_run_evidence(
+                    plan,
+                    request,
+                    run_id=run.run_id,
+                    scope_id=run.scope_id,
+                    artifact=artifact_payload,
+                )
+                run = service.save_evaluation_run(run.model_copy(update={
+                    "status": "completed",
+                    "current_stage": "evidence",
+                    "readiness_ref": content_ref(artifact_payload["scenario_readiness"]),
+                    "matrix_artifact_ref": str(artifact_payload["artifact_manifest_hash"]),
+                    "evidence_bundle_ref": content_ref(evidence.model_dump(mode="json")),
+                    "artifact": artifact_payload,
+                    "evidence_refs": list(artifact.evidence_refs),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }))
+            except (ValueError, TargetInfrastructureError, OSError) as error:
+                service.save_evaluation_run(run.model_copy(update={
+                    "status": "failed",
+                    "current_stage": "failed",
+                    "failure_classification": _run_failure_classification(error),
+                    "error": str(error),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }))
+                raise
+            if args.output:
+                output_path = Path(args.output).resolve()
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_text(json.dumps(run.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            output = run.model_dump(mode="json")
+        elif args.command == "evaluation" and args.subcommand == "evidence":
+            run = service.evaluation_run(args.project_id, args.run_id)
+            if run is None:
+                raise ProductNotFoundError(args.run_id)
+            plan = service.evaluation_plan(args.project_id, run.evaluation_plan_id)
+            request = service.evaluation_request(args.project_id, run.evaluation_request_id)
+            if plan is None or request is None or run.artifact is None:
+                raise ValueError("Completed Evaluation Run, Plan, and Request are required for evidence.")
+            output = adapt_evaluation_run_evidence(
+                plan,
+                request,
+                run_id=run.run_id,
+                scope_id=run.scope_id,
+                artifact=run.artifact,
+            ).model_dump(mode="json")
+        elif args.command == "evaluation" and args.subcommand == "report":
+            run = service.evaluation_run(args.project_id, args.run_id)
+            if run is None:
+                raise ProductNotFoundError(args.run_id)
+            plan = service.evaluation_plan(args.project_id, run.evaluation_plan_id)
+            request = service.evaluation_request(args.project_id, run.evaluation_request_id)
+            if plan is None or request is None or run.artifact is None:
+                raise ValueError("Completed Evaluation Run, Plan, and Request are required for report.")
+            try:
+                binding = ProviderBinding.model_validate({
+                    **_load_json_object(Path(args.binding)),
+                    "project_id": args.project_id,
+                })
+                product_definition = ProductDefinition.model_validate(_load_json_object(Path(args.product_definition)))
+                evidence = adapt_evaluation_run_evidence(
+                    plan,
+                    request,
+                    run_id=run.run_id,
+                    scope_id=run.scope_id,
+                    artifact=run.artifact,
+                )
+                report = build_product_evaluation_report(
+                    plan,
+                    product_definition,
+                    evidence,
+                    provider=_provider_from_binding(binding),
+                    binding=binding,
+                    forbidden_tokens={run.run_id},
+                )
+                report_payload = report.model_dump(mode="json")
+                existing_report = service.evaluation_report(args.project_id, report.report_id)
+                if existing_report is None:
+                    service.save_evaluation_report(EvaluationReportRecord(
+                        report_id=report.report_id,
+                        project_id=args.project_id,
+                        run_id=run.run_id,
+                        evaluation_plan_id=plan.plan_id,
+                        scope_id=run.scope_id,
+                        report=report_payload,
+                    ))
+                elif (
+                    existing_report.run_id != run.run_id
+                    or existing_report.scope_id != run.scope_id
+                    or existing_report.report != report_payload
+                ):
+                    raise ValueError("Persisted Evaluation Report does not match this Evaluation Run.")
+                service.save_evaluation_run(run.model_copy(update={
+                    "current_stage": "completed",
+                    "report_ref": report.report_id,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }))
+                if args.output:
+                    output_path = Path(args.output).resolve()
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_path.write_text(json.dumps(report_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+                output = report_payload
+            except (AssistantInputError, EvolutionIntakeError, ProviderRuntimeError, ValueError) as error:
+                service.save_evaluation_run(run.model_copy(update={
+                    "status": "failed",
+                    "current_stage": "failed",
+                    "failure_classification": "report_failure",
+                    "error": str(error),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }))
+                raise
         elif args.command == "evaluation" and args.subcommand == "interaction-matrix":
             intelligence = service.project_intelligence(args.project_id)
             if intelligence is None:

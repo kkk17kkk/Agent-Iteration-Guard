@@ -137,6 +137,7 @@ def _bundle(
         evaluation_request_id=context.evaluation_request_id,
         baseline_version=context.baseline_version,
         candidate_version=context.candidate_version,
+        scope_id=context.scope_id,
         evaluation_plan_id=context.evaluation_plan_id,
         artifact_manifest_hash=_manifest(artifact),
         conditions=conditions,
@@ -224,10 +225,13 @@ class InteractionEvaluationAdapter:
     def adapt(self, artifact: Mapping[str, object], *, context: AdapterContext) -> ImmutableEvidenceBundle:
         if context.evaluation_type != self.evaluation_type:
             raise ValueError(f"{self.evaluation_type} Interaction adapter context type mismatch.")
+        if artifact.get("scope_id") != context.scope_id:
+            raise ValueError("Interaction artifact scope does not match the immutable adapter context.")
         interaction_name = artifact.get("interaction_name") or artifact.get("pair_name")
         if not isinstance(interaction_name, str) or not interaction_name.strip():
             raise ValueError("Interaction artifact requires interaction_name.")
-        if context.component_name is not None and interaction_name != context.component_name:
+        allowed_names = {context.evaluation_name, context.component_name}
+        if context.component_name is not None and interaction_name not in allowed_names:
             raise ValueError("Interaction artifact does not match the requested component.")
         if "scenarios" in artifact:
             return self._adapt_scenario_matrix(artifact, context=context, interaction_name=interaction_name)

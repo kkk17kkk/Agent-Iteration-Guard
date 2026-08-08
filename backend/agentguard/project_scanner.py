@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -121,9 +122,13 @@ class ProjectScannerRepository:
 class ProjectScanner:
     """Scan local source metadata without importing or executing target code."""
 
-    scanner_ref = "agentguard.project-scanner:aig.project-scan.v1"
+    scanner_ref = "agentguard.project-scanner:aig.project-scan.v2"
     declaration_candidates = ("aig.project.json", "project-registration.json")
-    ignored_directories = {".git", ".venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache"}
+    ignored_directories = {
+        ".git", ".venv", "node_modules", "__pycache__", ".mypy_cache", ".pytest_cache",
+        ".agents", ".codex", ".claude", ".cursor",
+        "test", "tests", "__tests__", "fixtures",
+    }
 
     def scan(self, request: ProjectScanRequest) -> ProjectScanResult:
         if request.source_kind == "docker_image":
@@ -391,26 +396,7 @@ class ProjectScanner:
         source_fingerprint: str,
         findings: list[ScanFinding],
     ) -> ProjectIntelligenceRegistration | None:
-        component_roots = [("skill", "skills"), ("skill", "capabilities"), ("tool", "tools")]
-        capabilities: list[CapabilityRecord] = []
-        for component_type, directory_name in component_roots:
-            directory = source / directory_name
-            if not directory.is_dir():
-                continue
-            for path in sorted(directory.rglob("*")):
-                if not path.is_file() or path.suffix.lower() not in {".py", ".js", ".ts", ".mjs", ".cjs"}:
-                    continue
-                if path.stem == "__init__":
-                    continue
-                name = path.stem
-                capabilities.append(CapabilityRecord(
-                    project_id=request.project_id,
-                    component_type=component_type,
-                    name=name,
-                    responsibility=f"Static {component_type} implementation discovered at {path.relative_to(source).as_posix()}.",
-                    status="declared",
-                    source_refs=[f"scan:{source_fingerprint}", path.relative_to(source).as_posix()],
-                ))
+        capabilities = _discover_semantic_components(source, request.project_id, source_fingerprint)
         if not capabilities:
             return None
         names = [item.name for item in capabilities]
@@ -427,14 +413,13 @@ class ProjectScanner:
         runtime_kind = request.runtime_kind or _infer_runtime_kind(source)
         entrypoint = request.entrypoint or _infer_entrypoint(source, runtime_kind)
         if not entrypoint:
-            findings.append(ScanFinding(path="runtime", kind="warning", detail="components found but runtime entrypoint is unresolved"))
-            return None
+            findings.append(ScanFinding(path="runtime", kind="warning", detail="components found but runtime entrypoint is unresolved; review it before readiness/run"))
         runtime = {
             "project_id": request.project_id,
             "entrypoint": entrypoint,
             "runtime_kind": runtime_kind,
             "dependencies": _dependency_files(source) or ["source metadata only"],
-            "execution_requirements": ["source fingerprint is pinned by the scanner", "runtime entrypoint is declared before evaluation"],
+            "execution_requirements": ["source fingerprint is pinned by the scanner", "runtime entrypoint must be reviewed before readiness/run"],
             "source_ref": source_ref,
             "source_kind": request.source_kind,
             "source_fingerprint": source_fingerprint,
@@ -495,6 +480,137 @@ class ProjectScanner:
         )
 
 
+_SOURCE_SUFFIXES = {".py", ".js", ".ts", ".mjs", ".cjs", ".jsx", ".tsx"}
+_SKILL_DIRECTORIES = {"skill", "skills", "capability", "capabilities", "runtime_skills"}
+_TOOL_DIRECTORIES = {"tool", "tools"}
+_SKILL_CLASS = re.compile(r"\bclass\s+(?P<name>[A-Za-z_]\w*Skill)\s*\([^\n)]*\b(?:Base)?Skill\b", re.MULTILINE)
+_TOOL_DECORATOR = re.compile(r"@(?:[\w.]+\.)?(?:tool|register_tool)\b", re.IGNORECASE)
+_FUNCTION = re.compile(r"(?:async\s+)?def\s+(?P<name>[A-Za-z_]\w*)\s*\(|(?:export\s+)?(?:async\s+)?function\s+(?P<name_js>[A-Za-z_$]\w*)\s*\(")
+_DECLARED_NAME = re.compile(r"(?m)^\s*(?:name|skill_name|tool_name)\s*[:=]\s*[\"'](?P<name>[^\"']+)[\"']")
+_FRONTMATTER_DESCRIPTION = re.compile(r"(?mi)^description\s*:\s*[\"']?(?P<description>[^\n\"']+)")
+
+
+def _discover_semantic_components(source: Path, project_id: str, source_fingerprint: str) -> list[CapabilityRecord]:
+    """Discover explicit, runtime-facing component conventions without executing code.
+
+    The scanner intentionally uses evidence local to the imported repository:
+    skill documents, runtime Skill classes, conventional component directories,
+    and tool decorators.  It does not consult a previous AIG registry or infer
+    components from a project name.
+    """
+
+    discovered: dict[tuple[str, str], CapabilityRecord] = {}
+    for path in sorted(source.rglob("*")):
+        if not path.is_file() or any(part in ProjectScanner.ignored_directories for part in path.parts):
+            continue
+        relative = path.relative_to(source).as_posix()
+        if path.name == "SKILL.md":
+            name = path.parent.name
+            _record_component(
+                discovered,
+                project_id=project_id,
+                component_type="skill",
+                name=name,
+                responsibility=_documented_responsibility(path, f"Skill declared by {relative}."),
+                source_ref=relative,
+                source_fingerprint=source_fingerprint,
+            )
+            continue
+        if path.suffix.lower() not in _SOURCE_SUFFIXES or path.stem in {"__init__", "base"}:
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        parent_name = path.parent.name.lower()
+        skill_class = _SKILL_CLASS.search(text)
+        if parent_name in _SKILL_DIRECTORIES or skill_class:
+            name = _declared_component_name(text) or _name_from_skill_class(skill_class) or path.stem
+            _record_component(
+                discovered,
+                project_id=project_id,
+                component_type="skill",
+                name=name,
+                responsibility=_source_responsibility(text, f"Runtime Skill implementation discovered at {relative}."),
+                source_ref=relative,
+                source_fingerprint=source_fingerprint,
+            )
+        if parent_name in _TOOL_DIRECTORIES or _TOOL_DECORATOR.search(text):
+            name = _declared_component_name(text) or _decorated_function_name(text) or path.stem
+            _record_component(
+                discovered,
+                project_id=project_id,
+                component_type="tool",
+                name=name,
+                responsibility=_source_responsibility(text, f"Tool implementation discovered at {relative}."),
+                source_ref=relative,
+                source_fingerprint=source_fingerprint,
+            )
+    return sorted(discovered.values(), key=lambda item: (item.component_type, item.name))
+
+
+def _record_component(
+    discovered: dict[tuple[str, str], CapabilityRecord],
+    *,
+    project_id: str,
+    component_type: Literal["skill", "tool"],
+    name: str,
+    responsibility: str,
+    source_ref: str,
+    source_fingerprint: str,
+) -> None:
+    normalized_name = name.strip()
+    if not normalized_name:
+        return
+    key = (component_type, normalized_name)
+    existing = discovered.get(key)
+    refs = [f"scan:{source_fingerprint}", source_ref]
+    if existing is not None:
+        discovered[key] = existing.model_copy(update={"source_refs": list(dict.fromkeys([*existing.source_refs, *refs]))})
+        return
+    discovered[key] = CapabilityRecord(
+        project_id=project_id,
+        component_type=component_type,
+        name=normalized_name,
+        responsibility=responsibility[:500],
+        status="declared",
+        source_refs=refs,
+    )
+
+
+def _declared_component_name(text: str) -> str | None:
+    match = _DECLARED_NAME.search(text)
+    return match.group("name").strip() if match else None
+
+
+def _name_from_skill_class(match: re.Match[str] | None) -> str | None:
+    if match is None:
+        return None
+    name = match.group("name")
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name.removesuffix("Skill")).lower()
+
+
+def _decorated_function_name(text: str) -> str | None:
+    decorator = _TOOL_DECORATOR.search(text)
+    if decorator is None:
+        return None
+    function = _FUNCTION.search(text, decorator.end())
+    return (function.group("name") or function.group("name_js")) if function else None
+
+
+def _documented_responsibility(path: Path, fallback: str) -> str:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    frontmatter = _FRONTMATTER_DESCRIPTION.search(text)
+    if frontmatter:
+        return frontmatter.group("description").strip()
+    return _source_responsibility(text, fallback)
+
+
+def _source_responsibility(text: str, fallback: str) -> str:
+    for line in text.splitlines():
+        candidate = line.strip().strip('"\'')
+        if candidate and not candidate.startswith(("#", "//", "---", "import ", "from ")):
+            return candidate[:500]
+    return fallback
+
+
 def _tree_fingerprint(root: Path, ignored: set[str]) -> str:
     entries: list[dict[str, str | int]] = []
     for path in sorted(root.rglob("*")):
@@ -549,7 +665,10 @@ def _infer_entrypoint(root: Path, runtime_kind: RuntimeKind) -> str | None:
         payload = json.loads(package_json.read_text(encoding="utf-8"))
         start = (payload.get("scripts") or {}).get("start") if isinstance(payload, dict) else None
         return str(start) if start else None
-    for candidate in ("main.py", "app.py", "backend/main.py", "src/main.py", "index.js", "src/index.js"):
+    for candidate in (
+        "main.py", "app.py", "agent.py", "server.py", "app/main.py", "backend/main.py", "src/main.py",
+        "src/agent.py", "src/server.py", "index.js", "src/index.js", "main.ts", "src/main.ts",
+    ):
         if (root / candidate).is_file():
             return f"python {candidate}" if candidate.endswith(".py") else f"node {candidate}"
     return None

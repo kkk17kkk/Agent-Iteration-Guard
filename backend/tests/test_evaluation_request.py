@@ -87,6 +87,48 @@ def test_evaluation_request_validates_against_project_intelligence(tmp_path) -> 
     assert validated.baseline_version == "git:baseline"
 
 
+def test_unregistered_skill_pair_validates_from_two_registered_skills(tmp_path) -> None:
+    intelligence = ProjectIntelligenceRepository(Store(str(tmp_path / "temporary-pair.db"))).register(_registration())
+
+    validated = validate_evaluation_request(
+        EvaluationRequest(
+            project_id="generic-agent",
+            component_type="skill_pair",
+            component_name="result_delivery__task_planning",
+            pair_members=["task_planning", "result_delivery"],
+            change_type="modify",
+            candidate_version="git:candidate",
+            baseline_version="git:baseline",
+        ),
+        intelligence,
+        candidate_available=True,
+    )
+
+    assert validated.status == "validated"
+    assert validated.pair_members == ["task_planning", "result_delivery"]
+
+
+def test_first_import_can_create_a_temporary_pair_evaluation_from_its_frozen_snapshot(tmp_path) -> None:
+    intelligence = ProjectIntelligenceRepository(Store(str(tmp_path / "first-import.db"))).register(_registration())
+
+    validated = validate_evaluation_request(
+        EvaluationRequest(
+            project_id="generic-agent",
+            component_type="skill_pair",
+            component_name="result_delivery__task_planning",
+            pair_members=["task_planning", "result_delivery"],
+            change_type="modify",
+            candidate_version="git:baseline",
+            baseline_version="git:baseline",
+        ),
+        intelligence,
+        candidate_available=False,
+    )
+
+    assert validated.status == "validated"
+    assert validated.runtime_comparability is None
+
+
 def test_evaluation_request_uses_snapshot_history_for_component_presence(tmp_path) -> None:
     repository = ProjectIntelligenceRepository(Store(str(tmp_path / "versioned.db")))
     repository.register(_registration())
@@ -220,6 +262,21 @@ def test_api_creates_and_rejects_evaluation_requests_at_the_creation_boundary(tm
     assert created.status_code == 200
     request_id = created.json()["request_id"]
     assert client.get(f"/api/v1/projects/generic-agent/evaluations/{request_id}").status_code == 200
+
+    temporary_pair = client.post(
+        "/api/v1/projects/generic-agent/evaluations",
+        json={
+            "component_type": "skill_pair",
+            "component_name": "result_delivery__task_planning",
+            "pair_members": ["task_planning", "result_delivery"],
+            "change_type": "modify",
+            "candidate_version": "git:candidate",
+            "baseline_version": "git:baseline",
+            "candidate_available": True,
+        },
+    )
+    assert temporary_pair.status_code == 200, temporary_pair.text
+    assert temporary_pair.json()["pair_members"] == ["task_planning", "result_delivery"]
 
     rejected = client.post(
         "/api/v1/projects/generic-agent/evaluations",

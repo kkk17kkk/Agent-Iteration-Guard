@@ -34,6 +34,7 @@ class AdapterContext(BaseModel):
     evaluation_request_id: str | None = None
     baseline_version: str | None = None
     candidate_version: str | None = None
+    scope_id: str | None = None
     product_definition_ref: str | None = None
     evaluation_plan_id: str | None = None
     experiment_ids_by_condition: dict[str, str] = Field(default_factory=dict)

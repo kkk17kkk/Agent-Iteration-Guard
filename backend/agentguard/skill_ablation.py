@@ -1,12 +1,93 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Literal
+
 from .domain import (
     SkillAblationEvidence,
     SkillAblationVerification,
     SkillContract,
     VerificationCriterion,
 )
+from .evaluation_planning import EvaluationPlan, EvaluationScenario
+from .interaction_matrix import (
+    EvaluationConditionKind,
+    EvaluationMatrixArtifact,
+    InteractionTrialResult,
+    InteractionTrialRunner,
+    execute_evaluation_matrix,
+)
+from .scenario_contracts import EvaluationReadinessResult
 from .store import Store
+
+
+SkillAblationCondition = Literal["baseline", "removal", "replacement"]
+SKILL_ABLATION_CONDITIONS: tuple[SkillAblationCondition, ...] = (
+    "baseline",
+    "removal",
+    "replacement",
+)
+
+
+class SkillAblationExecutionError(ValueError):
+    """Raised when one Skill condition lacks the required live evidence."""
+
+
+class SkillAblationTrialRunner:
+    """Add Skill-specific evidence admission to the common target runner."""
+
+    def __init__(self, delegate: InteractionTrialRunner) -> None:
+        self.delegate = delegate
+
+    def run(
+        self,
+        scenario: EvaluationScenario,
+        condition_kind: EvaluationConditionKind,
+        *,
+        trial_root: Path,
+    ) -> InteractionTrialResult:
+        if condition_kind not in SKILL_ABLATION_CONDITIONS:
+            raise SkillAblationExecutionError(
+                f"Skill Ablation runner only accepts {list(SKILL_ABLATION_CONDITIONS)}; got {condition_kind!r}."
+            )
+        result = self.delegate.run(scenario, condition_kind, trial_root=trial_root)
+        missing: list[str] = []
+        if not result.provider_request_ids:
+            missing.append("provider_request_ids")
+        if not result.usage:
+            missing.append("usage")
+        if not result.output_artifact_ref:
+            missing.append("output_artifact_ref")
+        if missing:
+            raise SkillAblationExecutionError(
+                f"Skill condition {condition_kind!r} did not produce required live evidence: {missing}."
+            )
+        return result
+
+
+def execute_skill_ablation_matrix(
+    plan: EvaluationPlan,
+    *,
+    evaluation_id: str,
+    readiness: EvaluationReadinessResult,
+    runner: InteractionTrialRunner,
+    run_root: Path,
+    output_path: Path | None = None,
+) -> EvaluationMatrixArtifact:
+    """Execute baseline/removal/replacement through the common matrix engine."""
+
+    if plan.component_type != "skill" or plan.evaluation_type != "skill_ablation":
+        raise SkillAblationExecutionError("Skill Ablation matrix requires a skill_ablation Evaluation Plan.")
+    return execute_evaluation_matrix(
+        plan,
+        evaluation_name=plan.evaluation_name,
+        evaluation_id=evaluation_id,
+        readiness=readiness,
+        runner=SkillAblationTrialRunner(runner),
+        condition_kinds=SKILL_ABLATION_CONDITIONS,
+        run_root=run_root,
+        output_path=output_path,
+    )
 
 
 class SkillAblationVerifier:
@@ -143,3 +224,14 @@ def record_skill_ablation(
         verification,
     )
     return verification
+
+
+__all__ = [
+    "SKILL_ABLATION_CONDITIONS",
+    "SkillAblationCondition",
+    "SkillAblationExecutionError",
+    "SkillAblationTrialRunner",
+    "SkillAblationVerifier",
+    "execute_skill_ablation_matrix",
+    "record_skill_ablation",
+]

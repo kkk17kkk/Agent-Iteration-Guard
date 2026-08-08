@@ -102,6 +102,7 @@ class ImmutableEvidenceBundle(BaseModel):
     evaluation_request_id: str | None = None
     baseline_version: str | None = None
     candidate_version: str | None = None
+    scope_id: str | None = Field(default=None, min_length=16)
     evaluation_plan_id: str | None = None
     artifact_manifest_hash: str = Field(min_length=16)
     conditions: list[EvidenceCondition] = Field(min_length=1)

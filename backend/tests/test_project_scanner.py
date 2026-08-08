@@ -171,6 +171,77 @@ def test_repository_scanner_registers_snapshot_and_runtime_preflight(tmp_path: P
     assert created.runtime_comparability.status == "comparable"
 
 
+def test_scanner_discovers_nested_runtime_skills_and_decorated_tools_without_aig_manifest(tmp_path: Path) -> None:
+    source = tmp_path / "unknown-agent"
+    runtime_skills = source / "app" / "runtime_skills"
+    runtime_skills.mkdir(parents=True)
+    (source / "app" / "main.py").write_text("print('agent')\n", encoding="utf-8")
+    (runtime_skills / "base.py").write_text("class BaseSkill: pass\n", encoding="utf-8")
+    (runtime_skills / "profile.py").write_text(
+        "class ProfileSkill(BaseSkill):\n    name = 'profile'\n",
+        encoding="utf-8",
+    )
+    tools = source / "app" / "orchestrator" / "tools"
+    tools.mkdir(parents=True)
+    (tools / "lookup.py").write_text(
+        "@tool\ndef lookup_profile(user_id):\n    return user_id\n",
+        encoding="utf-8",
+    )
+    tests = source / "tests" / "runtime_skills"
+    tests.mkdir(parents=True)
+    (tests / "test_fake.py").write_text(
+        "class FakeSkill(BaseSkill):\n    name = 'test_only'\n",
+        encoding="utf-8",
+    )
+
+    result = ProjectScanner().scan(ProjectScanRequest(
+        project_id="unknown-agent", source_kind="repository", source_ref=str(source), version="initial"
+    ))
+
+    assert result.scan.status == "ready"
+    assert result.registration is not None
+    assert result.registration.runtime_profile.entrypoint == "python app/main.py"
+    discovered = {(item.component_type, item.name) for item in result.registration.capabilities}
+    assert {("skill", "profile"), ("tool", "lookup_profile")} <= discovered
+    assert ("skill", "test_only") not in discovered
+
+
+def test_scanner_accepts_a_conventional_agent_py_entrypoint(tmp_path: Path) -> None:
+    source = tmp_path / "agent-py-project"
+    (source / "skills" / "brief").mkdir(parents=True)
+    (source / "agent.py").write_text("print('agent')\n", encoding="utf-8")
+    (source / "skills" / "brief" / "SKILL.md").write_text(
+        "---\ndescription: Produce a concise brief.\n---\n# Brief\n",
+        encoding="utf-8",
+    )
+
+    result = ProjectScanner().scan(ProjectScanRequest(
+        project_id="agent-py-project", source_kind="repository", source_ref=str(source), version="initial"
+    ))
+
+    assert result.scan.status == "ready"
+    assert result.registration is not None
+    assert result.registration.runtime_profile.entrypoint == "python agent.py"
+
+
+def test_scanner_registers_discovered_skills_when_entrypoint_needs_review(tmp_path: Path) -> None:
+    source = tmp_path / "skills-only-project"
+    (source / "skills" / "brief").mkdir(parents=True)
+    (source / "skills" / "brief" / "SKILL.md").write_text(
+        "---\ndescription: Produce a concise brief.\n---\n# Brief\n",
+        encoding="utf-8",
+    )
+
+    result = ProjectScanner().scan(ProjectScanRequest(
+        project_id="skills-only-project", source_kind="repository", source_ref=str(source), version="initial"
+    ))
+
+    assert result.scan.status == "ready"
+    assert result.registration is not None
+    assert result.registration.runtime_profile.entrypoint is None
+    assert any("entrypoint is unresolved" in finding.detail for finding in result.scan.findings)
+
+
 def test_api_scan_and_runtime_preflight_use_generic_scanner(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = _source(tmp_path / "api-agent")
     monkeypatch.setenv("AGENTGUARD_DB", str(tmp_path / "api.db"))
@@ -194,6 +265,41 @@ def test_api_scan_and_runtime_preflight_use_generic_scanner(tmp_path: Path, monk
     )
     assert preflight.status_code == 200
     assert preflight.json()["status"] == "passed"
+
+
+def test_api_accepts_a_source_upload_before_the_first_project_registration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    source = _source(tmp_path / "first-import-source")
+    archive = tmp_path / "first-import.zip"
+    with zipfile.ZipFile(archive, "w") as handle:
+        for path in source.rglob("*"):
+            if path.is_file():
+                handle.write(path, Path("agent") / path.relative_to(source))
+    monkeypatch.setenv("AGENTGUARD_DB", str(tmp_path / "first-import.db"))
+    monkeypatch.setenv("AGENTGUARD_UPLOAD_ROOT", str(tmp_path / "uploads"))
+    from agentguard.api import app
+
+    client = TestClient(app)
+    uploaded = client.post(
+        "/api/v1/projects/first-import/uploads",
+        files={"file": (archive.name, archive.read_bytes(), "application/zip")},
+        data={"source_kind": "package"},
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    source_ref = uploaded.json()["source_ref"]
+    scanned = client.post(
+        "/api/v1/projects/first-import/scan",
+        json={"source_kind": "package", "source_ref": source_ref, "version": "v1"},
+    )
+    assert scanned.status_code == 200, scanned.text
+    assert scanned.json()["scan"]["status"] == "ready"
+
+    rejected = client.post(
+        "/api/v1/projects/first-import/uploads",
+        files={"file": ("not-a-package.txt", b"not an archive", "text/plain")},
+        data={"source_kind": "package"},
+    )
+    assert rejected.status_code == 422
+    assert "Unsupported source package" in rejected.json()["detail"]
 
 
 def test_scanner_returns_unresolved_without_semantic_component_evidence(tmp_path: Path) -> None:
@@ -227,6 +333,33 @@ def test_package_archive_scanner_reads_project_neutral_declaration(tmp_path: Pat
     assert result.registration.runtime_profile.source_kind == "package"
 
 
+def test_repository_baseline_and_package_candidate_keep_runtime_comparable(tmp_path: Path) -> None:
+    source = _source(tmp_path / "lighttable")
+    archive = tmp_path / "lighttable.zip"
+    with zipfile.ZipFile(archive, "w") as handle:
+        for path in source.rglob("*"):
+            if path.is_file():
+                handle.write(path, Path("agent") / path.relative_to(source))
+
+    service = Service(str(tmp_path / "agentguard.db"))
+    service.scan_project(ProjectScanRequest(
+        project_id="lighttable-upload",
+        source_kind="repository",
+        source_ref=str(source),
+        version="baseline-v1",
+    ))
+    service.scan_project(ProjectScanRequest(
+        project_id="lighttable-upload",
+        source_kind="package",
+        source_ref=str(archive),
+        version="candidate-v2",
+    ))
+
+    comparison = service.runtime_comparability("lighttable-upload", "baseline-v1", "candidate-v2")
+    assert comparison.status == "comparable"
+    assert next(item for item in comparison.checks if item.name == "source_kind").status == "passed"
+
+
 def test_dockerfile_scan_is_ready_but_preflight_exposes_missing_image_digest(tmp_path: Path) -> None:
     source = _source(tmp_path / "docker-agent")
     (source / "Dockerfile").write_text("FROM python:3.11\nCMD [\"python\", \"main.py\"]\n", encoding="utf-8")
@@ -240,7 +373,7 @@ def test_dockerfile_scan_is_ready_but_preflight_exposes_missing_image_digest(tmp
     assert result.registration.runtime_profile.image_digest is None
 
 
-def test_runtime_change_blocks_evaluation_creation(tmp_path: Path) -> None:
+def test_runtime_change_is_recorded_on_request_and_deferred_to_readiness(tmp_path: Path) -> None:
     service = Service(str(tmp_path / "agentguard.db"))
     _source(tmp_path / "baseline")
     _source(tmp_path / "candidate", runtime_kind="package")
@@ -251,9 +384,10 @@ def test_runtime_change_blocks_evaluation_creation(tmp_path: Path) -> None:
         project_id="lighttable-scan", source_kind="repository", source_ref=str(tmp_path / "candidate"), version="candidate-v2"
     ))
 
-    with pytest.raises(EvaluationRequestValidationError) as error:
-        service.create_evaluation_request(_request(), candidate_available=True)
-    assert error.value.code == "E_RUNTIME_NOT_COMPARABLE"
+    created = service.create_evaluation_request(_request(), candidate_available=True)
+    assert created.status == "validated"
+    assert created.runtime_comparability is not None
+    assert created.runtime_comparability.status != "comparable"
 
 
 def test_lighttable_knowledge_hit_flows_through_planner_to_scenario_generator(tmp_path: Path) -> None:

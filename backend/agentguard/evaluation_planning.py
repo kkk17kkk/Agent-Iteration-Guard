@@ -17,6 +17,7 @@ from .evolution_types import (
     EvaluationType,
 )
 from .evaluation_memory import EvaluationKnowledge
+from .evaluation_scope import EvaluationScope
 from .interaction_evaluation import InteractionRelationshipProfile, PlanningCallMetadata
 from .scenario_contracts import FixtureCatalog, ScenarioInputContract
 
@@ -180,6 +181,7 @@ class EvaluationPlan(BaseModel):
     overall_success_criteria: list[str] = Field(min_length=1, max_length=8)
     interaction_hypothesis: InteractionRelationshipProfile | None = None
     evaluation_knowledge: list[EvaluationKnowledge] = Field(default_factory=list, max_length=8)
+    evaluation_scope: EvaluationScope | None = None
     status: str = Field(default="approved", min_length=1)
     planning_method: str = Field(default="eval_engineering", min_length=1)
 
@@ -282,6 +284,7 @@ def build_evolution_plan(
     registry: PlannerStrategyRegistry | None = None,
     scenario_generator=None,
     evidence_requirements_generator=None,
+    evaluation_scope: EvaluationScope | None = None,
 ) -> EvaluationPlan:
     """Build one generic Evaluation Plan through the registered strategy."""
 
@@ -303,7 +306,7 @@ def build_evolution_plan(
         evidence_requirements_generator=evidence_requirements_generator,
     )
     return EvaluationPlan(
-        plan_id=_plan_id(target, change, design),
+        plan_id=_plan_id(target, change, design, evaluation_scope),
         project_id=target.project_id,
         target_id=target.target_id,
         change_id=change.change_id,
@@ -325,6 +328,7 @@ def build_evolution_plan(
         overall_success_criteria=design.overall_success_criteria,
         interaction_hypothesis=design.interaction_hypothesis,
         evaluation_knowledge=list(target.evaluation_knowledge),
+        evaluation_scope=evaluation_scope,
     )
 
 
@@ -335,6 +339,7 @@ def build_evolution_evaluation_plan(
     registry: PlannerStrategyRegistry | None = None,
     scenario_generator=None,
     evidence_requirements_generator=None,
+    evaluation_scope: EvaluationScope | None = None,
 ) -> EvaluationPlan:
     """Canonical generic Planner entry point for all Agent Evolution changes."""
 
@@ -344,10 +349,30 @@ def build_evolution_evaluation_plan(
         registry=registry,
         scenario_generator=scenario_generator,
         evidence_requirements_generator=evidence_requirements_generator,
+        evaluation_scope=evaluation_scope,
     )
 
 
-def _plan_id(target: EvaluationTarget, change: EvaluationChange, design: EvaluationPlanDesign) -> str:
+def bind_evaluation_scope(plan: EvaluationPlan, scope: EvaluationScope) -> EvaluationPlan:
+    """Bind a frozen runtime Scope after scenarios have been generated once."""
+
+    if plan.project_id != scope.project_id or plan.change_id != scope.evaluation_request_id:
+        raise PlannerStrategyError("Evaluation Scope does not match the Evaluation Plan identity.")
+    payload = plan.model_dump(mode="json")
+    payload["evaluation_scope"] = scope.model_dump(mode="json")
+    payload.pop("plan_id", None)
+    plan_id = "plan_" + hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+    return plan.model_copy(update={"plan_id": plan_id, "evaluation_scope": scope})
+
+
+def _plan_id(
+    target: EvaluationTarget,
+    change: EvaluationChange,
+    design: EvaluationPlanDesign,
+    evaluation_scope: EvaluationScope | None = None,
+) -> str:
     raw = json.dumps(
         {
             "project_id": target.project_id,
@@ -356,6 +381,7 @@ def _plan_id(target: EvaluationTarget, change: EvaluationChange, design: Evaluat
             "evaluation_name": change.evaluation_name,
             "scenarios": [item.model_dump(mode="json") for item in design.scenarios],
             "evaluation_knowledge": [item.model_dump(mode="json") for item in target.evaluation_knowledge],
+            "evaluation_scope": evaluation_scope.model_dump(mode="json") if evaluation_scope else None,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -401,5 +427,6 @@ __all__ = [
     "scenario_hash_for",
     "build_evolution_plan",
     "build_evolution_evaluation_plan",
+    "bind_evaluation_scope",
     "default_planner_strategy_registry",
 ]
