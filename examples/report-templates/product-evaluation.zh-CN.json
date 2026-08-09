@@ -3,18 +3,18 @@
   "template_id": "product-evaluation.zh-CN.v1",
   "locale": "zh-CN",
   "brand_name": "Agent Iteration Guard",
-  "report_label": "Agent 产品能力评估",
-  "title_format": "{component_name} 产品评估",
+  "report_label": "Agent 能力评估",
+  "title_format": "{skill_name} 评估",
   "sections": [
     {
       "section_id": "capability_overview",
       "eyebrow": "1 · Capability Overview",
-      "title": "这个组件为用户完成什么工作？"
+      "title": "能力概览"
     },
     {
       "section_id": "evaluation_context",
       "eyebrow": "2 · Evaluation Context",
-      "title": "本次评估具体模拟什么用户场景？"
+      "title": "评估上下文"
     },
     {
       "section_id": "executive_summary",
@@ -22,34 +22,49 @@
       "title": "评估结果汇总"
     },
     {
+      "section_id": "evaluation_dimensions",
+      "eyebrow": "4 · Evaluation Dimensions",
+      "title": "评估维度"
+    },
+    {
       "section_id": "experiment_overview",
-      "eyebrow": "4 · Experiment Overview",
+      "eyebrow": "5 · Experiment Overview",
       "title": "实验地图"
     },
     {
       "section_id": "experiment_analysis",
-      "eyebrow": "5 · Experiment Analysis",
+      "eyebrow": "6 · Experiment Analysis",
       "title": "实验明细"
     },
     {
       "section_id": "scenario_stability",
-      "eyebrow": "6 · Scenario Stability",
-      "title": "跨场景稳定性"
+      "eyebrow": "7 · Scenario Stability",
+      "title": "场景稳定性"
     },
     {
       "section_id": "product_impact",
-      "eyebrow": "7 · Product Impact",
-      "title": "产品级有效性"
+      "eyebrow": "8 · Impact / Capability Impact",
+      "title": "能力影响"
     },
     {
       "section_id": "recommendation",
-      "eyebrow": "8 · Recommendation",
-      "title": "优化建议"
+      "eyebrow": "9 · Recommendation",
+      "title": "建议行动"
     },
     {
       "section_id": "limitations",
-      "eyebrow": "9 · Limitations",
-      "title": "结论适用范围"
+      "eyebrow": "10 · Limitations",
+      "title": "评估边界及限制"
+    },
+    {
+      "section_id": "evidence",
+      "eyebrow": "11 · Evidence",
+      "title": "实验证据 / 技术证据"
+    },
+    {
+      "section_id": "technical_metadata",
+      "eyebrow": "12 · Technical Metadata",
+      "title": "技术元数据"
     }
   ],
   "dimensions_eyebrow": "Evaluation Dimensions",

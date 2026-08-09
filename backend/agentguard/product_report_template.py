@@ -17,12 +17,15 @@ ReportSectionId = Literal[
     "capability_overview",
     "evaluation_context",
     "executive_summary",
+    "evaluation_dimensions",
     "experiment_overview",
     "experiment_analysis",
     "scenario_stability",
     "product_impact",
     "recommendation",
     "limitations",
+    "evidence",
+    "technical_metadata",
 ]
 SidebarPanelId = Literal["product_evidence", "experiment_evidence", "technical_evidence"]
 
@@ -30,12 +33,15 @@ REPORT_SECTION_ORDER: tuple[ReportSectionId, ...] = (
     "capability_overview",
     "evaluation_context",
     "executive_summary",
+    "evaluation_dimensions",
     "experiment_overview",
     "experiment_analysis",
     "scenario_stability",
     "product_impact",
     "recommendation",
     "limitations",
+    "evidence",
+    "technical_metadata",
 )
 
 
@@ -67,7 +73,7 @@ class ProductReportTemplate(BaseModel):
     brand_name: str = Field(min_length=1, max_length=120)
     report_label: str = Field(min_length=1, max_length=120)
     title_format: str = Field(min_length=1, max_length=160)
-    sections: list[ReportSectionTemplate] = Field(min_length=9, max_length=9)
+    sections: list[ReportSectionTemplate] = Field(min_length=12, max_length=12)
     dimensions_eyebrow: str = Field(min_length=1, max_length=80)
     dimensions_title: str = Field(min_length=1, max_length=120)
     sidebar_panels: list[ReportSidebarPanelTemplate] = Field(min_length=3, max_length=3)
@@ -90,8 +96,8 @@ class ProductReportTemplate(BaseModel):
         panel_ids = tuple(panel.panel_id for panel in self.sidebar_panels)
         if panel_ids != ("product_evidence", "experiment_evidence", "technical_evidence"):
             raise ValueError("Product report template sidebar panels must preserve the evidence explorer order.")
-        if "{component_name}" not in self.title_format:
-            raise ValueError("Product report template title_format must contain {component_name}.")
+        if "{skill_name}" not in self.title_format:
+            raise ValueError("Product report template title_format must contain {skill_name}.")
         return self
 
     def section(self, section_id: ReportSectionId) -> ReportSectionTemplate:

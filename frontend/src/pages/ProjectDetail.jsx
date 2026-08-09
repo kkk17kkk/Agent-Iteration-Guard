@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { I, CapIcon, FileButton, Status, Page, SectionHeading, EmptyState, Metric } from "../components.jsx";
+import { I, CapIcon, FileButton, Status, Page, SectionHeading, EmptyState, Metric, ProjectContextCard } from "../components.jsx";
 import { projectDisplayName } from "../lib.js";
 
 const TABS = [
@@ -16,7 +16,7 @@ function formatDate(value) {
   return String(value).replace("T", " ").replace(/\.\d+Z$/, " UTC");
 }
 
-export default function ProjectDetail({ projectId, intelligence, knowledge = [], benchmarks = [], reportList = [], providers = [], executionConfigs = [], onNew, onReport, onOverview, onImportBenchmark, demoMode = false, readOnlyNotice }) {
+export default function ProjectDetail({ projectId, intelligence, projectHeader, knowledge = [], benchmarks = [], reportList = [], providers = [], executionConfigs = [], onNew, onReport, onOverview, onImportBenchmark, demoMode = false, readOnlyNotice }) {
   const [activeTab, setActiveTab] = useState("overview");
   const controlProviders = providers.filter((item) => item.role === "control_plane");
   const [selectedProviderId, setSelectedProviderId] = useState(controlProviders[0]?.provider_binding_id || "");
@@ -204,21 +204,23 @@ export default function ProjectDetail({ projectId, intelligence, knowledge = [],
 
   return (
     <Page
-      title={displayName}
+      title="项目详情"
       kicker="项目详情 · PROJECT DETAIL"
-      intro={manifest.purpose || "Project Intelligence detail"}
+      intro="查看当前项目的版本、知识、评估历史与配置。"
       action={<div className="button-row" style={{ marginTop: 0 }}><button className="primary" onClick={() => onNew?.(null)}><I name="play" />开始评估</button><button className="secondary" onClick={() => latestReport && onReport?.(latestReport.report_id, latestReport.run_id)} disabled={!latestReport}><I name="file" />查看最新报告</button></div>}
+      headingCard
+      before={<ProjectContextCard
+        {...projectHeader}
+        onOverview={onOverview}
+        onVersions={() => setActiveTab("versions")}
+        onConfiguration={() => setActiveTab("configuration")}
+        actions
+      />}
     >
-      <div className="project-breadcrumb"><button className="text-button" onClick={onOverview}>Projects</button><span>/</span><strong>{displayName}</strong></div>
-      <section className="project-detail-hero">
-        <div className="agent-tile"><I name="cube" /></div>
-        <div className="agent-hero-info"><h2>{displayName}</h2><p>{manifest.purpose}</p><div className="chip-row"><span className="chip"><I name="database" />{manifest.source_kind} · <span className="mono">{manifest.source_ref}</span></span><span className="chip"><I name="branch" />{baseline.baseline_version || "baseline"} → {latest.version || "candidate"}</span><span className="chip"><I name="gear" />{runtime.runtime_kind || "runtime"}</span></div></div>
-        <div className="project-detail-status"><Status value={intelligence.status} /><button className="secondary" onClick={() => setActiveTab("versions")}><I name="branch" />版本对比</button><button className="secondary" onClick={() => setActiveTab("configuration")}><I name="gear" />配置 Provider</button></div>
-      </section>
       <div className="project-tabs" role="tablist" aria-label="Project detail sections">
         {TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={activeTab === id} className={activeTab === id ? "project-tab active" : "project-tab"} onClick={() => setActiveTab(id)}>{label}</button>)}
       </div>
-      {renderTab()}
+      <div className="project-detail-content">{renderTab()}</div>
     </Page>
   );
 }

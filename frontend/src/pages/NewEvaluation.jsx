@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { I, CapIcon, Status, Page, SectionHeading, EmptyState } from "../components.jsx";
+import { I, CapIcon, Status, Page, SectionHeading, EmptyState, ProjectContextCard } from "../components.jsx";
 import { pathFor } from "../lib.js";
 
 const TYPE_CARDS = [
@@ -13,6 +13,14 @@ const CHANGE_TYPES = [
   { value: "remove", zh: "移除能力" },
   { value: "modify", zh: "修改能力" },
   { value: "replace", zh: "替换实现" },
+];
+
+const QUALITY_DIMENSION_GUIDE = [
+  ["Trigger", "是否能在声明的输入条件下正确触发，并识别不应处理的请求。"],
+  ["Execution", "执行过程是否遵守工具、Skill 或组件自身的调用约束。"],
+  ["Delivery", "结果是否完整、结构清晰，并能直接支持用户完成任务。"],
+  ["Boundary", "是否在能力边界内工作，遇到不确定情况能否明确说明。"],
+  ["Reliability / Cost", "重复执行时是否稳定，以及资源消耗是否处于可接受范围。"],
 ];
 
 function listValue(value) {
@@ -44,7 +52,7 @@ function StepFlow({ current }) {
   );
 }
 
-export default function NewEvaluation({ projectId, intelligence, providers, executionConfigs, knowledge = [], fixtureRoot, setFixtureRoot, request, setLoading, setNotice, onPlan, onConfigurationChanged, prefill, demoMode = false, readOnlyNotice }) {
+export default function NewEvaluation({ projectId, intelligence, projectHeader, providers, executionConfigs, knowledge = [], fixtureRoot, setFixtureRoot, request, setLoading, setNotice, onPlan, onConfigurationChanged, prefill, demoMode = false, readOnlyNotice, onOverview }) {
   const [candidateVersion, setCandidateVersion] = useState(intelligence?.latest_snapshot?.version || "");
   const snapshots = intelligence?.snapshot_history || [];
   const baselineSnapshot = intelligence?.baseline_snapshot;
@@ -79,6 +87,7 @@ export default function NewEvaluation({ projectId, intelligence, providers, exec
   const [pairSkillOne, setPairSkillOne] = useState("");
   const [pairSkillTwo, setPairSkillTwo] = useState("");
   const [toolModalOpen, setToolModalOpen] = useState(false);
+  const [qualityInfoOpen, setQualityInfoOpen] = useState(false);
   const [comparability, setComparability] = useState(null);
   const [createdRequest, setCreatedRequest] = useState(null);
   const [credentialOptions, setCredentialOptions] = useState([]);
@@ -320,6 +329,8 @@ export default function NewEvaluation({ projectId, intelligence, providers, exec
       title="新建评估"
       kicker="新建评估 · NEW EVALUATION"
       intro="从本项目扫描发现的组件中选择评测对象。首次导入可直接使用初始冻结 Snapshot；后续版本则进行基线与候选版本比较。"
+      headingCard
+      before={<ProjectContextCard {...projectHeader} onOverview={onOverview} />}
     >
       <StepFlow current={selectedComponent ? (responsibility && userJob ? 3 : 2) : 1} />
 
@@ -439,24 +450,25 @@ export default function NewEvaluation({ projectId, intelligence, providers, exec
           <div className="form-layout">
             <div className="form-panel">
               <label className="field">产品描述 Description
-                <textarea value={description} onChange={(event) => setDescription(event.target.value)} />
+                <textarea value={description} onChange={(event) => setDescription(event.target.value)} placeholder="说明这个组件为用户解决什么问题，例如：根据饮食限制生成可执行的菜谱建议。" />
               </label>
               <label className="field">产品职责 Product Responsibility
-                <textarea value={responsibility} onChange={(event) => setResponsibility(event.target.value)} />
+                <textarea value={responsibility} onChange={(event) => setResponsibility(event.target.value)} placeholder="说明组件负责完成什么，例如：读取用户偏好并返回结构化推荐。" />
               </label>
               <label className="field">用户任务 User Job
-                <textarea value={userJob} onChange={(event) => setUserJob(event.target.value)} />
+                <textarea value={userJob} onChange={(event) => setUserJob(event.target.value)} placeholder="描述用户要完成的任务，例如：我想获得一份低糖晚餐计划。" />
               </label>
               <label className="field">预期行为 Expected Behavior
-                <textarea value={expectedBehavior} onChange={(event) => setExpectedBehavior(event.target.value)} placeholder="每行一个可验证行为" />
+                <textarea value={expectedBehavior} onChange={(event) => setExpectedBehavior(event.target.value)} placeholder="每行一个可验证行为，例如：识别限制条件；返回可执行结果；拒绝越界请求。" />
               </label>
             </div>
             <div className="form-panel">
-              <label className="field">质量维度 Quality Dimensions
-                <textarea value={qualityDimensions} onChange={(event) => setQualityDimensions(event.target.value)} placeholder="每行一个质量维度" />
+              <label className="field">
+                <span className="field-label-with-info">质量维度 Quality Dimensions <button type="button" className="info-button" aria-label="查看质量维度说明" onClick={() => setQualityInfoOpen(true)}><I name="info" size={15} /></button></span>
+                <textarea value={qualityDimensions} onChange={(event) => setQualityDimensions(event.target.value)} placeholder="每行一个质量维度，例如：trigger；execution；delivery；boundary。" />
               </label>
               <label className="field">边界 Boundary
-                <textarea value={boundary} onChange={(event) => setBoundary(event.target.value)} placeholder="每行一个评测边界" />
+                <textarea value={boundary} onChange={(event) => setBoundary(event.target.value)} placeholder="每行一个评测边界，例如：不发送外部消息；不修改源代码；不伪造结果。" />
               </label>
               <label className="field">Project Runtime
                 <select value={executionConfigId} onChange={(event) => setExecutionConfigId(event.target.value)}>
@@ -524,6 +536,17 @@ export default function NewEvaluation({ projectId, intelligence, providers, exec
             <label className="field">Credential environment variable<input value={providerForm.credential_environment_variable} onChange={(event) => setProviderForm((current) => ({ ...current, credential_environment_variable: event.target.value }))} /></label>
             <p className="form-hint">{credentialOptions.find((item) => item.environment_variable === providerForm.credential_environment_variable)?.status === "available" ? "Credential detected by server." : "Credential availability will be checked by server; its value is never returned."}</p>
             <div className="modal-card-actions"><button className="primary" onClick={onboardProvider}>Save & Continue</button></div>
+          </section>
+        </div>
+      )}
+      {qualityInfoOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setQualityInfoOpen(false)}>
+          <section className="modal-card quality-info-modal" role="dialog" aria-modal="true" aria-labelledby="quality-info-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-card-head"><div><span className="eyebrow">QUALITY DIMENSIONS</span><h2 id="quality-info-title">质量维度说明</h2></div><button type="button" className="icon-button" aria-label="关闭质量维度说明" onClick={() => setQualityInfoOpen(false)}><I name="x" /></button></div>
+            <p className="form-hint">可按项目真实风险选择维度；每行一个维度，提交时会作为评测计划的输入。</p>
+            <div className="quality-dimension-list">
+              {QUALITY_DIMENSION_GUIDE.map(([name, detail]) => <div className="quality-dimension-item" key={name}><strong>{name}</strong><p>{detail}</p></div>)}
+            </div>
           </section>
         </div>
       )}

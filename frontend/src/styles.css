@@ -97,6 +97,7 @@ h3 { font-size: 15px; }
 /* Page and shared cards */
 .page { width: min(100% - 64px, 1780px); margin: 0 auto; padding: 30px 0 64px; }
 .page-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.page-heading-card { padding: 22px 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--card); box-shadow: 0 16px 40px rgba(0, 0, 0, .12); }
 .page-heading h1 { margin-top: 7px; }
 .page-heading p { max-width: 760px; margin-top: 9px; color: var(--soft); font-size: 14px; line-height: 1.65; }
 .overview-page-actions { display: grid; justify-items: end; gap: 10px; }
@@ -114,6 +115,7 @@ h3 { font-size: 15px; }
 .button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 16px; }
 .button-row.compact { margin-top: 0; }
 button.primary, button.secondary, .file-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 42px; padding: 0 15px; border: 1px solid transparent; border-radius: 9px; color: var(--text); font-size: 14px; font-weight: 650; white-space: nowrap; }
+.file-button-text { min-width: 0; }
 button.primary { border-color: rgba(122, 156, 255, .32); background: linear-gradient(135deg, #4d79df, #735dd5); box-shadow: 0 8px 18px rgba(73, 105, 211, .16); }
 button.primary:hover { filter: brightness(1.08); }
 button.secondary, .file-button { border-color: var(--line); background: #121a2b; color: var(--body); }
@@ -244,6 +246,20 @@ button.secondary:hover, .file-button:hover { border-color: rgba(111, 157, 255, .
 .scan-create-button { width: 50%; min-width: 240px; justify-self: end; }
 .overview-intake-card { margin-top: 16px; grid-template-columns: minmax(230px, .7fr) minmax(0, 1.3fr); }
 .intake-form-inline { grid-template-columns: minmax(0, 1fr) 150px auto; align-items: end; }
+
+.project-context-card { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 22px; min-height: 0; padding: 4px 0 18px; margin-bottom: 18px; }
+.project-context-main { min-width: 0; }
+.project-context-kicker { color: var(--muted); font-family: var(--mono); font-size: 12px; font-weight: 680; letter-spacing: .1em; text-transform: uppercase; }
+.project-context-main h2 { margin-top: 8px; font-size: 28px; }
+.project-context-main p { max-width: 900px; margin-top: 9px; color: var(--soft); font-size: 16px; line-height: 1.55; }
+.project-context-breadcrumb { display: flex; align-items: center; gap: 9px; margin-top: 16px; color: var(--muted); font-size: 15px; }
+.project-context-breadcrumb strong { color: var(--body); }
+.project-context-meta { display: grid; grid-template-columns: repeat(3, minmax(110px, 1fr)); gap: 9px; align-self: stretch; min-width: 360px; padding-left: 20px; border-left: 1px solid var(--line-soft); }
+.project-context-meta span { display: grid; align-content: center; gap: 6px; min-width: 0; }
+.project-context-meta small { color: var(--muted); font-size: 13px; }
+.project-context-meta strong { overflow: hidden; color: var(--body); font-family: var(--mono); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.project-context-actions { display: grid; justify-items: end; gap: 9px; min-width: 132px; }
+.project-context-actions .status { margin-bottom: 2px; }
 
 /* Inputs and capability primitives */
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -401,6 +417,107 @@ button.secondary:hover, .file-button:hover { border-color: rgba(111, 157, 255, .
 .modal-card-head h2 { margin-top: 5px; }
 .modal-card .field { margin-top: 14px; }
 .modal-card-actions { display: flex; justify-content: flex-end; margin-top: 18px; }
+.field-label-with-info { display: inline-flex; align-items: center; gap: 7px; }
+.info-button { display: inline-grid; width: 22px; height: 22px; place-items: center; padding: 0; border: 1px solid rgba(111, 157, 255, .48); border-radius: 50%; color: var(--blue); background: rgba(111, 157, 255, .1); }
+.info-button:hover { border-color: var(--blue); background: rgba(111, 157, 255, .18); }
+.quality-info-modal { width: min(680px, 100%); }
+.quality-dimension-list { display: grid; gap: 9px; margin-top: 18px; }
+.quality-dimension-item { padding: 14px 15px; border: 1px solid var(--line-soft); border-radius: 9px; background: var(--card-muted); }
+.quality-dimension-item strong { color: var(--text); font-size: 16px; }
+.quality-dimension-item p { margin-top: 6px; color: var(--soft); font-size: 15px; line-height: 1.6; }
+
+/* Readability pass: keep headings compact while making supporting UI text easier to scan. */
+body { font-size: 16px; }
+.brand-text strong { font-size: 15px; }
+.brand-text span, .rail-caption { font-size: 12px; }
+.nav-zh { font-size: 16px; }
+.nav-en { font-size: 11px; }
+.nav-zh, .nav-en { white-space: nowrap; }
+.rail-footer { font-size: 14px; }
+.topbar-title { font-size: 16px; }
+.demo-badge { font-size: 13px; }
+.project-switcher > span { font-size: 13px; }
+.project-switcher input, .project-switcher button { font-size: 15px; }
+.notice { font-size: 15px; }
+.eyebrow { font-size: 12px; }
+.page-heading p { font-size: 16px; }
+.section-detail, .card-count { font-size: 15px; }
+button.primary, button.secondary, .file-button { font-size: 16px; }
+.field { font-size: 16px; }
+.field input, .field select, .field textarea { font-size: 16px; }
+.field input::placeholder, .field textarea::placeholder { color: #66718a; opacity: 1; }
+.muted, .form-hint { font-size: 15px; }
+.status { font-size: 13px; }
+.step-node, .step-label { font-size: 15px; }
+.step-state { font-size: 13px; }
+.step-index { font-size: 13px; }
+.progress-card .step-name { font-size: 15px; }
+.progress-card .step-state { font-size: 13px; }
+.version-pair { font-size: 15px; }
+.latest-intro > p, .latest-summary { font-size: 14px; }
+.metric-cell span { font-size: 13px; }
+.history-main strong, .compact-capability-card strong, .capability-row strong, .scenario-row strong { font-size: 15px; }
+.history-main span, .history-meta, .compact-capability-card div > span, .compact-capability-card p, .quick-actions-grid small, .workflow-node small { font-size: 13px; }
+.quick-actions-grid span { font-size: 15px; }
+.quick-actions-grid .file-button { justify-content: start; }
+.quick-actions-grid .file-button, .quick-actions-grid .file-button-text { justify-items: start; text-align: left; }
+.quick-actions-grid .file-button-text { display: block; }
+.compact-capability-card p, .diff-card p { font-size: 14px; }
+.workflow-node strong { font-size: 14px; }
+.intake-card p { font-size: 15px; }
+.chip { font-size: 14px; }
+.choice-card small { font-size: 14px; }
+.provider-binding-facts, .scope-val, .config-row span { font-size: 14px; }
+.scope-key, .config-row strong { font-size: 15px; }
+.diff-head strong, .finding-head strong, .evidence-condition-head strong { font-size: 15px; }
+.component-type, .diff-cta { font-size: 13px; }
+.filter-chip { font-size: 14px; }
+.check-row > span:last-child, .project-detail-content .definition-list dt, .project-detail-content .definition-list dd { font-size: 15px; }
+.pipeline-step > span:nth-child(2), .pipeline-step small { font-size: 14px; }
+.ring-label span { font-size: 12px; }
+.evidence-condition-meta, .evidence-details { font-size: 13px; }
+.evidence-details pre { font-size: 13px; }
+.finding-card p, .reco-item p { font-size: 15px; }
+.project-detail-content .section-block { font-size: 16px; }
+.project-detail-content .knowledge-summary span { font-size: 15px; }
+.project-detail-content .version-card strong { font-size: 15px; }
+.project-detail-content .tl-sub { font-size: 13px; }
+
+/* Unified report view: the browser Preview follows the same 12-chapter model
+   as the generated HTML archive. */
+.report-toolbar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-bottom: 16px; }
+.report-single-stack { display: grid; gap: 16px; margin-top: 16px; }
+.report-section-card { min-width: 0; }
+.report-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.decision-check-list { display: grid; gap: 7px; align-content: center; }
+.decision-check-list .check-row { padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.report-overview-grid, .report-dimension-grid, .report-analysis-grid, .evidence-observation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.report-overview-item, .report-dimension-card, .report-analysis-card, .scenario-card { min-width: 0; padding: 15px; border: 1px solid var(--line-soft); border-radius: 11px; background: var(--card-muted); }
+.report-overview-item > span, .report-dimension-card > span, .report-analysis-grid span, .evidence-observation-grid span { color: var(--muted); font-size: 13px; }
+.report-overview-item p, .report-dimension-card p, .report-analysis-card p, .scenario-card p { margin: 6px 0 0; color: var(--body); font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
+.report-dimension-card strong { display: block; margin-top: 7px; color: var(--text); font-size: 16px; }
+.report-analysis-list, .scenario-list, .recommendation-list, .experiment-map-list, .evidence-condition-list { display: grid; gap: 12px; }
+.report-analysis-grid { margin-top: 12px; }
+.report-analysis-grid > div { padding-top: 9px; border-top: 1px solid var(--line-soft); }
+.report-callout { margin: 14px 0; padding: 13px 15px; border-left: 3px solid var(--blue); border-radius: 8px; background: rgba(67, 103, 194, .1); color: var(--body); }
+.report-callout p { margin: 6px 0 0; }
+.experiment-map-item { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--card-muted); }
+.map-number { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; color: #c0cdff; background: rgba(91, 125, 255, .17); font-weight: 700; }
+.experiment-map-item h3 { margin-top: 5px; }
+.experiment-map-item p { margin: 5px 0 0; color: var(--body); }
+.scenario-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.scenario-prompt { margin: 12px 0 !important; padding: 10px 12px; border-left: 3px solid var(--blue); background: rgba(8, 15, 31, .65); }
+.bullet-list { margin: 12px 0 0; padding-left: 21px; color: var(--body); }
+.bullet-list li { margin: 7px 0; }
+.evidence-condition-collapsed { padding: 14px; }
+.evidence-condition-collapsed > summary { display: flex; align-items: center; gap: 10px; }
+.condition-summary-title { min-width: 0; flex: 1; color: var(--text); }
+.condition-summary-kind { color: var(--violet); font-size: 13px; }
+.evidence-observation-grid { margin-top: 12px; }
+.evidence-observation-grid > div { padding: 10px; border: 1px solid var(--line-soft); border-radius: 8px; background: rgba(8, 14, 28, .6); }
+.evidence-observation-grid strong { display: block; margin-top: 4px; color: var(--body); font: 13px/1.5 var(--mono); overflow-wrap: anywhere; }
+.technical-details { margin-top: 16px; }
+.report-export-hooks { display: none; }
 
 @media (max-width: 1360px) {
   .page { width: calc(100% - 48px); }
@@ -414,6 +531,9 @@ button.secondary:hover, .file-button:hover { border-color: rgba(111, 157, 255, .
   html, body { min-width: 1024px; }
   .app-shell { grid-template-columns: 220px minmax(0, 1fr); }
   .project-header-card, .latest-evaluation-card, .intake-card { grid-template-columns: 1fr; }
+  .project-context-card { grid-template-columns: 1fr; align-items: start; }
+  .project-context-meta { min-width: 0; padding: 15px 0 0; border-top: 1px solid var(--line-soft); border-left: 0; }
+  .project-context-actions { justify-items: start; }
   .project-header-actions { justify-items: start; }
   .overview-top-grid, .overview-middle-grid, .report-sections { grid-template-columns: 1fr; }
   .overview-page-actions { width: 100%; justify-items: stretch; }
@@ -422,4 +542,9 @@ button.secondary:hover, .file-button:hover { border-color: rgba(111, 157, 255, .
   .compact-capability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-overview-panel { grid-column: span 2; }
+}
+
+@media (max-width: 760px) {
+  .report-summary-grid, .report-overview-grid, .report-dimension-grid, .report-analysis-grid, .evidence-observation-grid { grid-template-columns: 1fr; }
+  .report-toolbar { justify-content: flex-start; }
 }

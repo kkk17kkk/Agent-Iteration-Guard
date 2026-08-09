@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { I, CapIcon, FileButton, Status, Page, SectionHeading, EmptyState, statusTone } from "../components.jsx";
-import { pathFor, projectDisplayName } from "../lib.js";
+import { pathFor, projectDisplayName, projectPurpose } from "../lib.js";
 
 const DEMO_SOURCE = "__demo_lighttable__";
 const READ_ONLY_NOTICE = "此项目仅供示意，不可编辑。请上传正式 Project 后执行此操作。";
@@ -55,7 +55,7 @@ function ProjectHeader({ displayName, manifest, baseline, latest, runtime, statu
     <div className="project-header-copy">
       <span className="eyebrow">Project</span>
       <h2>{displayName}</h2>
-      <p>{manifest?.purpose || "当前项目的能力扫描与评估工作台。"}</p>
+      <p>{projectPurpose(manifest, displayName)}</p>
     </div>
     <div className="project-header-meta">
       <div><span>Baseline</span><strong title={baseline?.baseline_version}>{short(baseline?.baseline_version, 20)}</strong></div>

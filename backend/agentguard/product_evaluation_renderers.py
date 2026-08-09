@@ -1,436 +1,364 @@
-"""Presentation projections for ProductEvaluationReport."""
+"""Presentation projections for ProductEvaluationReport.
+
+The renderer deliberately consumes the same normalized view model as the web
+Preview.  Report generation remains a presentation concern: it does not alter
+evaluation, runner, or immutable evidence data.
+"""
 
 from __future__ import annotations
 
 import html
 import json
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 from .product_evaluation_report import ProductEvaluationReport
 from .product_report_template import ProductReportTemplate, default_product_report_template
+from .report_view_model import NormalizedReport, normalize_product_evaluation_report
 
 
 def render_product_evaluation_markdown(
     report: ProductEvaluationReport,
     template: ProductReportTemplate | None = None,
+    *,
+    project_context: Mapping[str, object] | None = None,
+    gate: Mapping[str, object] | None = None,
 ) -> str:
-    """Render the portable report as a product-facing Markdown document."""
+    """Render the portable report from the shared presentation view model."""
 
     template = template or default_product_report_template()
+    view = normalize_product_evaluation_report(report, project_context=project_context, gate=gate)
     sections = {section.section_id: section for section in template.sections}
     labels = template.labels
-    title = template.title_format.replace("{component_name}", report.subject.component_name)
     lines = [
-        f"# {title}",
+        f"# {view.title}",
+        "",
+        "## 项目上下文 / Project Context",
+        "",
+        f"- 项目：{view.project.project_name}",
+        f"- 用途：{view.project.purpose}",
+        f"- Baseline：{view.project.baseline}",
+        f"- Candidate：{view.project.candidate}",
+        f"- Runtime：{view.project.runtime}",
         "",
         f"## {sections['capability_overview'].eyebrow}",
         f"### {sections['capability_overview'].title}",
         "",
-        f"**{labels['product_role']}**：{report.product_overview.product_role}",
-        "",
-        f"**{labels['why_it_exists']}**：{report.product_overview.why_it_exists}",
-        "",
-        f"**{labels['user_problem']}**：{report.product_overview.user_problem}",
-        "",
-        f"**{labels['ideal_behavior']}**：",
-        *[f"- {item}" for item in report.product_overview.ideal_behavior],
-        "",
-        f"**{labels['boundary']}**：{report.product_overview.boundary}",
-        "",
-        f"## {sections['evaluation_context'].eyebrow}",
-        f"### {sections['evaluation_context'].title}",
-        "",
-        "| 项目 | 内容 |",
-        "| --- | --- |",
-        *[f"| {item.label} | {item.value} |" for item in report.evaluation_context.items],
-        "",
+    ]
+    overview = view.capability_overview
+    lines.extend(_markdown_fields(overview, labels, ("product_role", "why_it_exists", "user_problem", "boundary")))
+    lines.extend([f"**{labels['ideal_behavior']}**：", *[f"- {item}" for item in overview.get("ideal_behavior", [])], ""])
+
+    lines.extend([f"## {sections['evaluation_context'].eyebrow}", f"### {sections['evaluation_context'].title}", "", "| 项目 | 内容 |", "| --- | --- |"])
+    lines.extend(f"| {item.get('label', '')} | {item.get('value', '')} |" for item in view.evaluation_context.get("items", []))
+    lines.append("")
+
+    summary = view.summary
+    lines.extend([
         f"## {sections['executive_summary'].eyebrow}",
         f"### {sections['executive_summary'].title}",
         "",
-        f"**{labels['final_conclusion']}**：{report.executive_summary.final_conclusion}",
+        f"**{labels['final_conclusion']}**：{summary.get('final_conclusion', '')}",
         "",
         f"**{labels['main_findings']}**：",
-        *[f"- **{item.title}**：{item.statement}" for item in report.executive_summary.main_findings],
+        *[f"- **{item.get('title', '')}**：{item.get('statement', '')}" for item in summary.get("main_findings", [])],
         "",
-        f"**{labels['product_recommendation']}**：{report.executive_summary.product_recommendation}",
+        f"**{labels['product_recommendation']}**：{summary.get('product_recommendation', '')}",
         "",
         f"**{labels['follow_up_priorities']}**：",
-        *[f"- {item}" for item in report.executive_summary.follow_up_priorities],
+        *[f"- {item}" for item in summary.get("follow_up_priorities", [])],
         "",
-    ]
-    for dimension in _ordered_dimensions(report):
-        lines.extend([
-            f"### {_dimension_label(template, dimension.dimension)}",
-            "",
-            f"{dimension.conclusion}。{dimension.explanation}",
-            "",
-        ])
-    lines.extend([
-        f"## {sections['experiment_overview'].eyebrow}",
-        f"### {sections['experiment_overview'].title}",
-        "",
-        report.experiment_overview.summary,
+        f"## {sections['evaluation_dimensions'].eyebrow}",
+        f"### {sections['evaluation_dimensions'].title}",
         "",
     ])
-    for item in report.experiment_overview.questions:
-        lines.extend([
-            f"### {item.name}",
-            "",
-            f"**{labels['experiment_question']}**：{item.question}",
-            "",
-            f"**{labels['experiment_purpose_short']}**：{item.purpose}",
-            "",
-        ])
-    lines.extend([
-        f"## {sections['experiment_analysis'].eyebrow}",
-        f"### {sections['experiment_analysis'].title}",
-        "",
-    ])
-    for item in report.experiment_analysis:
-        lines.extend([
-            f"### {item.experiment_name}",
-            "",
-            f"**{labels['experiment_purpose']}**：{item.purpose}",
-            "",
-            f"**{labels['experiment_design']}**：{item.design}",
-            "",
-            f"**{labels['input_scenario']}**：{item.input_scenario}",
-            "",
-            f"**{labels['observation']}**：{item.observation}",
-            "",
-            f"**{labels['result']}**：{item.result}",
-            "",
-            f"**{labels['product_meaning']}**：{item.product_meaning}",
-            "",
-        ])
-    if report.interaction_analysis is not None:
-        interaction = report.interaction_analysis
-        lines.extend([
-            "### Skill Pair Scenario Comparison",
-            "",
-            interaction.summary,
-            "",
-            "| Scenario | A Only | B Only | A+B | Product Meaning |",
-            "| --- | --- | --- | --- | --- |",
-            *[
-                f"| {item.scenario_name} ({item.category}) | {item.a_only} | {item.b_only} | {item.combined} | {item.product_meaning} |"
-                for item in interaction.scenario_comparisons
-            ],
-            "",
-            f"**Capability Contribution**：{interaction.capability_contribution}",
-            "",
-            f"**Composition Gain**：{interaction.composition_gain}",
-            "",
-            f"**Synergy Gain**：{interaction.synergy_gain}",
-            "",
-            f"**Coordination**：{interaction.coordination}",
-            "",
-            f"**Conflict / Interference**：{interaction.conflict}",
-            "",
-            f"**Reliability & Cost Impact**：{interaction.reliability_cost}",
-            "",
-        ])
-    lines.extend([
-        f"## {sections['scenario_stability'].eyebrow}",
-        f"### {sections['scenario_stability'].title}",
-        "",
-        f"{report.scenario_stability.summary}",
-        "",
-            f"**{labels['scenario_conclusion']}**：{report.scenario_stability.coverage_conclusion}",
-        "",
-    ])
-    for item in report.scenario_stability.scenarios:
-        lines.extend([
-            f"### {item.name}{_scenario_id_markdown(item.scenario_id)}",
-            "",
-            f"**{labels['scenario_user']}**：{item.user_prompt}",
-            "",
-            f"**目标**：{item.purpose}",
-            "",
-            f"**观察**：{item.observation}",
-            "",
-            f"**结果**：{item.result}",
-            "",
-        ])
-    lines.extend([
-        f"## {sections['product_impact'].eyebrow}",
-        f"### {sections['product_impact'].title}",
-        "",
-        f"**{labels['affected_user_journey']}**：{report.business_impact.affected_user_journey}",
-        "",
-        report.business_impact.user_consequence,
-        "",
-        *[f"- {item.product_meaning}" for item in report.findings],
-        "",
-        f"## {sections['recommendation'].eyebrow}",
-        f"### {sections['recommendation'].title}",
-        "",
-    ])
-    for item in report.recommendations:
-        lines.extend([
-            f"### {item.target}（{item.priority}）",
-            "",
-            item.action,
-            "",
-            f"**{labels['reasoning']}**：{item.reasoning}",
-            "",
-            f"**{labels['next_step']}**：{'；'.join(item.validation_plan)}",
-            "",
-        ])
-    lines.extend([
-        f"## {sections['limitations'].eyebrow}",
-        f"### {sections['limitations'].title}",
-        "",
-        *[f"- {item.statement}" for item in report.limitations],
-        "",
-        f"## {template.sidebar('experiment_evidence').eyebrow}",
-        f"### {template.sidebar('experiment_evidence').title}",
-        "",
-    ])
-    for item in report.evidence_explorer.experiment_evidence:
-        lines.extend([
-            f"### {item.experiment_name}",
-            "",
-        f"**{labels['evidence_input_task']}**：{item.input_task}",
-            "",
-            f"**{item.reference_label}**：{item.reference_result}",
-            "",
-            f"**{item.changed_label}**：{item.changed_result}",
-            "",
-            f"**{labels['evidence_difference']}**：{item.difference}",
-            "",
-        ])
-    if report.supplementary_evidence:
-        lines.extend([
-            "## Supplementary Benchmark Evidence",
-            "",
-            "These imported results are external evidence only; AIG did not execute the benchmark and they do not replace local oracle evidence.",
-            "",
-            "| Benchmark | Metric | Before | After | Unit | Evidence |",
-            "| --- | --- | ---: | ---: | --- | --- |",
-            *[
-                f"| {item.benchmark_name} | {metric.metric_name} | {metric.baseline_value:g} | {metric.candidate_value:g} | {metric.unit} | {item.evidence_id} |"
-                for item in report.supplementary_evidence
-                for metric in item.metrics
-            ],
-            "",
-        ])
+    for item in view.dimensions:
+        lines.extend([f"### {_dimension_label(template, item.get('dimension', ''))}", "", f"{item.get('conclusion', '')}。{item.get('explanation', '')}", ""])
+
+    experiments = view.experiments
+    lines.extend([f"## {sections['experiment_overview'].eyebrow}", f"### {sections['experiment_overview'].title}", "", experiments.get("summary", ""), ""])
+    for item in experiments.get("questions", []):
+        lines.extend([f"### {item.get('name', '')}", "", f"**{labels['experiment_question']}**：{item.get('question', '')}", "", f"**{labels['experiment_purpose_short']}**：{item.get('purpose', '')}", ""])
+
+    lines.extend([f"## {sections['experiment_analysis'].eyebrow}", f"### {sections['experiment_analysis'].title}", ""])
+    for item in experiments.get("analysis", []):
+        lines.extend(_markdown_analysis(item, labels))
+    interaction = getattr(report, "interaction_analysis", None)
+    if interaction is not None:
+        lines.extend(_markdown_interaction(interaction))
+
+    stability = view.scenario_stability
+    lines.extend([f"## {sections['scenario_stability'].eyebrow}", f"### {sections['scenario_stability'].title}", "", stability.get("summary", ""), "", f"**{labels['scenario_conclusion']}**：{stability.get('coverage_conclusion', '')}", ""])
+    for item in stability.get("scenarios", []):
+        lines.extend([f"### {item.get('name', '')}{_scenario_id_markdown(item.get('scenario_id'))}", "", f"**{labels['scenario_user']}**：{item.get('user_prompt', '')}", "", f"**{labels['scenario_purpose']}**：{item.get('purpose', '')}", "", f"**{labels['scenario_observation']}**：{item.get('observation', '')}", "", f"**{labels['scenario_result']}**：{item.get('result', '')}", ""])
+
+    lines.extend([f"## {sections['product_impact'].eyebrow}", f"### {sections['product_impact'].title}", "", f"**{labels['affected_user_journey']}**：{view.impact.get('affected_user_journey', '')}", "", view.impact.get("user_consequence", ""), "", *[f"- {item.get('product_meaning', '')}" for item in view.impact.get("findings", [])], ""])
+    lines.extend([f"## {sections['recommendation'].eyebrow}", f"### {sections['recommendation'].title}", ""])
+    for item in view.recommendations:
+        lines.extend([f"### {item.get('target', '')}（{item.get('priority', '')}）", "", item.get("action", ""), "", f"**{labels['reasoning']}**：{item.get('reasoning', '')}", "", f"**{labels['next_step']}**：{'；'.join(item.get('validation_plan', []))}", ""])
+    lines.extend([f"## {sections['limitations'].eyebrow}", f"### {sections['limitations'].title}", "", *[f"- {item.get('statement', '')}" for item in view.limitations], ""])
+
+    evidence = view.evidence_bundle
+    lines.extend([f"## {sections['evidence'].eyebrow}", f"### {sections['evidence'].title}", "", "Product Evidence / Experiment Evidence / Technical Evidence", "", f"- 状态：{evidence.get('status', '')}", f"- 已验证条件：{view.metrics.get('verified_count', 0)}", f"- 通过：{view.metrics.get('passed_count', 0)}", f"- 失败：{view.metrics.get('failed_count', 0)}", f"- 实验条件：{view.metrics.get('condition_count', 0)}", f"- 成本：{_cost_text(view.metrics.get('cost_usd'))}", ""])
+    for condition in evidence.get("conditions", []):
+        lines.extend([f"<details><summary>{condition.get('label', '')} · {condition.get('kind', '')} · {condition.get('status', '')}</summary>", "", f"证据引用：{', '.join(condition.get('evidence_refs', []))}", "", "</details>", ""])
+
+    lines.extend([f"## {sections['technical_metadata'].eyebrow}", f"### {sections['technical_metadata'].title}", ""])
+    for key, value in view.technical_metadata.items():
+        lines.append(f"- {key}：{_stringify(value)}")
+    lines.extend(["", "技术记录、事实与补充证据保留在可展开的 HTML 详情中；首屏不直接倾倒原始 JSON。", ""])
     return "\n".join(lines)
 
 
 def render_product_evaluation_html(
     report: ProductEvaluationReport,
     template: ProductReportTemplate | None = None,
+    *,
+    project_context: Mapping[str, object] | None = None,
+    gate: Mapping[str, object] | None = None,
 ) -> str:
-    """Render a product report in a dark, audit-oriented two-column layout."""
+    """Render the same normalized report as an independent archive document."""
 
     template = template or default_product_report_template()
+    view = normalize_product_evaluation_report(report, project_context=project_context, gate=gate)
     sections = {section.section_id: section for section in template.sections}
-    labels = template.labels
-    title = template.title_format.replace("{component_name}", report.subject.component_name)
-    esc = lambda value: html.escape(str(value))
-    status = template.status_labels.get(report.executive_summary.status, report.executive_summary.status)
-    gate_class = "supported" if report.executive_summary.status == "supported" else "review"
-    context_rows = "".join(
-        f"<tr><th>{esc(item.label)}</th><td>{esc(item.value)}</td></tr>"
-        for item in report.evaluation_context.items
-    )
-    dimensions = "".join(
-        f"<article class='dimension'><span class='dimension-label'>{esc(_dimension_label(template, item.dimension))}</span>"
-        f"<strong>{esc(item.conclusion)}</strong><p>{esc(item.explanation)}</p></article>"
-        for item in _ordered_dimensions(report)
-    )
-    findings = "".join(
-        f"<article class='finding'><span class='finding-mark'>✓</span><div><strong>{esc(item.title)}</strong>"
-        f"<p>{esc(item.statement)}</p></div></article>"
-        for item in report.executive_summary.main_findings
-    )
-    experiment_questions = "".join(
-        f"<article class='experiment-map-item'><span class='map-number'>{index + 1}</span><div>"
-        f"<span class='evidence-kind'>{esc(item.name)}</span><h3>{esc(item.question)}</h3>"
-        f"<p>{esc(item.purpose)}</p></div></article>"
-        for index, item in enumerate(report.experiment_overview.questions)
-    )
-    analyses = "".join(
-        f"<article class='analysis-card'><div class='card-heading'><span class='evidence-kind'>{esc(sections['experiment_analysis'].title)}</span>"
-        f"<h3>{esc(item.experiment_name)}</h3></div><div class='analysis-grid'>"
-        f"<div><span>{esc(labels['experiment_purpose'])}</span><p>{esc(item.purpose)}</p></div>"
-        f"<div><span>{esc(labels['experiment_design'])}</span><p>{esc(item.design)}</p></div>"
-        f"<div class='wide'><span>{esc(labels['input_scenario'])}</span><p>{esc(item.input_scenario)}</p></div>"
-        f"<div><span>{esc(labels['observation'])}</span><p>{esc(item.observation)}</p></div>"
-        f"<div><span>{esc(labels['result'])}</span><p>{esc(item.result)}</p></div></div>"
-        f"<p class='interpretation'><strong>{esc(labels['product_meaning'])}</strong>{esc(item.product_meaning)}</p></article>"
-        for item in report.experiment_analysis
-    )
-    interaction_comparison = ""
-    if report.interaction_analysis is not None:
-        interaction = report.interaction_analysis
-        comparison_rows = "".join(
-            f"<tr><th>{esc(item.scenario_name)}<br><span class='muted'>{esc(item.category)}</span></th>"
-            f"<td>{esc(item.a_only)}</td><td>{esc(item.b_only)}</td><td>{esc(item.combined)}</td>"
-            f"<td>{esc(item.product_meaning)}</td></tr>"
-            for item in interaction.scenario_comparisons
+    esc = _esc
+    logo = _logo_svg()
+    status_class = _status_class(view.decision.get("decision"))
+    metrics = "".join(
+        f"<div class='metric'><span>{esc(label)}</span><strong>{esc(value)}</strong></div>"
+        for label, value in (
+            ("报告状态", view.metrics.get("report_status")),
+            ("Evidence", view.metrics.get("evidence_status")),
+            ("实验总数", view.metrics.get("experiment_count")),
+            ("Findings", view.metrics.get("findings_count")),
         )
-        interaction_comparison = (
-            "<article class='analysis-card interaction-comparison'>"
-            f"<div class='card-heading'><span class='evidence-kind'>Skill Pair Scenario Comparison</span>"
-            f"<h3>{esc(report.subject.component_name)}</h3></div>"
-            f"<p class='lede'>{esc(interaction.summary)}</p>"
-            "<table class='context-table'><thead><tr><th>Scenario</th><th>A Only</th>"
-            "<th>B Only</th><th>A+B</th><th>Product Meaning</th></tr></thead>"
-            f"<tbody>{comparison_rows}</tbody></table>"
-            "<div class='analysis-grid'>"
-            f"<div><span>Capability Contribution</span><p>{esc(interaction.capability_contribution)}</p></div>"
-            f"<div><span>Composition Gain</span><p>{esc(interaction.composition_gain)}</p></div>"
-            f"<div><span>Synergy Gain</span><p>{esc(interaction.synergy_gain)}</p></div>"
-            f"<div><span>Coordination</span><p>{esc(interaction.coordination)}</p></div>"
-            f"<div><span>Conflict / Interference</span><p>{esc(interaction.conflict)}</p></div>"
-            f"<div class='wide'><span>Reliability &amp; Cost Impact</span><p>{esc(interaction.reliability_cost)}</p></div>"
-            "</div></article>"
-        )
-    scenarios = "".join(
-        f"<article class='scenario-card'><div class='scenario-heading'><div class='scenario-title'><span>{esc(item.name)}</span>"
-        f"{_scenario_id_markup(item.scenario_id, esc)}</div>"
-        f"<strong>{esc(template.status_labels.get(item.status, item.status))}</strong></div>"
-        f"<p class='prompt'>“{esc(item.user_prompt)}”</p><div class='scenario-grid'>"
-        f"<div><span>{esc(labels['scenario_purpose'])}</span><p>{esc(item.purpose)}</p></div>"
-        f"<div><span>{esc(labels['scenario_observation'])}</span><p>{esc(item.observation)}</p></div>"
-        f"<div class='wide'><span>{esc(labels['scenario_result'])}</span><p>{esc(item.result)}</p></div></div></article>"
-        for item in report.scenario_stability.scenarios
     )
-    findings_impact = "".join(
-        f"<li><strong>{esc(item.impact_dimension)}</strong>：{esc(item.product_meaning)}"
-        f"<span>{esc(item.severity)}</span></li>"
-        for item in report.findings
-    )
-    recommendations = "".join(
-        f"<article class='recommendation'><div><span class='priority'>{esc(item.priority)}</span>"
-        f"<h3>{esc(item.target)}</h3></div><p>{esc(item.action)}</p>"
-        f"<p class='muted'>{esc(item.reasoning)}</p><p class='next-step'><strong>{esc(labels['next_step'])}</strong>"
-        f"{esc('；'.join(item.validation_plan))}</p></article>"
-        for item in report.recommendations
-    )
-    limitations = "".join(f"<li>{esc(item.statement)}</li>" for item in report.limitations)
-    product_evidence = "".join(
-        f"<article class='side-evidence'><span>{esc(item.label)}</span><p>{esc(item.statement)}</p></article>"
-        for item in report.evidence_explorer.product_evidence
-    )
-    experiment_evidence = "".join(_render_evidence_entry(item, esc) for item in report.evidence_explorer.experiment_evidence)
-    technical_records = "".join(
-        f"<details class='technical-record'><summary>{esc(record.record_type)} · {esc(record.source_ref)}</summary>"
-        f"<pre>{esc(json.dumps(record.model_dump(mode='json'), ensure_ascii=False, indent=2))}</pre></details>"
-        for record in report.evidence.records
-    )
-    technical_facts = "".join(
-        f"<details class='technical-record'><summary>{esc(fact.label)}</summary>"
-        f"<pre>{esc(json.dumps(fact.model_dump(mode='json'), ensure_ascii=False, indent=2))}</pre></details>"
-        for fact in report.evidence.facts
-    )
-    supplementary_evidence = "".join(
-        f"<details class='technical-record'><summary>{esc(item.benchmark_name)} · external benchmark evidence</summary>"
-        f"<p class='technical'>AIG imported this result and did not execute the external benchmark.</p>"
-        f"<pre>{esc(json.dumps(item.model_dump(mode='json'), ensure_ascii=False, indent=2))}</pre></details>"
-        for item in report.supplementary_evidence
-    )
-    scenario_notice = ""
-    if len(report.scenario_stability.scenarios) < 3:
-        scenario_notice = f"<div class='sample-banner warning'>{esc(template.limited_scenario_notice_format.format(count=len(report.scenario_stability.scenarios)))}</div>"
-    product_panel = template.sidebar("product_evidence")
-    experiment_panel = template.sidebar("experiment_evidence")
-    technical_panel = template.sidebar("technical_evidence")
-    footer = template.footer_format.format(
-        evidence_status=report.evaluation.evidence_status,
-        report_hash=report.report_hash,
+    sections_html = [
+        _section(sections["capability_overview"], _overview_html(view.capability_overview, template, esc)),
+        _section(sections["evaluation_context"], _context_html(view.evaluation_context, esc)),
+        _section(sections["executive_summary"], _summary_html(view.summary, view.decision, labels=template.labels, esc=esc)),
+        _section(sections["evaluation_dimensions"], _dimensions_html(view.dimensions, template, esc)),
+        _section(sections["experiment_overview"], _experiments_overview_html(view.experiments, esc)),
+        _section(sections["experiment_analysis"], _analysis_html(view.experiments.get("analysis", []), template, esc)),
+        _section(sections["scenario_stability"], _stability_html(view.scenario_stability, template, esc)),
+        _section(sections["product_impact"], _impact_html(view.impact, esc)),
+        _section(sections["recommendation"], _recommendations_html(view.recommendations, template.labels, esc)),
+        _section(sections["limitations"], _limitations_html(view.limitations, esc)),
+        _section(sections["evidence"], _evidence_html(view, esc)),
+        _section(sections["technical_metadata"], _technical_html(view.technical_evidence, view.technical_metadata, esc)),
+    ]
+    interaction = getattr(report, "interaction_analysis", None)
+    if interaction is not None:
+        sections_html[5] += _interaction_html(interaction, esc)
+    aside = (
+        "<aside class='sidebar' aria-label='证据索引'>"
+        "<div class='side-index'><span>Product Evidence</span><strong>产品证据</strong><p>来自报告的能力结果与影响。</p></div>"
+        "<div class='side-index'><span>Experiment Evidence</span><strong>实验实证</strong><p>条件、场景与结果均可展开查看。</p></div>"
+        "<div class='side-index'><span>Technical Evidence</span><strong>技术证据</strong><p>原始记录仅用于审计与追溯。</p></div>"
+        f"{_technical_side_html(view.technical_evidence, esc)}</aside>"
     )
     return f"""<!doctype html>
 <html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='color-scheme' content='dark'>
-<title>{esc(title)}</title>
+<title>{esc(view.title)}</title>
 <style>
-:root{{--bg:#070b14;--surface:#0d1423;--surface-2:#111a2d;--line:#24314a;--text:#f3f6fb;--muted:#91a0b8;--accent:#4f7cff;--good:#42d6a4;--warn:#ffb454;--bad:#ff5f70;--radius:14px}}
-*{{box-sizing:border-box}}body{{margin:0;background:radial-gradient(circle at 76% 0,#12213f 0,transparent 32%),var(--bg);color:var(--text);font:15px/1.6 'Segoe UI','Microsoft YaHei UI',system-ui,sans-serif}}
-a{{color:inherit}}code{{font-family:'Cascadia Code','SFMono-Regular',monospace;font-size:12px;color:#9eb7ff;overflow-wrap:anywhere}}
-.shell{{max-width:1440px;margin:auto;padding:30px}}.topbar{{display:flex;align-items:center;justify-content:space-between;padding:0 0 22px;border-bottom:1px solid var(--line)}}
-.brand{{display:flex;gap:12px;align-items:center;font-weight:700}}.mark{{display:grid;place-items:center;width:38px;height:38px;border:1px solid #6688ff;border-radius:12px;color:#a9bbff;background:#101a33}}
-.meta{{color:var(--muted);font-size:13px}}.breadcrumb{{margin:26px 0 8px;color:var(--muted)}}h1{{font-size:34px;line-height:1.2;margin:0 0 9px;letter-spacing:-.02em}}h2{{font-size:20px;margin:4px 0 0}}h3{{font-size:17px;margin:4px 0 0}}.lede{{max-width:850px;color:#c4cee0;margin:0}}
-.sample-banner{{margin:18px 0;padding:10px 14px;border:1px solid #6c5827;background:#211b0e;color:#ffd78b;border-radius:var(--radius)}}.sample-banner.warning{{border-color:#754d2c;background:#281912;color:#ffc17e}}
-.panel{{background:linear-gradient(145deg,rgba(18,28,48,.96),rgba(11,17,30,.96));border:1px solid var(--line);border-radius:var(--radius);padding:22px}}
-.content{{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:18px;align-items:start}}.narratives{{display:grid;gap:18px}}.section-heading{{margin-bottom:16px}}.section-heading span,.eyebrow{{display:block;color:#8fa1be;font-size:12px;letter-spacing:.08em;text-transform:uppercase}}
-.overview-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}}.overview-item{{padding:15px;background:#0a1120;border:1px solid #2a3957;border-radius:10px}}.overview-item span,.context-table th,.analysis-grid span,.scenario-grid span{{display:block;color:var(--muted);font-size:12px}}
-.overview-item p,.analysis-grid p,.scenario-grid p{{margin:4px 0;color:#c8d2e4}}.ideal{{margin:12px 0 0;padding-left:22px;color:#dfe6f4}}
-.context-table{{width:100%;border-collapse:collapse;margin-top:8px}}.context-table th,.context-table td{{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}}.context-table th{{width:160px;color:#aebeff;font-weight:600}}.context-table td{{color:#dfe6f4}}
-.executive{{position:relative;overflow:hidden}}.executive:after{{content:'';position:absolute;inset:auto -90px -110px auto;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(79,124,255,.18),transparent 68%)}}.gate{{font-size:26px;line-height:1.2;margin:12px 0 8px;font-weight:800}}.gate.supported{{color:var(--good)}}.gate.review{{color:var(--warn)}}.executive .recommendation-line{{margin-top:18px;padding-top:14px;border-top:1px solid var(--line);color:#dfe6f4}}
-.finding{{display:flex;gap:12px;padding:13px 0;border-bottom:1px solid var(--line)}}.finding:last-child{{border-bottom:0}}.finding-mark{{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;background:#123c35;color:var(--good);font-weight:800}}.finding p{{margin:3px 0;color:#c8d2e4}}
-.dimension-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}}.dimension{{padding:14px;border:1px solid #2a3957;border-radius:10px;background:#0a1120}}.dimension-label{{display:block;color:#aebeff;font-size:12px}}.dimension strong{{display:block;margin-top:7px}}.dimension p{{margin:5px 0 0;color:#c8d2e4}}
-.experiment-map{{display:grid;gap:8px}}.experiment-map-item{{display:grid;grid-template-columns:30px 1fr;gap:12px;align-items:start;padding:14px;border:1px solid #2a3957;border-radius:10px;background:#0a1120}}.map-number{{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#17264a;color:#a9bbff;font-weight:700}}.experiment-map-item h3{{margin:3px 0}}.experiment-map-item p{{margin:3px 0;color:#c8d2e4}}
-.analysis-card,.scenario-card,.recommendation{{border-top:1px solid var(--line);padding:16px 0}}.analysis-card:first-child,.scenario-card:first-child,.recommendation:first-child{{border-top:0;padding-top:0}}.card-heading{{margin-bottom:10px}}.evidence-kind{{font-size:12px;color:#aebeff}}.analysis-grid,.scenario-grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px}}.analysis-grid>div,.scenario-grid>div{{padding-top:9px;border-top:1px solid var(--line)}}.analysis-grid .wide,.scenario-grid .wide{{grid-column:1/-1}}.interpretation{{margin:14px 0 0;padding:14px 16px;border-left:3px solid var(--accent);background:#0a1020;color:#dfe6f4}}.interpretation strong{{display:block;color:#aebeff;font-size:12px;margin-bottom:4px}}
-.scenario-heading{{display:flex;justify-content:space-between;gap:10px;align-items:center}}.scenario-title{{display:flex;align-items:center;gap:10px;min-width:0}}.scenario-title>span{{color:#aebeff;font-weight:700}}.scenario-id{{color:var(--muted);font-size:11px;font-weight:500}}.scenario-heading strong{{color:var(--good);font-size:12px}}.prompt{{padding:10px 12px;margin:12px 0;background:#0a1020;color:#dfe6f4;border-left:3px solid #6688ff}}
-.finding-list,.limits ul{{list-style:none;margin:12px 0 0;padding:0}}.finding-list li{{position:relative;padding:11px 0;border-bottom:1px solid var(--line)}}.finding-list li:last-child{{border-bottom:0}}.finding-list li span{{float:right;color:#ffd080;font-size:12px}}
-.priority{{float:right;color:#ffd080;font-size:12px}}.recommendation h3{{display:inline-block}}.recommendation p{{margin:7px 0;color:#dfe6f4}}.muted{{color:var(--muted)!important}}.next-step{{color:#aebeff!important}}.next-step strong{{margin-right:8px}}
-.sidebar{{display:grid;gap:18px;position:sticky;top:18px}}.side-evidence{{padding:12px 0;border-bottom:1px solid var(--line)}}.side-evidence:last-child{{border-bottom:0}}.side-evidence span{{color:#aebeff;font-size:12px}}.side-evidence p{{margin:4px 0;color:#c8d2e4}}details{{border-top:1px solid var(--line);padding:12px 0}}details:first-of-type{{border-top:0}}summary{{cursor:pointer;font-weight:700;color:#dfe6f4}}.evidence-value{{margin:10px 0;padding:10px;background:#0a1120;border-radius:9px;color:#c8d2e4}}.evidence-value strong{{display:block;color:var(--muted);font-size:12px}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;background:#101827;color:#dbe7ff;padding:12px;border-radius:10px}}.technical{{color:var(--muted);font-size:13px}}
-footer{{margin-top:22px;padding:18px 0;color:var(--muted);font-size:12px;border-top:1px solid var(--line)}}
-@media(max-width:980px){{.content{{grid-template-columns:1fr}}.sidebar{{position:static}}}}@media(max-width:680px){{.shell{{padding:18px}}.topbar{{align-items:flex-start;gap:12px}}.overview-grid,.dimension-grid,.analysis-grid,.scenario-grid{{grid-template-columns:1fr}}.analysis-grid .wide,.scenario-grid .wide{{grid-column:auto}}}}
-@media print{{body{{background:#fff;color:#111}}.panel{{background:#fff;color:#111;border-color:#bbb}}.sidebar{{position:static}}}}
+:root{{--bg:#060914;--surface:#0d1220;--surface-2:#101625;--line:#222b40;--text:#f5f7fb;--body:#d8deea;--muted:#a9b2c3;--meta:#7f899d;--blue:#5d83ff;--violet:#8d6cff;--good:#35d6a3;--warn:#ffbf66;--bad:#ff6b79;--radius:14px}}
+*{{box-sizing:border-box}}body{{margin:0;background:var(--bg);color:var(--text);font:15px/1.65 'Segoe UI','Microsoft YaHei UI',system-ui,sans-serif}}.shell{{max-width:1700px;margin:0 auto;padding:30px 32px 42px}}.topbar{{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding:0 0 20px}}.brand{{display:flex;align-items:center;gap:12px;font-size:16px;font-weight:700}}.brand-logo{{width:38px;height:38px;display:grid;place-items:center;overflow:hidden}}.brand-logo svg{{display:block;width:32px;height:32px;max-width:32px;max-height:32px}}.meta,.eyebrow,.metric span,.definition dt,.card-label{{color:var(--meta);font-size:12px;letter-spacing:.06em}}.meta{{letter-spacing:.03em}}.language{{color:var(--muted);font-size:13px}}.context{{margin-top:22px;padding:22px 24px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}}.context-head{{display:flex;justify-content:space-between;gap:24px;align-items:flex-start}}.context-kicker{{margin:0 0 5px;color:var(--muted);font-size:13px}}h1{{margin:0;font-size:34px;line-height:1.2;letter-spacing:-.025em}}h2{{margin:5px 0 0;font-size:22px;line-height:1.3}}h3{{margin:4px 0 0;font-size:17px;line-height:1.4}}p{{margin:8px 0;color:var(--body)}}.context-purpose{{max-width:720px;margin:9px 0 0;color:var(--body)}}.context-crumb{{margin:14px 0 0;color:var(--blue)}}.context-meta{{display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:22px;min-width:510px;padding-top:12px}}.context-meta span{{display:block;color:var(--muted);font-size:13px}}.context-meta strong{{display:block;margin-top:4px;color:var(--text);font:600 13px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}}.decision{{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:20px;margin-top:16px;padding:22px 24px;background:linear-gradient(135deg,#101b39,#15152e);border:1px solid #30416a;border-radius:var(--radius)}}.decision-status{{font-size:42px;font-weight:800;line-height:1.05;color:var(--good)}}.decision-status.review{{color:var(--warn)}}.decision-status.blocked,.decision-status.failed{{color:var(--bad)}}.decision-rationale{{max-width:840px;color:var(--body)}}.decision-checks{{margin:0;padding:0;list-style:none;color:var(--muted);font-size:13px}}.decision-checks li{{padding:4px 0;border-bottom:1px solid rgba(255,255,255,.08)}}.metrics{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}}.metric{{min-height:92px;padding:17px 18px;border-right:1px solid var(--line)}}.metric:last-child{{border-right:0}}.metric strong{{display:block;margin-top:7px;font-size:21px;color:var(--text)}}.report-layout{{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:16px;margin-top:16px}}.narratives{{display:grid;gap:16px}}.report-section{{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px 24px}}.section-head{{margin-bottom:16px}}.section-head .eyebrow{{display:block;text-transform:uppercase}}.lede{{color:var(--body);max-width:1000px}}.overview-grid,.dimension-grid,.experiment-map,.analysis-list,.scenario-list,.recommendation-list{{display:grid;gap:12px}}.overview-grid,.dimension-grid{{grid-template-columns:repeat(2,minmax(0,1fr))}}.overview-item,.dimension,.map-item,.analysis-card,.scenario-card,.recommendation{{padding:15px;background:var(--surface-2);border:1px solid var(--line);border-radius:11px}}.overview-item p,.dimension p,.map-item p,.analysis-card p,.scenario-card p,.recommendation p{{margin:5px 0;color:var(--body)}}.ideal{{margin:12px 0 0;padding-left:22px;color:var(--body)}}.context-table{{width:100%;border-collapse:collapse}}.context-table th,.context-table td{{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}}.context-table th{{width:190px;color:var(--muted);font-weight:600}}.context-table td{{color:var(--body)}}.summary-callout{{padding:16px;border-left:3px solid var(--blue);background:#0a1020;color:var(--body)}}.finding-list{{display:grid;gap:8px;margin:14px 0 0;padding:0;list-style:none}}.finding-list li{{padding:11px 13px;border:1px solid var(--line);border-radius:10px;color:var(--body)}}.finding-list strong{{color:var(--text)}}.map-item{{display:grid;grid-template-columns:30px 1fr;gap:12px}}.map-number{{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:#17264a;color:#b8c7ff;font-weight:700}}.analysis-grid,.scenario-grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px;margin-top:12px}}.analysis-grid>div,.scenario-grid>div{{padding-top:9px;border-top:1px solid var(--line)}}.analysis-grid .wide,.scenario-grid .wide{{grid-column:1/-1}}.scenario-title,.scenario-heading{{display:flex;align-items:center;justify-content:space-between;gap:12px}}.scenario-title{{justify-content:flex-start}}.scenario-status{{color:var(--good);font-size:13px;font-weight:700}}.prompt{{padding:10px 12px;margin:12px 0;background:#0a1020;border-left:3px solid var(--blue);color:var(--body)}}.impact-list{{margin:12px 0 0;padding-left:20px;color:var(--body)}}.priority{{float:right;color:var(--warn);font-size:12px}}.next-step{{color:#b8c7ff!important}}.evidence-summary{{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-bottom:15px}}.evidence-stat{{padding:13px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px}}.evidence-stat strong{{display:block;margin-top:4px;font-size:18px}}details{{border-top:1px solid var(--line);padding:13px 0}}details:first-of-type{{border-top:0}}summary{{cursor:pointer;color:var(--text);font-weight:700}}.condition-meta{{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;color:var(--muted);font-size:13px}}.condition-status{{color:var(--good)}}.condition-status.failed{{color:var(--bad)}}.condition-status.review{{color:var(--warn)}}.evidence-detail{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}}.evidence-detail div{{padding:10px;background:#0a1020;border:1px solid var(--line);border-radius:9px}}.evidence-detail span{{display:block;color:var(--muted);font-size:12px}}.evidence-detail p{{margin:3px 0;overflow-wrap:anywhere}}.definition-list{{display:grid;grid-template-columns:180px 1fr;margin:0}}.definition-list dt,.definition-list dd{{padding:10px 0;border-bottom:1px solid var(--line)}}.definition-list dt{{font-weight:600}}.definition-list dd{{margin:0;color:var(--body);overflow-wrap:anywhere}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;background:#080d18;border:1px solid var(--line);border-radius:9px;padding:12px;color:#dbe7ff;font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace}}.sidebar{{display:grid;gap:12px;align-content:start;position:sticky;top:18px}}.side-index{{padding:15px;background:var(--surface);border:1px solid var(--line);border-radius:12px}}.side-index span{{display:block;color:#aebeff;font-size:12px;letter-spacing:.06em}}.side-index strong{{display:block;margin-top:5px;font-size:16px}}.side-index p{{font-size:13px;color:var(--muted)}}footer{{margin-top:18px;padding-top:16px;border-top:1px solid var(--line);color:var(--meta);font-size:12px}}@media(max-width:1100px){{.context-head{{display:block}}.context-meta{{min-width:0;margin-top:20px}}.report-layout{{grid-template-columns:1fr}}.sidebar{{position:static;grid-template-columns:repeat(3,1fr)}}}}@media(max-width:700px){{.shell{{padding:18px}}.overview-grid,.dimension-grid,.analysis-grid,.scenario-grid,.evidence-summary,.sidebar{{grid-template-columns:1fr}}.metrics{{grid-template-columns:repeat(2,1fr)}}.metric:nth-child(2){{border-right:0}}.metric:nth-child(-n+2){{border-bottom:1px solid var(--line)}}.decision{{grid-template-columns:1fr}}.context-meta{{grid-template-columns:1fr}}.definition-list{{grid-template-columns:1fr}}.definition-list dd{{padding-top:0}}}}
 </style></head><body><main class='shell'>
-<header class='topbar'><div class='brand'><div class='mark'>AIG</div><div>{esc(template.brand_name)}<br><span class='meta'>{esc(template.report_label)}</span></div></div><div class='meta'>{esc(template.language_label)}</div></header>
-<div class='breadcrumb'>{esc(template.breadcrumb_prefix)} / {esc(report.subject.component_name)}</div><h1>{esc(title)}</h1><p class='lede'>{esc(report.product_overview.product_role)}</p>{scenario_notice}
-<section class='panel narrative-panel'><div class='section-heading'><span>{esc(sections['capability_overview'].eyebrow)}</span><h2>{esc(sections['capability_overview'].title)}</h2></div><div class='overview-grid'><div class='overview-item'><span>{esc(labels['product_role'])}</span><p>{esc(report.product_overview.product_role)}</p></div><div class='overview-item'><span>{esc(labels['why_it_exists'])}</span><p>{esc(report.product_overview.why_it_exists)}</p></div><div class='overview-item'><span>{esc(labels['user_problem'])}</span><p>{esc(report.product_overview.user_problem)}</p></div><div class='overview-item'><span>{esc(labels['boundary'])}</span><p>{esc(report.product_overview.boundary)}</p></div></div><h3>{esc(labels['ideal_behavior'])}</h3><ul class='ideal'>{''.join(f'<li>{esc(item)}</li>' for item in report.product_overview.ideal_behavior)}</ul></section>
-<div class='content'><div class='narratives'>
-<section class='panel narrative-panel'><div class='section-heading'><span>{esc(sections['evaluation_context'].eyebrow)}</span><h2>{esc(sections['evaluation_context'].title)}</h2></div><table class='context-table'><tbody>{context_rows}</tbody></table></section>
-<section class='panel executive'><div class='section-heading'><span>{esc(sections['executive_summary'].eyebrow)}</span><h2>{esc(sections['executive_summary'].title)}</h2></div><div class='gate {gate_class}'>{esc(status)}</div><p>{esc(report.executive_summary.final_conclusion)}</p><div class='finding-list'>{findings}</div><p class='recommendation-line'><strong>{esc(labels['product_recommendation'])}</strong>　{esc(report.executive_summary.product_recommendation)}</p><p class='muted'><strong>{esc(labels['follow_up_priorities'])}</strong>　{esc('；'.join(report.executive_summary.follow_up_priorities))}</p></section>
-<section class='panel narrative-panel'><div class='section-heading'><span>{esc(template.dimensions_eyebrow)}</span><h2>{esc(template.dimensions_title)}</h2></div><div class='dimension-grid'>{dimensions}</div></section>
-<section class='panel narrative-panel'><div class='section-heading'><span>{esc(sections['experiment_overview'].eyebrow)}</span><h2>{esc(sections['experiment_overview'].title)}</h2></div><p class='lede'>{esc(report.experiment_overview.summary)}</p><div class='experiment-map'>{experiment_questions}</div></section>
-<section class='panel narrative-panel'><div class='section-heading'><span>{esc(sections['experiment_analysis'].eyebrow)}</span><h2>{esc(sections['experiment_analysis'].title)}</h2></div>{analyses}{interaction_comparison}</section>
-<section class='panel narrative-panel'><div class='section-heading'><span>{esc(sections['scenario_stability'].eyebrow)}</span><h2>{esc(sections['scenario_stability'].title)}</h2></div><p>{esc(report.scenario_stability.summary)}</p><p class='interpretation'><strong>{esc(labels['scenario_conclusion'])}</strong>{esc(report.scenario_stability.coverage_conclusion)}</p>{scenarios}</section>
-<section class='panel narrative-panel'><div class='section-heading'><span>{esc(sections['product_impact'].eyebrow)}</span><h2>{esc(sections['product_impact'].title)}</h2></div><p>{esc(report.business_impact.user_consequence)}</p><ul class='finding-list'>{findings_impact}</ul></section>
-<section class='panel narrative-panel'><div class='section-heading'><span>{esc(sections['recommendation'].eyebrow)}</span><h2>{esc(sections['recommendation'].title)}</h2></div>{recommendations}</section>
-<section class='panel narrative-panel'><div class='section-heading'><span>{esc(sections['limitations'].eyebrow)}</span><h2>{esc(sections['limitations'].title)}</h2></div><ul class='limits ul'>{limitations}</ul></section>
- </div><aside class='sidebar'><section class='panel'><span class='eyebrow'>{esc(product_panel.eyebrow)}</span><h2>{esc(product_panel.title)}</h2><p class='technical'>{esc(product_panel.description)}</p>{product_evidence}</section><section class='panel'><span class='eyebrow'>{esc(experiment_panel.eyebrow)}</span><h2>{esc(experiment_panel.title)}</h2><p class='technical'>{esc(experiment_panel.description)}</p>{experiment_evidence}</section><section class='panel'><span class='eyebrow'>{esc(technical_panel.eyebrow)}</span><h2>{esc(technical_panel.title)}</h2><p class='technical'>{esc(technical_panel.description)}</p>{supplementary_evidence}{technical_records}{technical_facts}</section></aside></div>
-<footer>{esc(footer)}</footer></main></body></html>"""
+<header class='topbar'><div class='brand'><span class='brand-logo'>{logo}</span><div>Agent Iteration Guard<br><span class='meta'>Evidence-first · Local</span></div></div><div class='language'>简体中文 · 独立报告</div></header>
+<section class='context'><div class='context-head'><div><p class='context-kicker'>项目详情 · PROJECT DETAIL</p><h1>{esc(view.project.project_name)}</h1><p class='context-purpose'>{esc(view.project.purpose)}</p><p class='context-crumb'>项目 / {esc(view.project.project_name)}</p></div><div class='context-meta'><div><span>Baseline</span><strong>{esc(view.project.baseline)}</strong></div><div><span>Candidate</span><strong>{esc(view.project.candidate)}</strong></div><div><span>Runtime</span><strong>{esc(view.project.runtime)}</strong></div></div></div></section>
+<section class='decision'><div><div class='eyebrow'>Release Decision · Gate</div><div class='decision-status {status_class}'>{esc(view.decision.get('decision'))}</div><p class='decision-rationale'>{esc(view.decision.get('rationale'))}</p></div><ul class='decision-checks'>{''.join(f"<li>{esc(item.get('name', item.get('check', 'Gate check')))}：{esc(item.get('status', item.get('result', '')))}</li>" for item in view.decision.get('checks', []))}</ul></section>
+<section class='metrics'>{metrics}</section>
+<div class='report-layout'><div class='narratives'>{''.join(sections_html)}</div>{aside}</div>
+<footer>Evidence 状态：{esc(view.metrics.get('evidence_status'))} · Report hash 仅保留在技术元数据：<code>{esc(view.technical_metadata.get('report_hash'))}</code></footer></main></body></html>"""
 
 
-def _render_evidence_entry(item: object, esc) -> str:
-    return (
-        f"<details class='evidence-entry'><summary>{esc(item.experiment_name)}</summary>"
-        f"<div class='evidence-value'><strong>输入任务</strong>{esc(item.input_task)}</div>"
-        f"<div class='evidence-value'><strong>{esc(item.reference_label)}</strong>{esc(item.reference_result)}</div>"
-        f"<div class='evidence-value'><strong>{esc(item.changed_label)}</strong>{esc(item.changed_result)}</div>"
-        f"<div class='evidence-value'><strong>差异</strong>{esc(item.difference)}</div></details>"
-    )
+def _section(section: Any, body: str) -> str:
+    return f"<section class='report-section'><div class='section-head'><span class='eyebrow'>{_esc(section.eyebrow)}</span><h2>{_esc(section.title)}</h2></div>{body}</section>"
 
 
-def _scenario_id_markup(scenario_id: str | None, esc) -> str:
-    if not scenario_id:
-        return ""
-    return f"<code class='scenario-id'>scenario_id: {esc(scenario_id)}</code>"
+def _overview_html(data: Mapping[str, Any], template: ProductReportTemplate, esc) -> str:
+    fields = ((template.label("product_role"), data.get("product_role")), (template.label("why_it_exists"), data.get("why_it_exists")), (template.label("user_problem"), data.get("user_problem")), (template.label("boundary"), data.get("boundary")))
+    cards = "".join(f"<div class='overview-item'><span class='card-label'>{esc(label)}</span><p>{esc(value)}</p></div>" for label, value in fields)
+    ideal = "".join(f"<li>{esc(item)}</li>" for item in data.get("ideal_behavior", []))
+    return f"<div class='overview-grid'>{cards}</div><h3>{esc(template.label('ideal_behavior'))}</h3><ul class='ideal'>{ideal}</ul>"
 
 
-def _scenario_id_markdown(scenario_id: str | None) -> str:
-    return f" (`scenario_id: {scenario_id}`)" if scenario_id else ""
+def _context_html(data: Mapping[str, Any], esc) -> str:
+    rows = "".join(f"<tr><th>{esc(item.get('label'))}</th><td>{esc(item.get('value'))}</td></tr>" for item in data.get("items", []))
+    return f"<table class='context-table'><tbody>{rows}</tbody></table>"
 
 
-def _ordered_dimensions(report: ProductEvaluationReport):
-    order = {
-        "trigger": 0,
-        "execution": 1,
-        "delivery": 2,
-        "boundary": 3,
-        "capability_contribution": 4,
-        "synergy_gain": 5,
-        "coordination": 6,
-        "conflict": 7,
-        "reliability_cost": 8,
+def _summary_html(data: Mapping[str, Any], decision: Mapping[str, Any], *, labels: Mapping[str, str], esc) -> str:
+    findings = "".join(f"<li><strong>{esc(item.get('title'))}</strong><br>{esc(item.get('statement'))}</li>" for item in data.get("main_findings", []))
+    follow_up = "；".join(str(item) for item in data.get("follow_up_priorities", []))
+    return f"<div class='summary-callout'><strong>{esc(labels['final_conclusion'])}</strong><p>{esc(data.get('final_conclusion'))}</p></div><ul class='finding-list'>{findings}</ul><p><strong>{esc(labels['product_recommendation'])}</strong>：{esc(data.get('product_recommendation'))}</p><p class='muted'><strong>{esc(labels['follow_up_priorities'])}</strong>：{esc(follow_up)}</p><p class='muted'>Gate：{esc(decision.get('decision'))}</p>"
+
+
+def _dimensions_html(items: list[Mapping[str, Any]], template: ProductReportTemplate, esc) -> str:
+    return "<div class='dimension-grid'>" + "".join(f"<article class='dimension'><span class='card-label'>{esc(_dimension_label(template, item.get('dimension', '')))}</span><strong>{esc(item.get('conclusion'))}</strong><p>{esc(item.get('explanation'))}</p></article>" for item in items) + "</div>"
+
+
+def _experiments_overview_html(data: Mapping[str, Any], esc) -> str:
+    cards = "".join(f"<article class='map-item'><span class='map-number'>{index + 1}</span><div><span class='card-label'>{esc(item.get('name'))}</span><h3>{esc(item.get('question'))}</h3><p>{esc(item.get('purpose'))}</p></div></article>" for index, item in enumerate(data.get("questions", [])))
+    return f"<p class='lede'>{esc(data.get('summary'))}</p><div class='experiment-map'>{cards}</div>"
+
+
+def _analysis_html(items: list[Mapping[str, Any]], template: ProductReportTemplate, esc) -> str:
+    cards = []
+    labels = template.labels
+    label_keys = {
+        "purpose": "experiment_purpose",
+        "design": "experiment_design",
+        "input_scenario": "input_scenario",
+        "observation": "observation",
+        "result": "result",
     }
-    return sorted(report.executive_summary.dimensions, key=lambda item: order.get(item.dimension, 99))
+    for item in items:
+        grid = "".join(
+            f"<div{_wide_class(key)}><span class='card-label'>{esc(labels[label_keys[key]])}</span><p>{esc(item.get(key))}</p></div>"
+            for key in ("purpose", "design", "input_scenario", "observation", "result")
+        )
+        cards.append(f"<article class='analysis-card'><span class='card-label'>{esc(template.section('experiment_analysis').title)}</span><h3>{esc(item.get('experiment_name'))}</h3><div class='analysis-grid'>{grid}</div><p class='summary-callout'><strong>{esc(labels['product_meaning'])}</strong>：{esc(item.get('product_meaning'))}</p></article>")
+    return "<div class='analysis-list'>" + "".join(cards) + "</div>"
+
+
+def _stability_html(data: Mapping[str, Any], template: ProductReportTemplate, esc) -> str:
+    cards = "".join(f"<article class='scenario-card'><div class='scenario-heading'><div class='scenario-title'><h3>{esc(item.get('name'))}</h3><code>{esc(item.get('scenario_id'))}</code></div><span class='scenario-status'>{esc(item.get('status'))}</span></div><p class='prompt'>“{esc(item.get('user_prompt'))}”</p><div class='scenario-grid'><div><span class='card-label'>{esc(template.labels['scenario_purpose'])}</span><p>{esc(item.get('purpose'))}</p></div><div><span class='card-label'>{esc(template.labels['scenario_observation'])}</span><p>{esc(item.get('observation'))}</p></div><div class='wide'><span class='card-label'>{esc(template.labels['scenario_result'])}</span><p>{esc(item.get('result'))}</p></div></div></article>" for item in data.get("scenarios", []))
+    return f"<p>{esc(data.get('summary'))}</p><p class='summary-callout'><strong>{esc(template.labels['scenario_conclusion'])}</strong>：{esc(data.get('coverage_conclusion'))}</p><div class='scenario-list'>{cards}</div>"
+
+
+def _impact_html(data: Mapping[str, Any], esc) -> str:
+    findings = "".join(f"<li><strong>{esc(item.get('impact_dimension'))}</strong>：{esc(item.get('product_meaning'))}<span class='priority'>{esc(item.get('severity'))}</span></li>" for item in data.get("findings", []))
+    return f"<p class='summary-callout'>{esc(data.get('user_consequence'))}</p><p><strong>影响的用户旅程</strong>：{esc(data.get('affected_user_journey'))}</p><ul class='impact-list'>{findings}</ul>"
+
+
+def _recommendations_html(items: list[Mapping[str, Any]], labels: Mapping[str, str], esc) -> str:
+    return "<div class='recommendation-list'>" + "".join(f"<article class='recommendation'><span class='priority'>{esc(item.get('priority'))}</span><h3>{esc(item.get('target'))}</h3><p>{esc(item.get('action'))}</p><p class='muted'><strong>{esc(labels['reasoning'])}</strong>：{esc(item.get('reasoning'))}</p><p class='next-step'><strong>{esc(labels['next_step'])}</strong>：{esc('；'.join(item.get('validation_plan', [])))}</p></article>" for item in items) + "</div>"
+
+
+def _limitations_html(items: list[Mapping[str, Any]], esc) -> str:
+    return "<ul class='impact-list'>" + "".join(f"<li>{esc(item.get('statement'))}</li>" for item in items) + "</ul>"
+
+
+def _evidence_html(view: NormalizedReport, esc) -> str:
+    metrics = view.metrics
+    stats = "".join(f"<div class='evidence-stat'><span class='card-label'>{esc(label)}</span><strong>{esc(value)}</strong></div>" for label, value in (("状态", view.evidence_bundle.get('status')), ("已验证", metrics.get('verified_count')), ("通过", metrics.get('passed_count')), ("失败", metrics.get('failed_count')), ("成本", _cost_text(metrics.get('cost_usd')))))
+    conditions = []
+    for item in view.evidence_bundle.get("conditions", []):
+        observations = item.get("observations", {})
+        detail = "".join(f"<div><span>{esc(_observation_label(key))}</span><p>{esc(_stringify(value))}</p></div>" for key, value in observations.items())
+        conditions.append(f"<details><summary>{esc(item.get('label'))}</summary><div class='condition-meta'><span>{esc(item.get('kind'))}</span><span class='condition-status {_status_class(item.get('status'))}'>{esc(item.get('status'))}</span><span>{esc(item.get('experiment_id'))}</span><span>{esc(item.get('scenario_id'))}</span></div><div class='evidence-detail'>{detail}<div><span>evidence_refs</span><p>{esc(', '.join(item.get('evidence_refs', [])))}</p></div></div></details>")
+    return f"<p class='lede'>首屏展示证据状态、条件计数与总体摘要；具体 enabled / disabled / replacement 条件保持折叠，展开后查看观察值与证据引用。</p><div class='evidence-summary'>{stats}</div>{''.join(conditions)}"
+
+
+def _technical_html(evidence: Mapping[str, Any], metadata: Mapping[str, Any], esc) -> str:
+    definitions = "".join(f"<dt>{esc(key)}</dt><dd>{esc(_stringify(value))}</dd>" for key, value in metadata.items())
+    return f"<dl class='definition-list'>{definitions}</dl><p class='muted'>原始技术记录、事实与补充证据位于右侧 Technical Evidence 索引中，可展开查看。</p>"
+
+
+def _technical_side_html(evidence: Mapping[str, Any], esc) -> str:
+    details = []
+    for label, values in (("records", evidence.get("records", [])), ("facts", evidence.get("facts", [])), ("supplementary", evidence.get("supplementary", []))):
+        for index, value in enumerate(values, start=1):
+            details.append(f"<details><summary>{esc(label)} · {index}</summary><pre>{esc(json.dumps(value, ensure_ascii=False, indent=2))}</pre></details>")
+    return "<div class='side-details'>" + "".join(details) + "</div>"
+
+
+def _observation_label(key: str) -> str:
+    labels = {
+        "runtime_completed": "运行完成",
+        "trace_event_count": "事件数量",
+        "trace_types": "事件类型",
+        "verifier": "校验器",
+        "verifier_type": "校验器类型",
+        "structured_output": "结构化输出",
+        "constraint_adherence": "约束遵循",
+        "side_effect_boundary": "副作用边界",
+        "fallback_used": "是否使用回退",
+        "deliverable_present": "交付物存在",
+        "oracle_verified": "Oracle 已验证",
+    }
+    return labels.get(key, key.replace("_", " "))
+
+
+def _interaction_html(interaction: Any, esc) -> str:
+    rows = "".join(f"<tr><td>{esc(item.scenario_name)}</td><td>{esc(item.a_only)}</td><td>{esc(item.b_only)}</td><td>{esc(item.combined)}</td><td>{esc(item.product_meaning)}</td></tr>" for item in interaction.scenario_comparisons)
+    return f"<article class='analysis-card'><span class='card-label'>Skill Pair Scenario Comparison</span><h3>Skill Pair 对照</h3><p>{esc(interaction.summary)}</p><table class='context-table'><thead><tr><th>Scenario</th><th>A Only</th><th>B Only</th><th>A+B</th><th>Product Meaning</th></tr></thead><tbody>{rows}</tbody></table><p><strong>Synergy Gain</strong>：{esc(interaction.synergy_gain)}</p><p><strong>Reliability &amp; Cost Impact</strong>：{esc(interaction.reliability_cost)}</p></article>"
+
+
+def _markdown_analysis(item: Mapping[str, Any], labels: Mapping[str, str]) -> list[str]:
+    lines = [f"### {item.get('experiment_name', '')}", ""]
+    for key in ("purpose", "design", "input_scenario", "observation", "result", "product_meaning"):
+        label = labels.get(key, key)
+        lines.extend([f"**{label}**：{item.get(key, '')}", ""])
+    return lines
+
+
+def _markdown_interaction(interaction: Any) -> list[str]:
+    lines = ["### Skill Pair Scenario Comparison", "", interaction.summary, "", "| Scenario | A Only | B Only | A+B | Product Meaning |", "| --- | --- | --- | --- | --- |"]
+    lines.extend(f"| {item.scenario_name} | {item.a_only} | {item.b_only} | {item.combined} | {item.product_meaning} |" for item in interaction.scenario_comparisons)
+    lines.extend(["", f"**Capability Contribution**：{interaction.capability_contribution}", "", f"**Composition Gain**：{interaction.composition_gain}", "", f"**Synergy Gain**：{interaction.synergy_gain}", "", f"**Coordination**：{interaction.coordination}", "", f"**Conflict / Interference**：{interaction.conflict}", "", f"**Reliability & Cost Impact**：{interaction.reliability_cost}", ""])
+    return lines
+
+
+def _markdown_fields(data: Mapping[str, Any], labels: Mapping[str, str], keys: tuple[str, ...]) -> list[str]:
+    lines: list[str] = []
+    for key in keys:
+        lines.extend([f"**{labels[key]}**：{data.get(key, '')}", ""])
+    return lines
 
 
 def _dimension_label(template: ProductReportTemplate, dimension: str) -> str:
     return template.dimension_labels.get(dimension, dimension.replace("_", " ").title())
 
 
+def _scenario_id_markdown(value: str | None) -> str:
+    return f" (`scenario_id: {value}`)" if value else ""
+
+
+def _status_class(value: object) -> str:
+    text = str(value or "").lower()
+    if any(token in text for token in ("block", "fail", "failed", "reject")):
+        return "failed"
+    if any(token in text for token in ("review", "pending", "partial", "mixed")):
+        return "review"
+    return "supported"
+
+
+def _wide_class(key: str) -> str:
+    return " class='wide'" if key == "input_scenario" else ""
+
+
+def _cost_text(value: object) -> str:
+    return "未记录" if value is None else f"${float(value):.4f}"
+
+
+def _stringify(value: object) -> str:
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value) if value is not None else "-"
+
+
+def _esc(value: object) -> str:
+    return html.escape(_stringify(value), quote=True)
+
+
+def _logo_svg() -> str:
+    path = Path(__file__).parents[2] / "frontend" / "public" / "icons" / "agent-guard-logo.svg"
+    if path.is_file():
+        return path.read_text(encoding="utf-8")
+    return "<span aria-label='Agent Iteration Guard'>AIG</span>"
+
+
 def write_product_evaluation_outputs(
     output_dir: Path,
     report: ProductEvaluationReport,
     template: ProductReportTemplate | None = None,
+    *,
+    project_context: Mapping[str, object] | None = None,
+    gate: Mapping[str, object] | None = None,
 ) -> dict[str, Path]:
     """Persist every delivery format from one validated report object."""
 
@@ -443,13 +371,9 @@ def write_product_evaluation_outputs(
     }
     paths["evidence"].write_text(report.evidence.model_dump_json(indent=2) + "\n", encoding="utf-8")
     paths["report"].write_text(report.model_dump_json(indent=2) + "\n", encoding="utf-8")
-    paths["html"].write_text(render_product_evaluation_html(report, template), encoding="utf-8")
-    paths["markdown"].write_text(render_product_evaluation_markdown(report, template), encoding="utf-8")
+    paths["html"].write_text(render_product_evaluation_html(report, template, project_context=project_context, gate=gate), encoding="utf-8")
+    paths["markdown"].write_text(render_product_evaluation_markdown(report, template, project_context=project_context, gate=gate), encoding="utf-8")
     return paths
 
 
-__all__ = [
-    "render_product_evaluation_html",
-    "render_product_evaluation_markdown",
-    "write_product_evaluation_outputs",
-]
+__all__ = ["render_product_evaluation_html", "render_product_evaluation_markdown", "write_product_evaluation_outputs"]

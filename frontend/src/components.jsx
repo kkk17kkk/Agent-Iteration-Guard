@@ -26,10 +26,50 @@ export function FileButton({ id, accept, onChange, children, icon = "upload", di
     <>
       <label className={`file-button${disabled ? " disabled" : ""}`} htmlFor={disabled ? undefined : id}>
         <I name={icon} />
-        {children}
+        <span className="file-button-text">{children}</span>
       </label>
       <input id={id} className="sr-file-input" type="file" accept={accept} onChange={onChange} disabled={disabled} />
     </>
+  );
+}
+
+export function ProjectContextCard({
+  displayName,
+  purpose,
+  baselineVersion,
+  candidateVersion,
+  runtimeKind,
+  status,
+  onOverview,
+  onVersions,
+  onConfiguration,
+  actions = false,
+}) {
+  return (
+    <section className="project-context-card">
+      <div className="project-context-main">
+        <div className="project-context-kicker">项目详情 · PROJECT DETAIL</div>
+        <h2>{displayName}</h2>
+        <p>{purpose || "当前项目的扫描信息与评估上下文。"}</p>
+        <div className="project-context-breadcrumb">
+          {onOverview ? <button className="text-button" onClick={onOverview}>项目</button> : <span>项目</span>}
+          <span>/</span>
+          <strong>{displayName}</strong>
+        </div>
+      </div>
+      <div className="project-context-meta" aria-label="项目版本信息">
+        <span><small>Baseline</small><strong>{baselineVersion || "-"}</strong></span>
+        <span><small>Candidate</small><strong>{candidateVersion || "-"}</strong></span>
+        <span><small>Runtime</small><strong>{runtimeKind || "-"}</strong></span>
+      </div>
+      {actions && (
+        <div className="project-context-actions">
+          <Status value={status} />
+          <button className="secondary" onClick={onVersions}><I name="branch" />版本对比</button>
+          <button className="secondary" onClick={onConfiguration}><I name="gear" />配置 Provider</button>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -62,9 +102,10 @@ export function Status({ value }) {
   </span>;
 }
 
-export function Page({ title, kicker, intro, action, children }) {
+export function Page({ title, kicker, intro, action, before, headingCard = false, children }) {
   return <div className="page">
-    <div className="page-heading">
+    {before}
+    <div className={`page-heading${headingCard || before ? " page-heading-card" : ""}`}>
       <div><span className="eyebrow">{kicker}</span><h1>{title}</h1>{intro && <p>{intro}</p>}</div>
       {action}
     </div>

@@ -30,6 +30,15 @@ export function projectDisplayName(manifest = {}, projectId = "") {
   return token || raw;
 }
 
+export function projectPurpose(manifest = {}, projectId = "") {
+  const raw = String(manifest.purpose || "").trim().replace(/\s+/g, " ");
+  const englishWords = raw.match(/[A-Za-z]{3,}/g) || [];
+  if (!raw || raw.length > 72 || englishWords.length >= 4) {
+    return `当前已加载 ${projectDisplayName(manifest, projectId)} 项目，可查看版本、能力变化与评估结果。`;
+  }
+  return raw;
+}
+
 export function collection(value) {
   if (Array.isArray(value)) return value;
   if (Array.isArray(value?.items)) return value.items;

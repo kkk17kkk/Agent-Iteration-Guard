@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { I, Status, Page, SectionHeading, EmptyState, Metric, PipelineStep } from "../components.jsx";
+import { I, Status, Page, SectionHeading, EmptyState, Metric, PipelineStep, ProjectContextCard } from "../components.jsx";
 
 const PIPELINE = [
   { label: "Planning", icon: "sparkle" },
@@ -74,7 +74,7 @@ function artifactStatus(condition) {
   return "review";
 }
 
-export default function Running({ projectId, plan, requestRecord, runContext, readiness, run, matrix, evidence, onReadiness, onStart, onRefresh, onPoll, onArtifacts, onReport, loading, demoMode = false, readOnlyNotice }) {
+export default function Running({ projectId, projectHeader, plan, requestRecord, runContext, readiness, run, matrix, evidence, onReadiness, onStart, onRefresh, onPoll, onArtifacts, onReport, loading, demoMode = false, readOnlyNotice, onOverview }) {
   const active = isActiveRun(run);
 
   // Silent polling while a run is in flight — keeps the live view fresh
@@ -85,8 +85,16 @@ export default function Running({ projectId, plan, requestRecord, runContext, re
     return () => clearInterval(timer);
   }, [active, onPoll]);
 
+  if (!projectHeader) {
+    return <EmptyState icon="pulse" title="请先加载项目" detail="运行监控需要先加载一个 Project Intelligence。" />;
+  }
+
   if (!plan) {
-    return <EmptyState icon="pulse" title="当前没有运行中的评估" detail="请先在 New Evaluation 生成评测计划。Readiness 通过后才能启动目标执行。" />;
+    return (
+      <Page title="运行监控" kicker="受控执行 · CONTROLLED EVALUATION" intro="服务端拥有执行、事件状态、矩阵产物与 Evidence Bundle 引用。" before={<ProjectContextCard {...projectHeader} onOverview={onOverview} />}>
+        <EmptyState icon="pulse" title="当前没有运行中的评估" detail="请先在新建评估中生成评测计划。Readiness 通过后才能启动目标执行。" />
+      </Page>
+    );
   }
 
   const runDone = run?.status === "completed";
@@ -104,6 +112,7 @@ export default function Running({ projectId, plan, requestRecord, runContext, re
       title="运行监控"
       kicker="受控执行 · CONTROLLED EVALUATION"
       intro="服务端拥有执行、事件状态、矩阵产物与 Evidence Bundle 引用。"
+      before={<ProjectContextCard {...projectHeader} onOverview={onOverview} />}
     >
       {/* Hero: identity + progress ring */}
       <section className="run-hero">

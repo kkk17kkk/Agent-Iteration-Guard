@@ -60,6 +60,7 @@ from .target_onboarding import TargetEnvironmentCache
 from .semantic_reporting import ProductEvaluationReport, product_evaluation_api_payload
 from .product_evaluation_renderers import render_product_evaluation_html, render_product_evaluation_markdown
 from .product_report_template import default_product_report_template
+from .report_view_model import normalize_product_evaluation_report, project_context_from_intelligence
 from .service import AssistantInputError, ProductNotFoundError, Service
 from .targets import TargetInfrastructureError
 from .interaction_runner import InteractionRunnerError, OracleExecutionError, TargetExecutionError
@@ -530,6 +531,20 @@ def _report_metadata(record: EvaluationReportRecord) -> EvaluationReportMetadata
         scope_id=record.scope_id,
         created_at=record.created_at,
     )
+
+
+def _demo_report_bundle() -> tuple[GenericProductEvaluationReport, dict[str, str], object]:
+    report_path = Path(__file__).parents[2] / "examples" / "reports" / "lighttable-product-evaluation.zh-CN" / "product-evaluation-report.json"
+    report = GenericProductEvaluationReport.model_validate_json(report_path.read_text(encoding="utf-8"))
+    context = {
+        "project_id": "lighttable-pair-nutrition",
+        "project_name": "LightTable",
+        "purpose": "当前已加载 LightTable 项目，可查看版本、能力变化与评估结果。",
+        "baseline": "main-fa774ef",
+        "candidate": "candidate-gui-v2-20260806",
+        "runtime": "native_command",
+    }
+    return report, context, evaluate_release_decision(report)
 
 
 def _run_failure_classification(error: Exception) -> str:
@@ -1362,6 +1377,47 @@ def get_evaluation_report(project_id: str, report_id: str):
     return record.report
 
 
+@app.get("/api/v1/projects/{project_id}/reports/{report_id}/view")
+def get_evaluation_report_view(project_id: str, report_id: str):
+    app_service = service()
+    record = app_service.evaluation_report(project_id, report_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="evaluation report not found")
+    report = GenericProductEvaluationReport.model_validate(record.report)
+    intelligence = app_service.project_intelligence(project_id)
+    context = project_context_from_intelligence(intelligence) if intelligence is not None else None
+    view = normalize_product_evaluation_report(report, project_context=context, gate=evaluate_release_decision(report))
+    return view.model_dump(mode="json")
+
+
+@app.get("/api/v1/demo/reports/lighttable")
+def get_lighttable_demo_report():
+    report, context, gate = _demo_report_bundle()
+    view = normalize_product_evaluation_report(report, project_context=context, gate=gate)
+    return {
+        "report": report.model_dump(mode="json"),
+        "evidence": report.evidence.model_dump(mode="json"),
+        "gate": gate.model_dump(mode="json"),
+        "view": view.model_dump(mode="json"),
+    }
+
+
+@app.get("/api/v1/demo/reports/lighttable/export")
+def export_lighttable_demo_report(format: Literal["json", "md", "html"] = "html"):
+    report, context, gate = _demo_report_bundle()
+    if format == "json":
+        return Response(content=report.model_dump_json(indent=2), media_type="application/json")
+    if format == "md":
+        return Response(
+            content=render_product_evaluation_markdown(report, default_product_report_template(), project_context=context, gate=gate),
+            media_type="text/markdown; charset=utf-8",
+        )
+    return Response(
+        content=render_product_evaluation_html(report, default_product_report_template(), project_context=context, gate=gate),
+        media_type="text/html; charset=utf-8",
+    )
+
+
 @app.get("/api/v1/projects/{project_id}/reports/{report_id}/evidence")
 def get_evaluation_report_evidence(project_id: str, report_id: str):
     app_service = service()
@@ -1392,6 +1448,9 @@ def export_evaluation_report(
     if record is None:
         raise HTTPException(status_code=404, detail="evaluation report not found")
     report = GenericProductEvaluationReport.model_validate(record.report)
+    intelligence = service().project_intelligence(project_id)
+    context = project_context_from_intelligence(intelligence) if intelligence is not None else None
+    gate = evaluate_release_decision(report)
     if format == "json":
         return Response(
             content=json.dumps(record.report, ensure_ascii=False, indent=2),
@@ -1399,11 +1458,11 @@ def export_evaluation_report(
         )
     if format == "md":
         return Response(
-            content=render_product_evaluation_markdown(report, default_product_report_template()),
+            content=render_product_evaluation_markdown(report, default_product_report_template(), project_context=context, gate=gate),
             media_type="text/markdown; charset=utf-8",
         )
     return Response(
-        content=render_product_evaluation_html(report, default_product_report_template()),
+        content=render_product_evaluation_html(report, default_product_report_template(), project_context=context, gate=gate),
         media_type="text/html; charset=utf-8",
     )
 

@@ -1,7 +1,15 @@
-# recipe_planning 产品评估
+# recipe_planning 评估
+
+## 项目上下文 / Project Context
+
+- 项目：LightTable
+- 用途：????? LightTable ???????????????????
+- Baseline：main-fa774ef
+- Candidate：candidate-gui-v2-20260806
+- Runtime：native_command
 
 ## 1 · Capability Overview
-### 这个组件为用户完成什么工作？
+### 能力概览
 
 **产品职责**：在 maintain 目标下为 2 人家庭在工作日 20 分钟内规划餐食，遵守忌口鸡蛋并优先消耗番茄和豆腐库存。
 
@@ -9,16 +17,16 @@
 
 **改善的用户问题**：用户希望获得符合个人约束、时间可行且能减少临时决策成本的餐食计划，但仅靠通用回答容易忽略忌口或库存。
 
+**能力边界**：时间过短或输入不完整时应缩小方案范围或请求澄清；不能把近似营养信息表达为医疗级精确结论；不能为了消耗库存而违反明确饮食禁忌。
+
 **理想行为**：
 - 识别 maintain、2 人和 20 分钟等任务约束
 - 不推荐含鸡蛋的菜品
 - 优先利用番茄和豆腐库存
 - 输出结构化、可执行的餐食方案和必要的购物建议
 
-**能力边界**：时间过短或输入不完整时应缩小方案范围或请求澄清；不能把近似营养信息表达为医疗级精确结论；不能为了消耗库存而违反明确饮食禁忌。
-
 ## 2 · Evaluation Context
-### 本次评估具体模拟什么用户场景？
+### 评估上下文
 
 | 项目 | 内容 |
 | --- | --- |
@@ -47,6 +55,9 @@
 - 增加跨日期与更多库存组合样本
 - 验证替换实现能否恢复约束执行
 
+## 4 · Evaluation Dimensions
+### 评估维度
+
 ### Trigger：能力触发
 
 启用时正确进入餐食规划流程，移除或替换后未进入该能力流程。。启用 Skill 的 5 个场景均完成规划流程；移除和替换场景均未进入目标能力流程。
@@ -63,7 +74,7 @@
 
 三种条件下均未超出声明范围，未产生额外副作用。。所有场景边界行为均符合声明契约，未出现越界或未声明副作用。
 
-## 4 · Experiment Overview
+## 5 · Experiment Overview
 ### 实验地图
 
 本评估回答一个产品问题：不同实现是否改变用户实际得到的产品能力。通过保留、移除和替换三种比较，判断 recipe_planning 是否是满足用户约束的关键组成。
@@ -86,14 +97,14 @@
 
 **目的**：判断未来实现变更是否能在不损失约束执行与交付质量的前提下保持产品价值。
 
-## 5 · Experiment Analysis
+## 6 · Experiment Analysis
 ### 实验明细
 
 ### 保留能力基线：标准场景约束执行
 
-**Purpose**：验证完整 Agent 在标准条件下能否识别约束并输出可执行方案，建立产品质量基线。
+**purpose**：验证完整 Agent 在标准条件下能否识别约束并输出可执行方案，建立产品质量基线。
 
-**Design**：保留 recipe_planning，在 5 个声明的用户任务中运行完整 Agent，检查约束执行、交付结构与边界。
+**design**：保留 recipe_planning，在 5 个声明的用户任务中运行完整 Agent，检查约束执行、交付结构与边界。
 
 **Input Scenario**：2 人、20 分钟、maintain、忌口鸡蛋，库存含番茄 2 个、豆腐 1 盒、鸡蛋 6 个。
 
@@ -105,9 +116,9 @@
 
 ### 移除能力损失：约束执行失败
 
-**Purpose**：验证移除 recipe_planning 后用户结果是否损失，判断其是否为必要组成。
+**purpose**：验证移除 recipe_planning 后用户结果是否损失，判断其是否为必要组成。
 
-**Design**：移除 recipe_planning，保留相同任务、环境和产品约束，与完整能力基线对照。
+**design**：移除 recipe_planning，保留相同任务、环境和产品约束，与完整能力基线对照。
 
 **Input Scenario**：与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。
 
@@ -119,9 +130,9 @@
 
 ### 替换能力风险：核心价值未保持
 
-**Purpose**：验证候选实现能否保持 recipe_planning 提供的核心产品价值，而非仅产生输出。
+**purpose**：验证候选实现能否保持 recipe_planning 提供的核心产品价值，而非仅产生输出。
 
-**Design**：使用候选实现完成相同任务，与完整能力基线按四个维度逐项比较。
+**design**：使用候选实现完成相同任务，与完整能力基线按四个维度逐项比较。
 
 **Input Scenario**：与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。
 
@@ -131,8 +142,8 @@
 
 **Product Meaning**：未来实现变更若不能恢复约束执行，将导致用户结果损失，替换存在高风险。
 
-## 6 · Scenario Stability
-### 跨场景稳定性
+## 7 · Scenario Stability
+### 场景稳定性
 
 启用条件下 5 个不同场景均稳定通过约束检查；移除与替换条件下 5 个场景均稳定失败，能力表现跨场景一致。
 
@@ -188,8 +199,8 @@
 
 **结果**：保留能力时方案完整，移除或替换时未遵守约束。
 
-## 7 · Product Impact
-### 产品级有效性
+## 8 · Impact / Capability Impact
+### 能力影响
 
 **影响的用户旅程**：用户从提出餐食需求到获得可执行方案的全流程。
 
@@ -200,8 +211,8 @@
 - 替换实现无法保持核心约束价值，未来变更存在高风险。
 - 能力边界控制稳定，未出现越界或未声明副作用。
 
-## 8 · Recommendation
-### 优化建议
+## 9 · Recommendation
+### 建议行动
 
 ### recipe_planning 能力（critical）
 
@@ -227,42 +238,130 @@
 
 **下一步验证**：验证替换实现约束执行；增加替换场景样本
 
-## 9 · Limitations
-### 结论适用范围
+## 10 · Limitations
+### 评估边界及限制
 
 - 交付物内容被截断，无法逐条核对具体菜品是否含蛋，约束结论依赖验证器结果。
 - 评估基于冻结环境（2 人、20 分钟、忌口鸡蛋），未覆盖其他人数、时间或忌口组合。
 - 替换实验使用候选实现，未验证其他可能的实现方案是否也能保持能力价值。
 
-## Experiment Evidence
-### 实验证据
+## 11 · Evidence
+### 实验证据 / 技术证据
 
-### 保留能力基线：标准场景约束执行
+Product Evidence / Experiment Evidence / Technical Evidence
 
-**输入任务**：2 人、20 分钟、maintain、忌口鸡蛋，库存含番茄 2 个、豆腐 1 盒、鸡蛋 6 个。
+- 状态：complete
+- 已验证条件：15
+- 通过：5
+- 失败：10
+- 实验条件：15
+- 成本：未记录
 
-**保留能力**：5 个场景全部通过约束检查，输出结构化可执行方案。
+<details><summary>启用 Skill 测试 · enabled · passed</summary>
 
-**移除能力**：5 个场景全部在约束执行上失败。
+证据引用：evidence_0eda16c82b310320
 
-**差异**：移除后约束执行全部失败，基础输出不能替代完整能力。
+</details>
 
-### 移除能力损失：约束执行失败
+<details><summary>启用 Skill 测试 · enabled · passed</summary>
 
-**输入任务**：与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。
+证据引用：evidence_28710f0e561fe02f
 
-**保留能力**：约束执行全部通过，方案满足用户约束。
+</details>
 
-**移除能力**：约束执行全部失败，未遵守忌口与库存约束。
+<details><summary>启用 Skill 测试 · enabled · passed</summary>
 
-**差异**：移除导致用户收到违反忌口的方案，能力损失明确。
+证据引用：evidence_119745d274ee45ca
 
-### 替换能力风险：核心价值未保持
+</details>
 
-**输入任务**：与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。
+<details><summary>启用 Skill 测试 · enabled · passed</summary>
 
-**保留能力**：约束执行全部通过，交付质量达标。
+证据引用：evidence_07b89d4423fee919
 
-**替换能力**：约束执行全部失败，虽产出结构化方案。
+</details>
 
-**差异**：替换实现无法保持核心约束与交付质量，存在高风险。
+<details><summary>启用 Skill 测试 · enabled · passed</summary>
+
+证据引用：evidence_1b3940c789e0d1f2
+
+</details>
+
+<details><summary>移除 Skill 测试 · disabled · failed</summary>
+
+证据引用：evidence_3388f64f70059def
+
+</details>
+
+<details><summary>移除 Skill 测试 · disabled · failed</summary>
+
+证据引用：evidence_4f63937ce3ef5216
+
+</details>
+
+<details><summary>移除 Skill 测试 · disabled · failed</summary>
+
+证据引用：evidence_0e2b890a90548706
+
+</details>
+
+<details><summary>移除 Skill 测试 · disabled · failed</summary>
+
+证据引用：evidence_3321ad5bb57bae14
+
+</details>
+
+<details><summary>移除 Skill 测试 · disabled · failed</summary>
+
+证据引用：evidence_14cfce4a30d9f4b4
+
+</details>
+
+<details><summary>Capability Equivalence Test · replacement · failed</summary>
+
+证据引用：evidence_12b3dd98990c7be3
+
+</details>
+
+<details><summary>Capability Equivalence Test · replacement · failed</summary>
+
+证据引用：evidence_177a8040939d9460
+
+</details>
+
+<details><summary>Capability Equivalence Test · replacement · failed</summary>
+
+证据引用：evidence_0d38f21bb8dfab97
+
+</details>
+
+<details><summary>Capability Equivalence Test · replacement · failed</summary>
+
+证据引用：evidence_16456428a917042f
+
+</details>
+
+<details><summary>Capability Equivalence Test · replacement · failed</summary>
+
+证据引用：evidence_3aa4cc625dfdd107
+
+</details>
+
+## 12 · Technical Metadata
+### 技术元数据
+
+- report_id：report_6f6c5a90c5b64515
+- schema_version：aig.product-evaluation-report.v4
+- evaluation_id：evaluation_6f6c5a90c5b64515
+- evaluation_type：skill_ablation
+- report_hash：5de72cc7dba2318742931f104eeb30191cab6fa1be431986fa9b6910660ddc53
+- evidence_manifest_hash：c5f1f8f129895f9084ae4ea06425c4ed07a0c55e1056fd9a857a67144f899a14
+- evidence_schema_version：aig.evidence-bundle.v1
+- analyst_schema_version：aig.product-analyst-input.v4
+- analyst_provider：deepseek
+- analyst_model：deepseek-v4-flash
+- analyst_request_id：e605a5d0-03f2-4b5f-9bfe-e688908d2ca7
+- interpretation_evidence_level：inferred
+- raw_report_keys：["business_impact", "evaluation", "evaluation_context", "evaluation_plan", "evaluation_type", "evidence", "evidence_explorer", "executive_summary", "experiment_analysis", "experiment_overview", "findings", "interaction_analysis", "limitations", "product_context", "product_overview", "provenance", "recommendations", "report_hash", "report_id", "report_type", "scenario_stability", "schema_version", "status", "subject", "supplementary_evidence"]
+
+技术记录、事实与补充证据保留在可展开的 HTML 详情中；首屏不直接倾倒原始 JSON。
