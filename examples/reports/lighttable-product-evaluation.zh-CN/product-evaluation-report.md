@@ -48,7 +48,7 @@
 - **替换风险：候选实现无法保持核心价值**：替换实现虽产出结构化方案，但 5 个场景全部在约束执行上失败，无法保持忌口与库存约束的核心价值。
 - **稳定性：约束执行跨场景一致**：启用条件下 5 个不同场景（标准、冲突、边界、鲁棒、交互）均稳定通过约束检查，能力表现一致。
 
-**产品建议**：保留 recipe_planning 作为餐食规划的核心能力，不进行移除或替换；后续优化应聚焦增强边界场景的澄清与简化建议。
+**建议**：保留 recipe_planning 作为餐食规划的核心能力，不进行移除或替换；后续优化应聚焦增强边界场景的澄清与简化建议。
 
 **后续优化重点**：
 - 补充边界场景的澄清与简化建议验证
@@ -60,19 +60,19 @@
 
 ### Trigger：能力触发
 
-启用时正确进入餐食规划流程，移除或替换后未进入该能力流程。。启用 Skill 的 5 个场景均完成规划流程；移除和替换场景均未进入目标能力流程。
+启用时正确进入餐食规划流程，移除或替换后未进入该能力流程。启用 Skill 的 5 个场景均完成规划流程；移除和替换场景均未进入目标能力流程。
 
 ### Execution：流程执行
 
-启用时完成约束执行，移除或替换后约束执行失败。。启用场景约束检查全部通过；移除与替换场景均出现含忌口食材或缺失约束执行。
+启用时完成约束执行，移除或替换后约束执行失败。启用场景约束检查全部通过；移除与替换场景均出现含忌口食材或缺失约束执行。
 
 ### Delivery：结果交付
 
-启用时交付结构化可执行方案，移除或替换后仍能产出基础输出但约束不达标。。三种条件下均返回结构化餐食方案，但移除与替换方案未遵守忌口约束。
+启用时交付结构化可执行方案，移除或替换后仍能产出基础输出但约束不达标。三种条件下均返回结构化餐食方案，但移除与替换方案未遵守忌口约束。
 
 ### Boundary：能力边界
 
-三种条件下均未超出声明范围，未产生额外副作用。。所有场景边界行为均符合声明契约，未出现越界或未声明副作用。
+三种条件下均未超出声明范围，未产生额外副作用。所有场景边界行为均符合声明契约，未出现越界或未声明副作用。
 
 ## 5 · Experiment Overview
 ### 实验地图
@@ -100,47 +100,47 @@
 ## 6 · Experiment Analysis
 ### 实验明细
 
-### 保留能力基线：标准场景约束执行
+### 保留能力基线：约束执行通过
 
-**purpose**：验证完整 Agent 在标准条件下能否识别约束并输出可执行方案，建立产品质量基线。
+**目的 Purpose**：验证完整 Agent 在标准条件下能否识别约束并输出可执行方案，建立产品质量基线。
 
-**design**：保留 recipe_planning，在 5 个声明的用户任务中运行完整 Agent，检查约束执行、交付结构与边界。
+**设计 Design**：保留 recipe_planning，在 5 个声明的用户任务中运行完整 Agent，检查约束执行、交付结构与边界。
 
-**Input Scenario**：2 人、20 分钟、maintain、忌口鸡蛋，库存含番茄 2 个、豆腐 1 盒、鸡蛋 6 个。
+**输入场景 Input Scenario**：2 人、20 分钟、maintain、忌口鸡蛋，库存含番茄 2 个、豆腐 1 盒、鸡蛋 6 个。
 
-**Observation**：5 个场景全部通过约束检查，正确识别忌口鸡蛋并优先利用番茄和豆腐库存，输出结构化方案。
+**观察 Observation**：5 个场景全部通过约束检查，正确识别忌口鸡蛋并优先利用番茄和豆腐库存，输出结构化方案。
 
-**Result**：保留能力时约束执行全部通过，交付物满足产品定义。
+**结果 Result**：保留能力时约束执行全部通过，交付物满足产品定义。
 
-**Product Meaning**：recipe_planning 正常工作时可稳定满足用户约束，是产品质量基线。
+**建议**：recipe_planning 正常工作时可稳定满足用户约束，是产品质量基线。
 
-### 移除能力损失：约束执行失败
+### 移除能力实验：约束差异已验证
 
-**purpose**：验证移除 recipe_planning 后用户结果是否损失，判断其是否为必要组成。
+**目的 Purpose**：验证移除 recipe_planning 后用户结果是否损失，判断其是否为必要组成。
 
-**design**：移除 recipe_planning，保留相同任务、环境和产品约束，与完整能力基线对照。
+**设计 Design**：移除 recipe_planning，保留相同任务、环境和产品约束，与完整能力基线对照。
 
-**Input Scenario**：与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。
+**输入场景 Input Scenario**：与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。
 
-**Observation**：5 个场景全部在约束执行上失败，基础结构化输出仍在但未遵守忌口与库存约束。
+**观察 Observation**：5 个场景全部在约束执行上失败，基础结构化输出仍在但未遵守忌口与库存约束。
 
-**Result**：移除后约束执行全部失败，基础输出不能替代完整产品能力。
+**结果 Result**：移除后约束执行全部失败，基础输出不能替代完整产品能力。
 
-**Product Meaning**：recipe_planning 是满足用户约束的关键组成，移除后用户会收到违反忌口的方案。
+**建议**：recipe_planning 是满足用户约束的关键组成，移除后用户会收到违反忌口的方案。
 
-### 替换能力风险：核心价值未保持
+### 替换能力实验：核心价值差异已验证
 
-**purpose**：验证候选实现能否保持 recipe_planning 提供的核心产品价值，而非仅产生输出。
+**目的 Purpose**：验证候选实现能否保持 recipe_planning 提供的核心产品价值，而非仅产生输出。
 
-**design**：使用候选实现完成相同任务，与完整能力基线按四个维度逐项比较。
+**设计 Design**：使用候选实现完成相同任务，与完整能力基线按四个维度逐项比较。
 
-**Input Scenario**：与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。
+**输入场景 Input Scenario**：与基线相同的 5 个用户任务，含忌口鸡蛋与库存约束。
 
-**Observation**：替换实现虽产出结构化方案，但 5 个场景全部在约束执行上失败，未保持忌口与库存约束。
+**观察 Observation**：替换实现虽产出结构化方案，但 5 个场景全部在约束执行上失败，未保持忌口与库存约束。
 
-**Result**：替换实现无法保持核心约束与交付质量，能力价值未得到保持。
+**结果 Result**：替换实现无法保持核心约束与交付质量，能力价值未得到保持。
 
-**Product Meaning**：未来实现变更若不能恢复约束执行，将导致用户结果损失，替换存在高风险。
+**建议**：未来实现变更若不能恢复约束执行，将导致用户结果损失，替换存在高风险。
 
 ## 7 · Scenario Stability
 ### 场景稳定性
@@ -252,96 +252,96 @@ Product Evidence / Experiment Evidence / Technical Evidence
 
 - 状态：complete
 - 已验证条件：15
-- 通过：5
-- 失败：10
+- 通过：15
+- 失败：0
 - 实验条件：15
 - 成本：未记录
 
-<details><summary>启用 Skill 测试 · enabled · passed</summary>
+<details><summary>启用 Skill 测试 · 启用 Skill · 通过</summary>
 
 证据引用：evidence_0eda16c82b310320
 
 </details>
 
-<details><summary>启用 Skill 测试 · enabled · passed</summary>
+<details><summary>启用 Skill 测试 · 启用 Skill · 通过</summary>
 
 证据引用：evidence_28710f0e561fe02f
 
 </details>
 
-<details><summary>启用 Skill 测试 · enabled · passed</summary>
+<details><summary>启用 Skill 测试 · 启用 Skill · 通过</summary>
 
 证据引用：evidence_119745d274ee45ca
 
 </details>
 
-<details><summary>启用 Skill 测试 · enabled · passed</summary>
+<details><summary>启用 Skill 测试 · 启用 Skill · 通过</summary>
 
 证据引用：evidence_07b89d4423fee919
 
 </details>
 
-<details><summary>启用 Skill 测试 · enabled · passed</summary>
+<details><summary>启用 Skill 测试 · 启用 Skill · 通过</summary>
 
 证据引用：evidence_1b3940c789e0d1f2
 
 </details>
 
-<details><summary>移除 Skill 测试 · disabled · failed</summary>
+<details><summary>移除 Skill 测试 · 移除 Skill · 通过</summary>
 
 证据引用：evidence_3388f64f70059def
 
 </details>
 
-<details><summary>移除 Skill 测试 · disabled · failed</summary>
+<details><summary>移除 Skill 测试 · 移除 Skill · 通过</summary>
 
 证据引用：evidence_4f63937ce3ef5216
 
 </details>
 
-<details><summary>移除 Skill 测试 · disabled · failed</summary>
+<details><summary>移除 Skill 测试 · 移除 Skill · 通过</summary>
 
 证据引用：evidence_0e2b890a90548706
 
 </details>
 
-<details><summary>移除 Skill 测试 · disabled · failed</summary>
+<details><summary>移除 Skill 测试 · 移除 Skill · 通过</summary>
 
 证据引用：evidence_3321ad5bb57bae14
 
 </details>
 
-<details><summary>移除 Skill 测试 · disabled · failed</summary>
+<details><summary>移除 Skill 测试 · 移除 Skill · 通过</summary>
 
 证据引用：evidence_14cfce4a30d9f4b4
 
 </details>
 
-<details><summary>Capability Equivalence Test · replacement · failed</summary>
+<details><summary>Capability Equivalence Test · 替换实现 · 通过</summary>
 
 证据引用：evidence_12b3dd98990c7be3
 
 </details>
 
-<details><summary>Capability Equivalence Test · replacement · failed</summary>
+<details><summary>Capability Equivalence Test · 替换实现 · 通过</summary>
 
 证据引用：evidence_177a8040939d9460
 
 </details>
 
-<details><summary>Capability Equivalence Test · replacement · failed</summary>
+<details><summary>Capability Equivalence Test · 替换实现 · 通过</summary>
 
 证据引用：evidence_0d38f21bb8dfab97
 
 </details>
 
-<details><summary>Capability Equivalence Test · replacement · failed</summary>
+<details><summary>Capability Equivalence Test · 替换实现 · 通过</summary>
 
 证据引用：evidence_16456428a917042f
 
 </details>
 
-<details><summary>Capability Equivalence Test · replacement · failed</summary>
+<details><summary>Capability Equivalence Test · 替换实现 · 通过</summary>
 
 证据引用：evidence_3aa4cc625dfdd107
 
@@ -354,7 +354,7 @@ Product Evidence / Experiment Evidence / Technical Evidence
 - schema_version：aig.product-evaluation-report.v4
 - evaluation_id：evaluation_6f6c5a90c5b64515
 - evaluation_type：skill_ablation
-- report_hash：5de72cc7dba2318742931f104eeb30191cab6fa1be431986fa9b6910660ddc53
+- report_hash：fafaa28246bb698c200d1d45084c3b307078ace87d1459b44a876182eb622b2e
 - evidence_manifest_hash：c5f1f8f129895f9084ae4ea06425c4ed07a0c55e1056fd9a857a67144f899a14
 - evidence_schema_version：aig.evidence-bundle.v1
 - analyst_schema_version：aig.product-analyst-input.v4
@@ -362,6 +362,5 @@ Product Evidence / Experiment Evidence / Technical Evidence
 - analyst_model：deepseek-v4-flash
 - analyst_request_id：e605a5d0-03f2-4b5f-9bfe-e688908d2ca7
 - interpretation_evidence_level：inferred
-- raw_report_keys：["business_impact", "evaluation", "evaluation_context", "evaluation_plan", "evaluation_type", "evidence", "evidence_explorer", "executive_summary", "experiment_analysis", "experiment_overview", "findings", "interaction_analysis", "limitations", "product_context", "product_overview", "provenance", "recommendations", "report_hash", "report_id", "report_type", "scenario_stability", "schema_version", "status", "subject", "supplementary_evidence"]
 
 技术记录、事实与补充证据保留在可展开的 HTML 详情中；首屏不直接倾倒原始 JSON。

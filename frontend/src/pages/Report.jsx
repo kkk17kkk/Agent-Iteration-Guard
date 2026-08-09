@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { I, Status, Page, SectionHeading, EmptyState, Metric, FileButton, ProjectContextCard } from "../components.jsx";
 import { API_BASE, pathFor } from "../lib.js";
 
@@ -28,16 +28,64 @@ function TextList({ items = [], className = "bullet-list" }) {
 }
 
 function DefinitionList({ items }) {
-  return <dl className="definition-list">{Object.entries(items || {}).map(([key, value]) => <div key={key}><dt>{key}</dt><dd className={key.includes("hash") || key.includes("id") ? "mono" : ""}>{typeof value === "object" ? JSON.stringify(value) : String(value ?? "-")}</dd></div>)}</dl>;
+  return <dl className="definition-list">{Object.entries(items || {}).filter(([key]) => key !== "raw_report_keys").map(([key, value]) => <div key={key}><dt>{key}</dt><dd className={key.includes("hash") || key.includes("id") ? "mono" : ""}>{typeof value === "object" ? JSON.stringify(value) : String(value ?? "-")}</dd></div>)}</dl>;
+}
+
+const REPORT_DIMENSION_GUIDE = [
+  ["Trigger · 能力触发", "确认任务是否真正进入目标 Skill 的能力流程，而不是只产生表面相似的输出。"],
+  ["Execution · 流程执行", "确认 Skill 是否完成了声明的约束识别、判断和执行步骤。"],
+  ["Delivery · 结果交付", "确认最终交付物是否结构化、可执行，并满足用户任务要求。"],
+  ["Boundary · 能力边界", "确认边界场景、异常输入和副作用是否符合声明契约。"],
+];
+
+const OBSERVATION_LABELS = {
+  runtime_completed: "运行完成",
+  target_completed: "目标完成",
+  trace_event_count: "事件数量",
+  trace_types: "事件类型",
+  verifier: "校验器",
+  verifier_type: "校验器类型",
+  structured_output: "结构化输出",
+  output_recorded: "输出已记录",
+  constraint_adherence: "约束遵循",
+  side_effect_boundary: "副作用边界",
+  fallback_used: "是否使用回退",
+  deliverable_present: "交付物存在",
+  oracle_verified: "独立校验已完成",
+  oracle_outcome: "校验结果",
+};
+
+function statusWord(value) {
+  const key = String(value || "").toLowerCase();
+  if (["pass", "passed", "approve", "approved", "supported", "success"].includes(key)) return "PASS";
+  if (["block", "blocked", "failed", "fail"].includes(key)) return "BLOCKED";
+  if (["review", "pending", "unresolved", "mixed"].includes(key)) return "REVIEW";
+  return "PENDING";
+}
+
+function evidenceGateWord(value) {
+  const key = String(value || "").toLowerCase();
+  if (key === "approve") return "已通过";
+  if (key === "review") return "需复核";
+  if (key === "block") return "未通过，需处理证据完整性";
+  return "尚未评估";
+}
+
+function conditionTitle(condition) {
+  return {
+    enabled: "启用 Skill 测试",
+    disabled: "移除 Skill 测试",
+    replacement: "替换实现测试",
+  }[condition.kind] || condition.label || condition.condition_id;
 }
 
 function EvidenceCondition({ condition }) {
   const observations = condition.observations || {};
   return (
     <details className="evidence-condition evidence-condition-collapsed">
-      <summary><span className="condition-summary-title">{condition.label || condition.condition_id}</span><span className="condition-summary-kind">{condition.kind}</span><Status value={condition.status} /></summary>
+      <summary><span className="condition-summary-title">{conditionTitle(condition)}</span><span className="condition-summary-kind">{condition.kind_label || condition.kind}</span><Status value={statusWord(condition.status)} /></summary>
       <div className="evidence-condition-meta"><span>实验 {condition.experiment_id}</span><span>场景 {condition.scenario_id}</span><span>Refs {condition.evidence_refs?.length || 0}</span></div>
-      <div className="evidence-observation-grid">{Object.entries(observations).map(([key, value]) => <div key={key}><span>{key}</span><strong>{typeof value === "object" ? JSON.stringify(value) : String(value)}</strong></div>)}</div>
+      <div className="evidence-observation-grid">{Object.entries(observations).map(([key, value]) => <div key={key}><span>{OBSERVATION_LABELS[key] || key}</span><strong>{typeof value === "object" ? JSON.stringify(value) : String(value)}</strong></div>)}</div>
       <p className="muted">证据引用：{condition.evidence_refs?.join("、") || "-"}</p>
       {condition.record && <details className="evidence-details"><summary>查看原始记录</summary><pre>{JSON.stringify(condition.record, null, 2)}</pre></details>}
     </details>
@@ -45,6 +93,7 @@ function EvidenceCondition({ condition }) {
 }
 
 function ReportContent({ view, report, reportList, onOpen, onRefresh, loading }) {
+  const [dimensionInfoOpen, setDimensionInfoOpen] = useState(false);
   const sections = view;
   const summary = sections.summary || {};
   const metrics = sections.metrics || {};
@@ -54,25 +103,27 @@ function ReportContent({ view, report, reportList, onOpen, onRefresh, loading })
   const decision = sections.decision || {};
   const labels = {
     final: "最终结论",
-    recommendation: "产品建议",
+    recommendation: "建议",
     followUp: "后续优化重点",
-    purpose: "Purpose",
-    design: "Design",
-    input: "Input Scenario",
-    observation: "Observation",
-    result: "Result",
-    meaning: "Product Meaning",
+    purpose: "目的 Purpose",
+    design: "设计 Design",
+    input: "输入场景 Input Scenario",
+    observation: "观察 Observation",
+    result: "结果 Result",
+    meaning: "建议",
   };
+  const evidenceGate = decision.evidence_gate || {};
 
   return (
     <>
       <section className={`decision-band d-${decision.decision || "pending"}`}>
         <div className="decision-info">
-          <span className="eyebrow">Release Decision · 发布决策</span>
-          <strong className={`decision ${decision.decision || "pending"}`}>{decision.decision || "pending"}</strong>
+          <span className="eyebrow">评估结论 · EVALUATION RESULT</span>
+          <strong className={`decision ${decision.decision || "pending"}`}>{statusWord(decision.decision)}</strong>
           <div className="decision-copy">{decision.rationale || "报告已加载，但尚未经过确定性 Gate 评估。"}</div>
+          {evidenceGate.decision && evidenceGate.decision !== "approve" && <div className="decision-evidence-note">技术证据门禁：{evidenceGateWord(evidenceGate.decision)}。这不会改写当前评估结论。</div>}
         </div>
-        <div className="decision-check-list">{(decision.checks || []).map((check) => <div className="check-row" key={check.name}><Status value={check.status} /><strong>{check.name}</strong><span>{check.detail}</span></div>)}</div>
+        <div className="decision-check-list">{(decision.checks || []).map((check) => <div className="check-row" key={check.name}><Status value={statusWord(check.status)} /><strong>{check.name}</strong><span>{check.detail}</span></div>)}</div>
       </section>
 
       <section className="summary-grid report-summary-grid">
@@ -91,15 +142,15 @@ function ReportContent({ view, report, reportList, onOpen, onRefresh, loading })
 
         <section className="section-block report-section-card"><SectionHeading label="2 · Evaluation Context" title="评估上下文" /><div className="context-table-wrap"><table className="context-table"><tbody>{(sections.evaluation_context?.items || []).map((item) => <tr key={item.label}><th>{item.label}</th><td>{item.value}</td></tr>)}</tbody></table></div></section>
 
-        <section className="section-block report-section-card"><SectionHeading label="3 · Executive Summary" title="评估结果汇总" /><div className="report-callout"><strong>{labels.final}</strong><p>{summary.final_conclusion || "-"}</p></div><div className="finding-list">{(summary.main_findings || []).map((item) => <div className="finding-card" key={item.title}><strong>{item.title}</strong><p>{item.statement}</p></div>)}</div><p className="large-copy"><strong>{labels.recommendation}：</strong>{summary.product_recommendation || "-"}</p><p className="muted"><strong>{labels.followUp}：</strong>{(summary.follow_up_priorities || []).join("；") || "-"}</p></section>
+        <section className="section-block report-section-card"><SectionHeading label="3 · Executive Summary" title="评估结果汇总" /><div className="report-callout"><strong>{labels.final}</strong><p>{summary.final_conclusion || "-"}</p></div><div className="finding-grid">{(summary.main_findings || []).map((item) => <div className={`finding-card finding-${item.finding_type || "other"}`} key={item.title}><strong>{item.title}</strong><p>{item.statement}</p></div>)}</div><p className="large-copy report-recommendation"><strong>{labels.recommendation}：</strong>{summary.product_recommendation || "-"}</p><p className="muted report-followup"><strong>{labels.followUp}：</strong>{(summary.follow_up_priorities || []).join("；") || "-"}</p></section>
 
-        <section className="section-block report-section-card"><SectionHeading label="4 · Evaluation Dimensions" title="评估维度" /><div className="report-dimension-grid">{(sections.dimensions || []).map((item) => <div className="report-dimension-card" key={item.dimension}><span>{item.dimension}</span><strong>{item.conclusion}</strong><p>{item.explanation}</p></div>)}</div></section>
+        <section className="section-block report-section-card"><div className="section-heading"><div><span className="eyebrow">4 · Evaluation Dimensions</span><h2>评估维度 <button type="button" className="info-button report-info-button" aria-label="查看评估维度说明" onClick={() => setDimensionInfoOpen(true)}><I name="info" size={15} /></button></h2></div></div><div className="report-dimension-grid">{(sections.dimensions || []).map((item) => <div className="report-dimension-card" key={item.dimension}><span>{item.label || item.dimension}</span><strong>{item.conclusion}</strong><p>{item.explanation}</p></div>)}</div></section>
 
         <section className="section-block report-section-card"><SectionHeading label="5 · Experiment Overview" title="实验地图" /><p className="large-copy">{experiments.summary || "-"}</p><div className="experiment-map-list">{(experiments.questions || []).map((item, index) => <div className="experiment-map-item" key={item.name}><span className="map-number">{index + 1}</span><div><strong>{item.name}</strong><h3>{item.question}</h3><p>{item.purpose}</p></div></div>)}</div></section>
 
-        <section className="section-block report-section-card"><SectionHeading label="6 · Experiment Analysis" title="实验明细" /><div className="report-analysis-list">{(experiments.analysis || []).map((item) => <article className="report-analysis-card" key={item.experiment_name}><h3>{item.experiment_name}</h3><div className="report-analysis-grid">{[[labels.purpose, item.purpose], [labels.design, item.design], [labels.input, item.input_scenario], [labels.observation, item.observation], [labels.result, item.result]].map(([label, value]) => <div key={label}><span>{label}</span><p>{value || "-"}</p></div>)}</div><p className="report-callout"><strong>{labels.meaning}：</strong>{item.product_meaning}</p></article>)}</div></section>
+        <section className="section-block report-section-card"><SectionHeading label="6 · Experiment Analysis" title="实验明细" /><div className="report-analysis-list">{(experiments.analysis || []).map((item) => <article className="report-analysis-card" key={item.experiment_name}><h3>{item.display_name || item.experiment_name}</h3><div className="report-analysis-grid">{[[labels.purpose, item.purpose], [labels.design, item.design], [labels.input, item.input_scenario], [labels.observation, item.observation], [labels.result, item.result]].map(([label, value]) => <div key={label}><span>{label}</span><p>{value || "-"}</p></div>)}</div><p className="report-callout"><strong>{labels.meaning}：</strong>{item.product_meaning}</p></article>)}</div></section>
 
-        <section className="section-block report-section-card"><SectionHeading label="7 · Scenario Stability" title="场景稳定性" /><p className="large-copy">{sections.scenario_stability?.summary || "-"}</p><div className="report-callout"><strong>覆盖结论：</strong>{sections.scenario_stability?.coverage_conclusion || "-"}</div><div className="scenario-list">{(sections.scenario_stability?.scenarios || []).map((item) => <article className="scenario-card" key={item.scenario_id}><div className="scenario-card-head"><strong>{item.name}</strong><Status value={item.status} /></div><p className="scenario-prompt">“{item.user_prompt}”</p><p><strong>目标：</strong>{item.purpose}</p><p><strong>观察：</strong>{item.observation}</p><p><strong>结果：</strong>{item.result}</p></article>)}</div></section>
+        <section className="section-block report-section-card"><SectionHeading label="7 · Scenario Stability" title="场景稳定性" /><p className="large-copy">{sections.scenario_stability?.summary || "-"}</p><div className="report-callout"><strong>覆盖结论：</strong>{sections.scenario_stability?.coverage_conclusion || "-"}</div><div className="scenario-list">{(sections.scenario_stability?.scenarios || []).map((item) => <article className="scenario-card" key={item.scenario_id}><div className="scenario-card-head"><strong>{item.name}</strong><Status value={statusWord(item.status)} /></div><p className="scenario-prompt">“{item.user_prompt}”</p><p><strong>目标：</strong>{item.purpose}</p><p><strong>观察：</strong>{item.observation}</p><p><strong>结果：</strong>{item.result}</p></article>)}</div></section>
 
         <section className="section-block report-section-card"><SectionHeading label="8 · Impact / Capability Impact" title="能力影响" /><div className="report-callout">{sections.impact?.user_consequence || "-"}</div><p><strong>影响的用户旅程：</strong>{sections.impact?.affected_user_journey || "-"}</p><TextList items={sections.impact?.findings} /></section>
 
@@ -107,10 +158,12 @@ function ReportContent({ view, report, reportList, onOpen, onRefresh, loading })
 
         <section className="section-block report-section-card"><SectionHeading label="10 · Limitations" title="评估边界及限制" /><TextList items={sections.limitations} /></section>
 
-        <section className="section-block report-section-card"><SectionHeading label="11 · Evidence" title="实验证据 / 技术证据" /><p className="large-copy">首屏只展示证据状态、计数、成本与条件数量；具体条件保持折叠。</p><div className="summary-grid evidence-summary-grid"><Metric label="Evidence 状态" value={evidence.status || "-"} /><Metric label="已验证" value={metrics.verified_count ?? "-"} /><Metric label="通过" value={metrics.passed_count ?? "-"} /><Metric label="失败" value={metrics.failed_count ?? "-"} /><Metric label="成本" value={metrics.cost_usd == null ? "未记录" : `$${Number(metrics.cost_usd).toFixed(4)}`} /></div><div className="evidence-condition-list">{(evidence.conditions || []).map((condition) => <EvidenceCondition key={condition.condition_id} condition={condition} />)}</div></section>
+        <section className="section-block report-section-card"><SectionHeading label="11 · Evidence" title="实验证据 / 技术证据" /><p className="large-copy">首屏只展示证据状态、计数、成本与条件数量；具体条件保持折叠。当前技术证据门禁：{evidenceGateWord(evidenceGate.decision)}。</p><div className="summary-grid evidence-summary-grid"><Metric label="Evidence 状态" value={evidence.status || "-"} /><Metric label="已验证" value={metrics.verified_count ?? "-"} /><Metric label="通过" value={metrics.passed_count ?? "-"} /><Metric label="失败" value={metrics.failed_count ?? "-"} /><Metric label="成本" value={metrics.cost_usd == null ? "未记录" : `$${Number(metrics.cost_usd).toFixed(4)}`} /></div><div className="evidence-condition-list">{(evidence.conditions || []).map((condition) => <EvidenceCondition key={condition.condition_id} condition={condition} />)}</div></section>
 
         <section className="section-block report-section-card"><SectionHeading label="12 · Technical Metadata" title="技术元数据" /><DefinitionList items={technical} /><details className="technical-details"><summary>查看技术记录、事实与补充证据</summary><pre>{JSON.stringify(sections.technical_evidence || {}, null, 2)}</pre></details></section>
       </div>
+
+      {dimensionInfoOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setDimensionInfoOpen(false)}><section className="modal-card quality-info-modal" role="dialog" aria-modal="true" aria-labelledby="report-dimension-info-title" onMouseDown={(event) => event.stopPropagation()}><div className="modal-card-head"><div><span className="eyebrow">EVALUATION DIMENSIONS</span><h2 id="report-dimension-info-title">评估维度说明</h2></div><button type="button" className="icon-button" aria-label="关闭评估维度说明" onClick={() => setDimensionInfoOpen(false)}><I name="x" /></button></div><div className="quality-dimension-list">{REPORT_DIMENSION_GUIDE.map(([name, detail]) => <div className="quality-dimension-item" key={name}><strong>{name}</strong><p>{detail}</p></div>)}</div></section></div>}
 
       <ReportHistory reportList={reportList} onOpen={onOpen} onRefresh={onRefresh} loading={loading} />
       <div className="report-export-hooks" hidden>

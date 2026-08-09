@@ -18,6 +18,33 @@ from .product_report_template import ProductReportTemplate, default_product_repo
 from .report_view_model import NormalizedReport, normalize_product_evaluation_report
 
 
+_HTML_STYLE_OVERRIDES = """
+.decision { grid-template-columns: minmax(0, 1fr) minmax(340px, .78fr); gap: 28px; align-items: stretch; min-height: 0; }
+.decision > div { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.decision-status { color: var(--good); }
+.decision-status.supported { color: var(--good); }
+.decision-copy, .decision-evidence-note { max-width: none; overflow-wrap: anywhere; }
+.decision-evidence-note { margin-top: 13px; padding: 10px 12px; border-left: 3px solid var(--warn); border-radius: 7px; color: #f3d59b; background: rgba(244, 189, 89, .08); font-size: 14px; line-height: 1.65; }
+.decision-checks { min-width: 0; align-self: stretch; display: grid; align-content: center; gap: 7px; }
+.decision-checks li { display: grid; grid-template-columns: minmax(140px, .7fr) minmax(0, .55fr); gap: 12px; align-items: center; min-width: 0; padding: 9px 0; overflow-wrap: anywhere; }
+.context-table { table-layout: fixed; }
+.context-table th, .context-table td { padding: 15px 14px; line-height: 1.85; overflow-wrap: anywhere; }
+.context-table td { font-size: 15px; }
+.finding-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.finding-card { min-width: 0; padding: 15px 16px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); }
+.finding-card strong { display: block; font-size: 16px; line-height: 1.45; }
+.finding-card p { margin: 8px 0 0; color: var(--body); font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
+.finding-capability_value { border-color: rgba(72, 211, 162, .38); background: linear-gradient(135deg, rgba(31, 94, 79, .43), rgba(14, 35, 39, .78)); }
+.finding-capability_loss { border-color: rgba(244, 189, 89, .4); background: linear-gradient(135deg, rgba(113, 75, 32, .43), rgba(37, 29, 24, .78)); }
+.finding-replacement_risk { border-color: rgba(255, 98, 94, .34); background: linear-gradient(135deg, rgba(105, 45, 58, .38), rgba(36, 25, 38, .78)); }
+.finding-stability { border-color: rgba(111, 157, 255, .38); background: linear-gradient(135deg, rgba(36, 58, 112, .43), rgba(20, 27, 51, .78)); }
+.summary-recommendation { margin-top: 25px; padding: 14px 16px; border-left: 3px solid var(--violet); border-radius: 8px; background: rgba(141, 108, 255, .13); color: var(--text); }
+.summary-followup { margin-top: 14px; }
+@media(max-width:1100px) { .decision { grid-template-columns: 1fr; } }
+@media(max-width:700px) { .finding-grid { grid-template-columns: 1fr; } }
+"""
+
+
 def render_product_evaluation_markdown(
     report: ProductEvaluationReport,
     template: ProductReportTemplate | None = None,
@@ -74,7 +101,8 @@ def render_product_evaluation_markdown(
         "",
     ])
     for item in view.dimensions:
-        lines.extend([f"### {_dimension_label(template, item.get('dimension', ''))}", "", f"{item.get('conclusion', '')}。{item.get('explanation', '')}", ""])
+        conclusion = str(item.get("conclusion", "")).rstrip("。")
+        lines.extend([f"### {_dimension_label(template, item.get('dimension', ''))}", "", f"{conclusion}。{item.get('explanation', '')}", ""])
 
     experiments = view.experiments
     lines.extend([f"## {sections['experiment_overview'].eyebrow}", f"### {sections['experiment_overview'].title}", "", experiments.get("summary", ""), ""])
@@ -102,7 +130,7 @@ def render_product_evaluation_markdown(
     evidence = view.evidence_bundle
     lines.extend([f"## {sections['evidence'].eyebrow}", f"### {sections['evidence'].title}", "", "Product Evidence / Experiment Evidence / Technical Evidence", "", f"- 状态：{evidence.get('status', '')}", f"- 已验证条件：{view.metrics.get('verified_count', 0)}", f"- 通过：{view.metrics.get('passed_count', 0)}", f"- 失败：{view.metrics.get('failed_count', 0)}", f"- 实验条件：{view.metrics.get('condition_count', 0)}", f"- 成本：{_cost_text(view.metrics.get('cost_usd'))}", ""])
     for condition in evidence.get("conditions", []):
-        lines.extend([f"<details><summary>{condition.get('label', '')} · {condition.get('kind', '')} · {condition.get('status', '')}</summary>", "", f"证据引用：{', '.join(condition.get('evidence_refs', []))}", "", "</details>", ""])
+        lines.extend([f"<details><summary>{condition.get('label', '')} · {condition.get('kind_label', condition.get('kind', ''))} · {_status_label_zh(condition.get('status'))}</summary>", "", f"证据引用：{', '.join(condition.get('evidence_refs', []))}", "", "</details>", ""])
 
     lines.extend([f"## {sections['technical_metadata'].eyebrow}", f"### {sections['technical_metadata'].title}", ""])
     for key, value in view.technical_metadata.items():
@@ -159,7 +187,7 @@ def render_product_evaluation_html(
         "<div class='side-index'><span>Technical Evidence</span><strong>技术证据</strong><p>原始记录仅用于审计与追溯。</p></div>"
         f"{_technical_side_html(view.technical_evidence, esc)}</aside>"
     )
-    return f"""<!doctype html>
+    html = f"""<!doctype html>
 <html lang='zh-CN'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='color-scheme' content='dark'>
 <title>{esc(view.title)}</title>
 <style>
@@ -168,10 +196,19 @@ def render_product_evaluation_html(
 </style></head><body><main class='shell'>
 <header class='topbar'><div class='brand'><span class='brand-logo'>{logo}</span><div>Agent Iteration Guard<br><span class='meta'>Evidence-first · Local</span></div></div><div class='language'>简体中文 · 独立报告</div></header>
 <section class='context'><div class='context-head'><div><p class='context-kicker'>项目详情 · PROJECT DETAIL</p><h1>{esc(view.project.project_name)}</h1><p class='context-purpose'>{esc(view.project.purpose)}</p><p class='context-crumb'>项目 / {esc(view.project.project_name)}</p></div><div class='context-meta'><div><span>Baseline</span><strong>{esc(view.project.baseline)}</strong></div><div><span>Candidate</span><strong>{esc(view.project.candidate)}</strong></div><div><span>Runtime</span><strong>{esc(view.project.runtime)}</strong></div></div></div></section>
-<section class='decision'><div><div class='eyebrow'>Release Decision · Gate</div><div class='decision-status {status_class}'>{esc(view.decision.get('decision'))}</div><p class='decision-rationale'>{esc(view.decision.get('rationale'))}</p></div><ul class='decision-checks'>{''.join(f"<li>{esc(item.get('name', item.get('check', 'Gate check')))}：{esc(item.get('status', item.get('result', '')))}</li>" for item in view.decision.get('checks', []))}</ul></section>
+<section class='decision'><div><div class='eyebrow'>Release Decision · Gate</div><div class='decision-status {status_class}'>{esc(view.decision.get('decision'))}</div><p class='decision-rationale'>{esc(view.decision.get('rationale'))}</p></div><ul class='decision-checks'>{''.join(f"<li>{esc(item.get('name', item.get('check', 'Gate check')))}：{esc(_decision_check_label(item.get('status', item.get('result', ''))))}</li>" for item in view.decision.get('checks', []))}</ul></section>
 <section class='metrics'>{metrics}</section>
 <div class='report-layout'><div class='narratives'>{''.join(sections_html)}</div>{aside}</div>
-<footer>Evidence 状态：{esc(view.metrics.get('evidence_status'))} · Report hash 仅保留在技术元数据：<code>{esc(view.technical_metadata.get('report_hash'))}</code></footer></main></body></html>"""
+<footer>Evidence 状态：{esc(_status_label_zh(view.metrics.get('evidence_status')))} · Report hash 仅保留在技术元数据：<code>{esc(view.technical_metadata.get('report_hash'))}</code></footer></main></body></html>"""
+    html = html.replace("</style>", f"{_HTML_STYLE_OVERRIDES}</style>", 1)
+    status_fragment = f"<div class='decision-status {status_class}'>{esc(view.decision.get('decision'))}</div>"
+    html = html.replace(status_fragment, f"<div class='decision-status {status_class}'>{esc(_decision_label(view.decision.get('decision')))}</div>", 1)
+    html = html.replace("Release Decision · Gate", "评估结论 · EVALUATION RESULT", 1)
+    if view.decision.get("presentation_note"):
+        marker = f"<p class='decision-rationale'>{esc(view.decision.get('rationale'))}</p>"
+        note = f"<div class='decision-evidence-note'>{esc(view.decision.get('presentation_note'))}</div>"
+        html = html.replace(marker, marker + note, 1)
+    return html
 
 
 def _section(section: Any, body: str) -> str:
@@ -191,9 +228,11 @@ def _context_html(data: Mapping[str, Any], esc) -> str:
 
 
 def _summary_html(data: Mapping[str, Any], decision: Mapping[str, Any], *, labels: Mapping[str, str], esc) -> str:
-    findings = "".join(f"<li><strong>{esc(item.get('title'))}</strong><br>{esc(item.get('statement'))}</li>" for item in data.get("main_findings", []))
+    findings = "".join(f"<article class='finding-card finding-{esc(item.get('finding_type', 'other'))}'><strong>{esc(item.get('title'))}</strong><p>{esc(item.get('statement'))}</p></article>" for item in data.get("main_findings", []))
     follow_up = "；".join(str(item) for item in data.get("follow_up_priorities", []))
-    return f"<div class='summary-callout'><strong>{esc(labels['final_conclusion'])}</strong><p>{esc(data.get('final_conclusion'))}</p></div><ul class='finding-list'>{findings}</ul><p><strong>{esc(labels['product_recommendation'])}</strong>：{esc(data.get('product_recommendation'))}</p><p class='muted'><strong>{esc(labels['follow_up_priorities'])}</strong>：{esc(follow_up)}</p><p class='muted'>Gate：{esc(decision.get('decision'))}</p>"
+    note = decision.get("presentation_note")
+    note_html = f"<p class='decision-evidence-note'>{esc(note)}</p>" if note else ""
+    return f"<div class='summary-callout'><strong>{esc(labels['final_conclusion'])}</strong><p>{esc(data.get('final_conclusion'))}</p></div><div class='finding-grid'>{findings}</div><p class='summary-recommendation'><strong>{esc(labels['product_recommendation'])}</strong>：{esc(data.get('product_recommendation'))}</p><p class='muted summary-followup'><strong>{esc(labels['follow_up_priorities'])}</strong>：{esc(follow_up)}</p>{note_html}"
 
 
 def _dimensions_html(items: list[Mapping[str, Any]], template: ProductReportTemplate, esc) -> str:
@@ -220,7 +259,7 @@ def _analysis_html(items: list[Mapping[str, Any]], template: ProductReportTempla
             f"<div{_wide_class(key)}><span class='card-label'>{esc(labels[label_keys[key]])}</span><p>{esc(item.get(key))}</p></div>"
             for key in ("purpose", "design", "input_scenario", "observation", "result")
         )
-        cards.append(f"<article class='analysis-card'><span class='card-label'>{esc(template.section('experiment_analysis').title)}</span><h3>{esc(item.get('experiment_name'))}</h3><div class='analysis-grid'>{grid}</div><p class='summary-callout'><strong>{esc(labels['product_meaning'])}</strong>：{esc(item.get('product_meaning'))}</p></article>")
+        cards.append(f"<article class='analysis-card'><span class='card-label'>{esc(template.section('experiment_analysis').title)}</span><h3>{esc(item.get('display_name') or item.get('experiment_name'))}</h3><div class='analysis-grid'>{grid}</div><p class='summary-callout'><strong>{esc(labels['product_meaning'])}</strong>：{esc(item.get('product_meaning'))}</p></article>")
     return "<div class='analysis-list'>" + "".join(cards) + "</div>"
 
 
@@ -244,18 +283,38 @@ def _limitations_html(items: list[Mapping[str, Any]], esc) -> str:
 
 def _evidence_html(view: NormalizedReport, esc) -> str:
     metrics = view.metrics
-    stats = "".join(f"<div class='evidence-stat'><span class='card-label'>{esc(label)}</span><strong>{esc(value)}</strong></div>" for label, value in (("状态", view.evidence_bundle.get('status')), ("已验证", metrics.get('verified_count')), ("通过", metrics.get('passed_count')), ("失败", metrics.get('failed_count')), ("成本", _cost_text(metrics.get('cost_usd')))))
+    stats = "".join(f"<div class='evidence-stat'><span class='card-label'>{esc(label)}</span><strong>{esc(value)}</strong></div>" for label, value in (("状态", _status_label_zh(view.evidence_bundle.get('status'))), ("已验证", metrics.get('verified_count')), ("通过", metrics.get('passed_count')), ("失败", metrics.get('failed_count')), ("成本", _cost_text(metrics.get('cost_usd')))))
     conditions = []
     for item in view.evidence_bundle.get("conditions", []):
         observations = item.get("observations", {})
         detail = "".join(f"<div><span>{esc(_observation_label(key))}</span><p>{esc(_stringify(value))}</p></div>" for key, value in observations.items())
-        conditions.append(f"<details><summary>{esc(item.get('label'))}</summary><div class='condition-meta'><span>{esc(item.get('kind'))}</span><span class='condition-status {_status_class(item.get('status'))}'>{esc(item.get('status'))}</span><span>{esc(item.get('experiment_id'))}</span><span>{esc(item.get('scenario_id'))}</span></div><div class='evidence-detail'>{detail}<div><span>evidence_refs</span><p>{esc(', '.join(item.get('evidence_refs', [])))}</p></div></div></details>")
-    return f"<p class='lede'>首屏展示证据状态、条件计数与总体摘要；具体 enabled / disabled / replacement 条件保持折叠，展开后查看观察值与证据引用。</p><div class='evidence-summary'>{stats}</div>{''.join(conditions)}"
+        conditions.append(f"<details><summary>{esc(_condition_display_label(item))}</summary><div class='condition-meta'><span>{esc(item.get('kind_label', item.get('kind')))}</span><span class='condition-status {_status_class(item.get('status'))}'>{esc(_status_label_zh(item.get('status')))}</span><span>{esc(item.get('experiment_id'))}</span><span>{esc(item.get('scenario_id'))}</span></div><div class='evidence-detail'>{detail}<div><span>证据引用</span><p>{esc(', '.join(item.get('evidence_refs', [])))}</p></div></div></details>")
+    return f"<p class='lede'>首屏展示证据状态、条件计数与总体摘要；具体启用、移除、替换条件保持折叠，展开后查看观察值与证据引用。</p><div class='evidence-summary'>{stats}</div>{''.join(conditions)}"
 
 
 def _technical_html(evidence: Mapping[str, Any], metadata: Mapping[str, Any], esc) -> str:
     definitions = "".join(f"<dt>{esc(key)}</dt><dd>{esc(_stringify(value))}</dd>" for key, value in metadata.items())
     return f"<dl class='definition-list'>{definitions}</dl><p class='muted'>原始技术记录、事实与补充证据位于右侧 Technical Evidence 索引中，可展开查看。</p>"
+
+
+def _condition_display_label(item: Mapping[str, Any]) -> str:
+    labels = {
+        "enabled": "启用 Skill 测试",
+        "disabled": "移除 Skill 测试",
+        "replacement": "替换实现测试",
+    }
+    return labels.get(str(item.get("kind") or ""), str(item.get("label") or "实验条件"))
+
+
+def _decision_check_label(value: object) -> str:
+    text = str(value or "").lower()
+    if text in {"passed", "pass", "approve", "approved", "supported", "success", "complete", "completed"}:
+        return "PASS"
+    if text in {"failed", "fail", "block", "blocked", "error"}:
+        return "BLOCKED"
+    if text in {"review", "pending", "unresolved", "mixed"}:
+        return "REVIEW"
+    return str(value or "PENDING")
 
 
 def _technical_side_html(evidence: Mapping[str, Any], esc) -> str:
@@ -289,9 +348,17 @@ def _interaction_html(interaction: Any, esc) -> str:
 
 
 def _markdown_analysis(item: Mapping[str, Any], labels: Mapping[str, str]) -> list[str]:
-    lines = [f"### {item.get('experiment_name', '')}", ""]
+    lines = [f"### {item.get('display_name') or item.get('experiment_name', '')}", ""]
+    label_keys = {
+        "purpose": "experiment_purpose",
+        "design": "experiment_design",
+        "input_scenario": "input_scenario",
+        "observation": "observation",
+        "result": "result",
+        "product_meaning": "product_meaning",
+    }
     for key in ("purpose", "design", "input_scenario", "observation", "result", "product_meaning"):
-        label = labels.get(key, key)
+        label = labels.get(label_keys[key], key)
         lines.extend([f"**{label}**：{item.get(key, '')}", ""])
     return lines
 
@@ -325,6 +392,22 @@ def _status_class(value: object) -> str:
     if any(token in text for token in ("review", "pending", "partial", "mixed")):
         return "review"
     return "supported"
+
+
+def _status_label_zh(value: object) -> str:
+    text = str(value or "").lower()
+    if text in {"passed", "pass", "approve", "approved", "supported", "success", "complete", "completed"}:
+        return "通过"
+    if text in {"failed", "fail", "block", "blocked", "error"}:
+        return "未通过"
+    if text in {"review", "pending", "unresolved", "mixed"}:
+        return "需复核"
+    return str(value or "待处理")
+
+
+def _decision_label(value: object) -> str:
+    text = str(value or "").lower()
+    return {"pass": "PASS", "approve": "PASS", "review": "REVIEW", "block": "BLOCKED"}.get(text, "PENDING")
 
 
 def _wide_class(key: str) -> str:

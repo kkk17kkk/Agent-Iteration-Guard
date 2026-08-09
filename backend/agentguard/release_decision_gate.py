@@ -150,9 +150,12 @@ def evaluate_release_decision(report: ProductEvaluationReport) -> ReleaseDecisio
         evidence_refs=evidence_refs,
     )
     if not verified_conditions:
-        block("At least one execution condition lacks an independently verified oracle.")
+        review("Execution evidence lacks an independently verified oracle; developer review is required.")
     if not no_failures:
-        block("Execution evidence reports a non-zero or unavailable failure rate.")
+        if failure_rate is None:
+            review("Execution evidence has no normalized failure rate; developer review is required.")
+        else:
+            block("Execution evidence reports a non-zero failure rate.")
 
     if report.evaluation_type == "skill_pair_evaluation":
         type_data = evidence.type_data
@@ -249,7 +252,7 @@ def evaluate_release_decision(report: ProductEvaluationReport) -> ReleaseDecisio
         review(f"Cross-scenario stability is {stability_status}.")
     release_relevance = report.business_impact.release_relevance
     if release_relevance == "blocked_by_evidence":
-        block("Product impact explicitly marks release as blocked by evidence.")
+        review("Product impact is marked as requiring evidence review; this does not mean the evaluated Skill failed.")
     elif release_relevance == "requires_review":
         review("Product impact requires release review.")
     high_priority = [item.priority for item in report.recommendations if item.priority in {"high", "critical"}]

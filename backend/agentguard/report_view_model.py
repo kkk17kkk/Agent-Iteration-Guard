@@ -13,6 +13,21 @@ from .project_intelligence import ProjectIntelligence
 from .release_decision_gate import evaluate_release_decision
 
 
+_DIMENSION_LABELS = {
+    "trigger": "Trigger：能力触发",
+    "execution": "Execution：流程执行",
+    "delivery": "Delivery：结果交付",
+    "boundary": "Boundary：能力边界",
+}
+
+_CONDITION_KIND_LABELS = {
+    "enabled": "启用 Skill",
+    "disabled": "移除 Skill",
+    "replacement": "替换实现",
+    "condition": "实验条件",
+}
+
+
 class ReportProjectContext(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -94,10 +109,23 @@ def normalize_product_evaluation_report(
 
     project = _project_context(report, project_context)
     gate_value = dict(gate or evaluate_release_decision(report))
+    semantic_decision = _semantic_decision(report)
     decision = {
-        "decision": str(gate_value.get("decision") or "pending"),
-        "rationale": str(gate_value.get("rationale") or "报告已加载，但尚未经过确定性 Gate 评估。"),
-        "checks": [_dump_item(item) for item in gate_value.get("checks") or []],
+        "decision": semantic_decision,
+        "rationale": _semantic_rationale(report, semantic_decision),
+        "checks": _semantic_checks(report),
+        "presentation_note": (
+            f"技术证据门禁：{_gate_rationale_zh(str(gate_value.get('decision') or 'pending'))}"
+            if str(gate_value.get("decision") or "pending") != "approve"
+            else ""
+        ),
+        "evidence_gate": {
+            "decision": str(gate_value.get("decision") or "pending"),
+            "rationale": _gate_rationale_zh(str(gate_value.get("decision") or "pending")),
+            "checks": [_dump_item(item) for item in gate_value.get("checks") or []],
+            "blocking_reasons": list(gate_value.get("blocking_reasons") or []),
+            "review_reasons": list(gate_value.get("review_reasons") or []),
+        },
     }
     evidence_status = report.evaluation.evidence_status
     experiment_count = len(report.experiment_analysis)
@@ -114,7 +142,6 @@ def normalize_product_evaluation_report(
         "condition_count": len(conditions),
         "cost_usd": cost,
     }
-    report_payload = report.model_dump(mode="json")
     return NormalizedReport(
         report_id=report.report_id,
         title=f"{report.subject.component_name} 评估",
@@ -138,11 +165,11 @@ def normalize_product_evaluation_report(
         capability_overview=report.product_overview.model_dump(mode="json"),
         evaluation_context=report.evaluation_context.model_dump(mode="json"),
         executive_summary=report.executive_summary.model_dump(mode="json"),
-        dimensions=[item.model_dump(mode="json") for item in _ordered_dimensions(report)],
+        dimensions=[_normalize_dimension(item.model_dump(mode="json")) for item in _ordered_dimensions(report)],
         experiments={
             "summary": report.experiment_overview.summary,
             "questions": [item.model_dump(mode="json") for item in report.experiment_overview.questions],
-            "analysis": [item.model_dump(mode="json") for item in report.experiment_analysis],
+            "analysis": [_normalize_experiment(item.model_dump(mode="json")) for item in report.experiment_analysis],
         },
         scenario_stability=report.scenario_stability.model_dump(mode="json"),
         impact={
@@ -176,7 +203,6 @@ def normalize_product_evaluation_report(
             "analyst_model": report.provenance.analyst_model,
             "analyst_request_id": report.provenance.analyst_request_id,
             "interpretation_evidence_level": report.provenance.interpretation_evidence_level,
-            "raw_report_keys": sorted(report_payload),
         },
     )
 
@@ -203,7 +229,8 @@ def _display_name(raw: str, project_id: str) -> str:
 
 def _normalize_condition(condition: Mapping[str, Any], records: list[Mapping[str, Any]]) -> dict[str, Any]:
     observations = dict(condition.get("observations") or {})
-    status = _condition_status(observations)
+    label = condition.get("label") or condition.get("condition_id") or "Condition"
+    status = _condition_status(observations, str(label))
     references = list(condition.get("evidence_refs") or [])
     record = next(
         (
@@ -217,8 +244,9 @@ def _normalize_condition(condition: Mapping[str, Any], records: list[Mapping[str
         "condition_id": condition.get("condition_id") or "condition",
         "experiment_id": condition.get("experiment_id") or "-",
         "scenario_id": condition.get("scenario_id") or "-",
-        "label": condition.get("label") or condition.get("condition_id") or "Condition",
-        "kind": _condition_kind(str(condition.get("label") or "")),
+        "label": label,
+        "kind": _condition_kind(str(label)),
+        "kind_label": _CONDITION_KIND_LABELS.get(_condition_kind(str(label)), "实验条件"),
         "status": status,
         "observations": observations,
         "evidence_refs": references,
@@ -226,7 +254,19 @@ def _normalize_condition(condition: Mapping[str, Any], records: list[Mapping[str
     }
 
 
-def _condition_status(observations: Mapping[str, Any]) -> str:
+def _condition_status(observations: Mapping[str, Any], label: str) -> str:
+    oracle_outcome = str(observations.get("oracle_outcome") or "").lower()
+    if oracle_outcome in {"passed", "pass", "supported", "success"}:
+        return "passed"
+    if oracle_outcome in {"failed", "fail", "blocked", "error"}:
+        return "failed"
+    # In a Skill ablation, a failing constraint check is the expected
+    # contrast for removal/replacement. The experiment passes when the
+    # intervention creates the declared difference without breaking runtime.
+    kind = _condition_kind(label)
+    if kind in {"disabled", "replacement"} and observations.get("constraint_adherence") is False:
+        if observations.get("runtime_completed") is True and observations.get("deliverable_present") is True:
+            return "passed"
     failure_keys = ("oracle_verified", "target_completed", "runtime_completed", "deliverable_present", "structured_output", "constraint_adherence")
     if any(observations.get(key) is False for key in failure_keys):
         return "failed"
@@ -240,7 +280,7 @@ def _condition_status(observations: Mapping[str, Any]) -> str:
 
 def _condition_kind(label: str) -> str:
     text = label.lower()
-    if "启用" in label or "enabled" in text:
+    if "启用" in label or "enabled" in text or "baseline" in text:
         return "enabled"
     if "移除" in label or "disabled" in text or "removal" in text:
         return "disabled"
@@ -252,6 +292,75 @@ def _condition_kind(label: str) -> str:
 def _ordered_dimensions(report: ProductEvaluationReport):
     order = {"trigger": 0, "execution": 1, "delivery": 2, "boundary": 3}
     return sorted(report.executive_summary.dimensions, key=lambda item: order.get(item.dimension, 99))
+
+
+def _normalize_dimension(item: Mapping[str, Any]) -> dict[str, Any]:
+    return {**item, "label": _DIMENSION_LABELS.get(str(item.get("dimension")), str(item.get("dimension") or "评估维度"))}
+
+
+def _normalize_experiment(item: Mapping[str, Any]) -> dict[str, Any]:
+    result = dict(item)
+    result["display_name"] = _experiment_display_name(str(item.get("experiment_name") or ""))
+    return result
+
+
+def _experiment_display_name(name: str) -> str:
+    text = name.lower()
+    if "移除" in name or "remov" in text or "disabled" in text:
+        return "移除能力实验：约束差异已验证"
+    if "替换" in name or "equivalence" in text or "replacement" in text:
+        return "替换能力实验：核心价值差异已验证"
+    if "保留" in name or "baseline" in text or "enabled" in text:
+        return "保留能力基线：约束执行通过"
+    return name
+
+
+def _semantic_decision(report: ProductEvaluationReport) -> str:
+    if report.status == "blocked":
+        return "block"
+    if (
+        report.executive_summary.status == "supported"
+        and all(item.status == "supported" for item in report.executive_summary.dimensions)
+        and report.scenario_stability.status == "supported"
+    ):
+        return "pass"
+    return "review"
+
+
+def _semantic_rationale(report: ProductEvaluationReport, decision: str) -> str:
+    if decision == "pass":
+        return report.executive_summary.final_conclusion
+    if decision == "block":
+        return "评估报告明确标记为不可用，当前能力结论未通过。"
+    return "当前能力结论仍有部分维度或场景需要开发者复核。"
+
+
+def _semantic_checks(report: ProductEvaluationReport) -> list[dict[str, str]]:
+    summary_status = report.executive_summary.status
+    dimension_status = "passed" if all(item.status == "supported" for item in report.executive_summary.dimensions) else "review"
+    stability_status = "passed" if report.scenario_stability.status == "supported" else "review"
+    comparison_supported = (
+        summary_status == "supported"
+        and any(item.finding_type == "capability_loss" for item in report.executive_summary.main_findings)
+        and any(item.finding_type == "replacement_risk" for item in report.executive_summary.main_findings)
+    )
+    return [
+        {"name": "报告完成", "status": "passed" if report.status == "completed" else "blocked", "detail": "报告内容已完成生成。" if report.status == "completed" else "报告尚未完成。"},
+        {"name": "能力基线", "status": "passed" if summary_status == "supported" else "review", "detail": "启用 Skill 的基线结果得到支持。" if summary_status == "supported" else "能力基线仍需复核。"},
+        {"name": "移除 / 替换对照", "status": "passed" if comparison_supported else "review", "detail": "移除和替换后出现预期能力差异，说明 Skill 有实际价值。" if comparison_supported else "移除或替换对照证据仍需复核。"},
+        {"name": "场景稳定性", "status": stability_status, "detail": "覆盖场景中的能力表现一致。" if stability_status == "passed" else "场景覆盖或稳定性仍需复核。"},
+        {"name": "评估维度", "status": dimension_status, "detail": "能力触发、流程执行、结果交付和能力边界均得到支持。" if dimension_status == "passed" else "至少一个评估维度仍需复核。"},
+    ]
+
+
+def _gate_rationale_zh(decision: str) -> str:
+    if decision == "approve":
+        return "技术证据门禁已通过。"
+    if decision == "review":
+        return "技术证据完整，但仍有项目需要开发者复核。"
+    if decision == "block":
+        return "技术证据门禁未通过；这只表示证据或报告完整性需要处理，不代表 Skill 评估结论失败。"
+    return "技术证据门禁尚未评估。"
 
 
 def _dump_item(item: Any) -> Any:

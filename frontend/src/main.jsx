@@ -472,6 +472,7 @@ function App() {
             benchmarks={benchmarks}
             reportList={reportList}
             report={report}
+            reportView={reportView}
             gate={gate}
             onNew={openNewEvaluation}
             onDetail={() => setActiveView("project")}

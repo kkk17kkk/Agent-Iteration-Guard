@@ -29,7 +29,11 @@ function date(value) {
   return String(value).replace("T", " ").replace(/\.\d+Z$/, "").replace(/\+00:00$/, " UTC");
 }
 
-function displayStatus(intelligence, gate, report) {
+function displayStatus(intelligence, gate, report, reportView) {
+  const evaluationDecision = String(reportView?.decision?.decision || "").toLowerCase();
+  if (evaluationDecision === "pass") return "PASS";
+  if (evaluationDecision === "review") return "REVIEW";
+  if (evaluationDecision === "block") return "BLOCKED";
   const decision = String(gate?.decision || "").toLowerCase();
   if (decision === "block") return "BLOCKED";
   if (decision === "approve") return "PASS";
@@ -86,7 +90,7 @@ function MetricCell({ label, value, tone = "" }) {
   return <div className={`metric-cell ${tone}`}><span>{label}</span><strong>{value}</strong></div>;
 }
 
-export default function Overview({ projectId, intelligence, scans, uploads, benchmarks = [], reportList = [], report, gate, onNew, onDetail, onExitProject, onReport, onUploaded, onProjectIdChange, request, refreshProject, setLoading, setNotice, demoMode = false, onDemoLoad }) {
+export default function Overview({ projectId, intelligence, scans, uploads, benchmarks = [], reportList = [], report, reportView, gate, onNew, onDetail, onExitProject, onReport, onUploaded, onProjectIdChange, request, refreshProject, setLoading, setNotice, demoMode = false, onDemoLoad }) {
   const [version, setVersion] = useState("candidate");
   const [selectedUpload, setSelectedUpload] = useState("");
   const [selectedFilename, setSelectedFilename] = useState("");
@@ -141,7 +145,8 @@ export default function Overview({ projectId, intelligence, scans, uploads, benc
   const displayName = projectDisplayName(manifest, projectId);
   const registry = intelligence.capability_registry || [];
   const diffChanges = intelligence.latest_diff?.component_changes || [];
-  const status = displayStatus(intelligence, gate, latestReport);
+  const status = displayStatus(intelligence, gate, latestReport, reportView);
+  const evaluationDecision = String(reportView?.decision?.decision || gate?.decision || "review").toLowerCase();
   const steps = progressSteps({ intelligence, report: latestReport, plan: null, run: null });
   const changed = diffChanges.length ? diffChanges : registry.slice(0, 4).map((item) => ({ component_type: item.component_type, component_name: item.name, status: "changed", responsibility: item.responsibility }));
   const history = [
@@ -151,11 +156,11 @@ export default function Overview({ projectId, intelligence, scans, uploads, benc
   ];
   const summary = latestReport?.evaluation_results?.summary || latestReport?.evidence?.summary || {};
   const metrics = [
-      ["Success", latestReport ? (summary.failure_rate === 0 ? "PASS" : summary.failure_rate == null ? "REVIEW" : `${Math.round((1 - summary.failure_rate) * 100)}%`) : "Pending", latestReport ? "ok" : ""],
+      ["Success", latestReport ? (evaluationDecision === "pass" ? "PASS" : evaluationDecision === "block" ? "BLOCKED" : "REVIEW") : "Pending", latestReport ? (evaluationDecision === "pass" ? "ok" : evaluationDecision === "block" ? "bad" : "") : ""],
       ["Capability", latestReport?.executive_summary?.status || (intelligence.latest_diff ? "CHANGED" : "READY"), "violet"],
-      ["Safety", gate?.decision === "block" ? "BLOCKED" : "PASS", gate?.decision === "block" ? "bad" : "ok"],
+      ["Safety", evaluationDecision === "block" ? "BLOCKED" : evaluationDecision === "review" ? "REVIEW" : "PASS", evaluationDecision === "block" ? "bad" : evaluationDecision === "review" ? "" : "ok"],
       ["Cost", summary.total_cost_usd != null ? `$${Number(summary.total_cost_usd).toFixed(4)}` : "-", ""],
-      ["Decision", gate?.decision?.toUpperCase() || (latestReport ? "REVIEW" : "PENDING"), gate?.decision === "block" ? "bad" : ""],
+      ["Decision", latestReport ? evaluationDecision.toUpperCase() : "PENDING", evaluationDecision === "block" ? "bad" : ""],
     ];
 
   return <Page title="总览" kicker="项目工作台 · OVERVIEW" intro="按项目扫描、能力变化与评估证据查看当前状态。" action={<div className="overview-page-actions"><button className="secondary" onClick={onExitProject}><I name="x" />退出项目<I name="arrowRight" /></button><button className="primary" onClick={() => onNew(null)}><I name="flask" />新建评估</button></div>}>

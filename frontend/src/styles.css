@@ -489,18 +489,43 @@ button.primary, button.secondary, .file-button { font-size: 16px; }
 .report-single-stack { display: grid; gap: 16px; margin-top: 16px; }
 .report-section-card { min-width: 0; }
 .report-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.decision-check-list { display: grid; gap: 7px; align-content: center; }
-.decision-check-list .check-row { padding: 8px 0; border-bottom: 1px solid var(--line-soft); }
+.decision-band { grid-template-columns: minmax(0, 1fr) minmax(340px, .78fr); gap: 28px; align-items: stretch; min-height: 0; }
+.decision-info { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
+.decision-info .decision { margin-top: 13px; }
+.decision.pass { color: var(--green); }
+.decision-copy, .decision-evidence-note { max-width: none; overflow-wrap: anywhere; }
+.decision-evidence-note { margin-top: 13px; padding: 10px 12px; border-left: 3px solid var(--amber); border-radius: 7px; color: #f3d59b; background: rgba(244, 189, 89, .08); font-size: 14px; line-height: 1.65; }
+.decision-check-list { display: grid; min-width: 0; gap: 7px; align-content: center; }
+.decision-check-list .check-row { display: grid; grid-template-columns: auto minmax(140px, .7fr) minmax(0, 1.3fr); align-items: center; min-width: 0; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+.decision-check-list .check-row strong, .decision-check-list .check-row > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .report-overview-grid, .report-dimension-grid, .report-analysis-grid, .evidence-observation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .report-overview-item, .report-dimension-card, .report-analysis-card, .scenario-card { min-width: 0; padding: 15px; border: 1px solid var(--line-soft); border-radius: 11px; background: var(--card-muted); }
 .report-overview-item > span, .report-dimension-card > span, .report-analysis-grid span, .evidence-observation-grid span { color: var(--muted); font-size: 13px; }
 .report-overview-item p, .report-dimension-card p, .report-analysis-card p, .scenario-card p { margin: 6px 0 0; color: var(--body); font-size: 15px; line-height: 1.65; overflow-wrap: anywhere; }
 .report-dimension-card strong { display: block; margin-top: 7px; color: var(--text); font-size: 16px; }
+.report-dimension-card > span { color: #c3b6ff; font-weight: 680; }
+.report-info-button { position: relative; top: -1px; margin-left: 5px; vertical-align: middle; }
+.context-table-wrap { overflow-x: auto; }
+.context-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.context-table th, .context-table td { padding: 15px 14px; border-bottom: 1px solid var(--line-soft); text-align: left; vertical-align: top; line-height: 1.85; overflow-wrap: anywhere; }
+.context-table th { width: 190px; color: var(--muted); font-size: 14px; font-weight: 680; }
+.context-table td { color: var(--body); font-size: 15px; }
 .report-analysis-list, .scenario-list, .recommendation-list, .experiment-map-list, .evidence-condition-list { display: grid; gap: 12px; }
 .report-analysis-grid { margin-top: 12px; }
 .report-analysis-grid > div { padding-top: 9px; border-top: 1px solid var(--line-soft); }
 .report-callout { margin: 14px 0; padding: 13px 15px; border-left: 3px solid var(--blue); border-radius: 8px; background: rgba(67, 103, 194, .1); color: var(--body); }
 .report-callout p { margin: 6px 0 0; }
+.report-section-card .report-callout { background: linear-gradient(135deg, rgba(21, 35, 75, .92), rgba(37, 27, 70, .76)); border-color: rgba(115, 139, 255, .68); color: var(--text); }
+.report-recommendation { margin-top: 25px !important; padding: 14px 16px; border-left: 3px solid var(--violet); border-radius: 8px; background: rgba(141, 108, 255, .13); color: var(--text); }
+.report-followup { margin-top: 14px !important; }
+.finding-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.report-section-card .finding-card { min-width: 0; padding: 15px 16px; border: 1px solid var(--line-soft); border-radius: 11px; color: var(--body); background: var(--card-muted); }
+.report-section-card .finding-card strong { display: block; color: var(--text); font-size: 16px; line-height: 1.45; }
+.report-section-card .finding-card p { margin: 8px 0 0; color: var(--body); font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
+.report-section-card .finding-capability_value { border-color: rgba(72, 211, 162, .38); background: linear-gradient(135deg, rgba(31, 94, 79, .43), rgba(14, 35, 39, .78)); }
+.report-section-card .finding-capability_loss { border-color: rgba(244, 189, 89, .4); background: linear-gradient(135deg, rgba(113, 75, 32, .43), rgba(37, 29, 24, .78)); }
+.report-section-card .finding-replacement_risk { border-color: rgba(255, 98, 94, .34); background: linear-gradient(135deg, rgba(105, 45, 58, .38), rgba(36, 25, 38, .78)); }
+.report-section-card .finding-stability { border-color: rgba(111, 157, 255, .38); background: linear-gradient(135deg, rgba(36, 58, 112, .43), rgba(20, 27, 51, .78)); }
 .experiment-map-item { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--card-muted); }
 .map-number { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; color: #c0cdff; background: rgba(91, 125, 255, .17); font-weight: 700; }
 .experiment-map-item h3 { margin-top: 5px; }
@@ -539,12 +564,13 @@ button.primary, button.secondary, .file-button { font-size: 16px; }
   .overview-page-actions { width: 100%; justify-items: stretch; }
   .scan-create-button { width: 100%; }
   .status-hero-card { min-height: 230px; }
+  .decision-band { grid-template-columns: 1fr; }
   .compact-capability-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .project-overview-panel { grid-column: span 2; }
 }
 
 @media (max-width: 760px) {
-  .report-summary-grid, .report-overview-grid, .report-dimension-grid, .report-analysis-grid, .evidence-observation-grid { grid-template-columns: 1fr; }
+  .report-summary-grid, .report-overview-grid, .report-dimension-grid, .report-analysis-grid, .evidence-observation-grid, .finding-grid { grid-template-columns: 1fr; }
   .report-toolbar { justify-content: flex-start; }
 }
