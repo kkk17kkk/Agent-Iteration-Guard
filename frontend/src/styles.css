@@ -488,6 +488,24 @@ button.primary, button.secondary, .file-button { font-size: 16px; }
 .report-toolbar { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; margin-bottom: 16px; }
 .report-single-stack { display: grid; gap: 16px; margin-top: 16px; }
 .report-section-card { min-width: 0; }
+.report-summary-section {
+  background: linear-gradient(135deg, #101b39, #15152e);
+  border-color: #30416a;
+  --summary-callout-bg: linear-gradient(135deg, rgba(21, 35, 75, .92), rgba(37, 27, 70, .76));
+}
+.report-summary-section .report-callout,
+.report-summary-section .report-recommendation {
+  background: var(--summary-callout-bg) !important;
+  border-color: rgba(115, 139, 255, .68);
+}
+.report-summary-section .finding-card,
+.report-summary-section .finding-capability_value,
+.report-summary-section .finding-capability_loss,
+.report-summary-section .finding-replacement_risk,
+.report-summary-section .finding-stability {
+  background: var(--card-muted);
+  border-color: var(--line-soft);
+}
 .report-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .decision-band { grid-template-columns: minmax(0, 1fr) minmax(340px, .78fr); gap: 28px; align-items: stretch; min-height: 0; }
 .decision-info { display: flex; min-width: 0; flex-direction: column; justify-content: center; }
@@ -522,10 +540,10 @@ button.primary, button.secondary, .file-button { font-size: 16px; }
 .report-section-card .finding-card { min-width: 0; padding: 15px 16px; border: 1px solid var(--line-soft); border-radius: 11px; color: var(--body); background: var(--card-muted); }
 .report-section-card .finding-card strong { display: block; color: var(--text); font-size: 16px; line-height: 1.45; }
 .report-section-card .finding-card p { margin: 8px 0 0; color: var(--body); font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
-.report-section-card .finding-capability_value { border-color: rgba(72, 211, 162, .38); background: linear-gradient(135deg, rgba(31, 94, 79, .43), rgba(14, 35, 39, .78)); }
-.report-section-card .finding-capability_loss { border-color: rgba(244, 189, 89, .4); background: linear-gradient(135deg, rgba(113, 75, 32, .43), rgba(37, 29, 24, .78)); }
-.report-section-card .finding-replacement_risk { border-color: rgba(255, 98, 94, .34); background: linear-gradient(135deg, rgba(105, 45, 58, .38), rgba(36, 25, 38, .78)); }
-.report-section-card .finding-stability { border-color: rgba(111, 157, 255, .38); background: linear-gradient(135deg, rgba(36, 58, 112, .43), rgba(20, 27, 51, .78)); }
+.report-section-card .finding-capability_value,
+.report-section-card .finding-capability_loss,
+.report-section-card .finding-replacement_risk,
+.report-section-card .finding-stability { background: var(--card-muted); border-color: var(--line-soft); }
 .experiment-map-item { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; padding: 14px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--card-muted); }
 .map-number { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; color: #c0cdff; background: rgba(91, 125, 255, .17); font-weight: 700; }
 .experiment-map-item h3 { margin-top: 5px; }

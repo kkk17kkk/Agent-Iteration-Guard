@@ -34,12 +34,19 @@ _HTML_STYLE_OVERRIDES = """
 .finding-card { min-width: 0; padding: 15px 16px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); }
 .finding-card strong { display: block; font-size: 16px; line-height: 1.45; }
 .finding-card p { margin: 8px 0 0; color: var(--body); font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
-.finding-capability_value { border-color: rgba(72, 211, 162, .38); background: linear-gradient(135deg, rgba(31, 94, 79, .43), rgba(14, 35, 39, .78)); }
-.finding-capability_loss { border-color: rgba(244, 189, 89, .4); background: linear-gradient(135deg, rgba(113, 75, 32, .43), rgba(37, 29, 24, .78)); }
-.finding-replacement_risk { border-color: rgba(255, 98, 94, .34); background: linear-gradient(135deg, rgba(105, 45, 58, .38), rgba(36, 25, 38, .78)); }
-.finding-stability { border-color: rgba(111, 157, 255, .38); background: linear-gradient(135deg, rgba(36, 58, 112, .43), rgba(20, 27, 51, .78)); }
+.report-summary-section { background: linear-gradient(135deg, #101b39, #15152e); border-color: #30416a; --summary-callout-bg: linear-gradient(135deg, rgba(21, 35, 75, .92), rgba(37, 27, 70, .76)); }
+.report-summary-section .summary-callout,
+.report-summary-section .summary-recommendation { background: var(--summary-callout-bg); border-color: rgba(115, 139, 255, .68); }
+.report-summary-section .finding-card,
+.report-summary-section .finding-capability_value,
+.report-summary-section .finding-capability_loss,
+.report-summary-section .finding-replacement_risk,
+.report-summary-section .finding-stability { background: var(--surface-2); border-color: var(--line); }
 .summary-recommendation { margin-top: 25px; padding: 14px 16px; border-left: 3px solid var(--violet); border-radius: 8px; background: rgba(141, 108, 255, .13); color: var(--text); }
 .summary-followup { margin-top: 14px; }
+.section-head { display: block; }
+.section-head .eyebrow, .section-head h2 { display: block; }
+.section-head h2 { clear: both; margin-top: 6px; }
 @media(max-width:1100px) { .decision { grid-template-columns: 1fr; } }
 @media(max-width:700px) { .finding-grid { grid-template-columns: 1fr; } }
 """
@@ -166,7 +173,7 @@ def render_product_evaluation_html(
     sections_html = [
         _section(sections["capability_overview"], _overview_html(view.capability_overview, template, esc)),
         _section(sections["evaluation_context"], _context_html(view.evaluation_context, esc)),
-        _section(sections["executive_summary"], _summary_html(view.summary, view.decision, labels=template.labels, esc=esc)),
+        _section(sections["executive_summary"], _summary_html(view.summary, view.decision, labels=template.labels, esc=esc), class_name="report-summary-section"),
         _section(sections["evaluation_dimensions"], _dimensions_html(view.dimensions, template, esc)),
         _section(sections["experiment_overview"], _experiments_overview_html(view.experiments, esc)),
         _section(sections["experiment_analysis"], _analysis_html(view.experiments.get("analysis", []), template, esc)),
@@ -211,8 +218,9 @@ def render_product_evaluation_html(
     return html
 
 
-def _section(section: Any, body: str) -> str:
-    return f"<section class='report-section'><div class='section-head'><span class='eyebrow'>{_esc(section.eyebrow)}</span><h2>{_esc(section.title)}</h2></div>{body}</section>"
+def _section(section: Any, body: str, *, class_name: str = "") -> str:
+    classes = f"report-section {class_name}".strip()
+    return f"<section class='{classes}'><div class='section-head'><span class='eyebrow'>{_esc(section.eyebrow)}</span><h2>{_esc(section.title)}</h2></div>{body}</section>"
 
 
 def _overview_html(data: Mapping[str, Any], template: ProductReportTemplate, esc) -> str:
