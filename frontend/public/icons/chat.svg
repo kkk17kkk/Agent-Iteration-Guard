@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#b46dff">
+  <title>Chat bubble</title>
+  <path d="M10 14a7 7 0 0 1 7-7h30a7 7 0 0 1 7 7v22a7 7 0 0 1-7 7H29L18 54v-11h-1a7 7 0 0 1-7-7z" fill="currentColor" fill-opacity=".12" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/>
+  <path d="M22 23h20M22 32h13" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
+</svg>

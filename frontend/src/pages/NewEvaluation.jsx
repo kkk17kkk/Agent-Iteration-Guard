@@ -44,7 +44,7 @@ function StepFlow({ current }) {
   );
 }
 
-export default function NewEvaluation({ projectId, intelligence, providers, executionConfigs, knowledge = [], fixtureRoot, setFixtureRoot, request, setLoading, setNotice, onPlan, onConfigurationChanged, prefill }) {
+export default function NewEvaluation({ projectId, intelligence, providers, executionConfigs, knowledge = [], fixtureRoot, setFixtureRoot, request, setLoading, setNotice, onPlan, onConfigurationChanged, prefill, demoMode = false, readOnlyNotice }) {
   const [candidateVersion, setCandidateVersion] = useState(intelligence?.latest_snapshot?.version || "");
   const snapshots = intelligence?.snapshot_history || [];
   const baselineSnapshot = intelligence?.baseline_snapshot;
@@ -213,6 +213,7 @@ export default function NewEvaluation({ projectId, intelligence, providers, exec
   }, [projectId, baselineVersion, candidateVersion]);
 
   const createPlan = async () => {
+    if (demoMode) { readOnlyNotice?.(); return; }
     if (!projectId || !selectedComponent || !description || !responsibility || !userJob) {
       setNotice({ kind: "error", text: "请选择组件，并填写产品描述、产品职责与用户任务。" }); return;
     }
@@ -250,6 +251,7 @@ export default function NewEvaluation({ projectId, intelligence, providers, exec
   };
 
   const onboardProvider = async () => {
+    if (demoMode) { readOnlyNotice?.(); return; }
     setLoading(true); setNotice(null);
     try {
       const value = await request(pathFor(projectId, "/provider-bindings/onboard"), { method: "POST", body: JSON.stringify(providerForm) });
@@ -278,6 +280,7 @@ export default function NewEvaluation({ projectId, intelligence, providers, exec
   };
 
   const saveRuntimeDraft = async () => {
+    if (demoMode) { readOnlyNotice?.(); return; }
     if (!runtimeDraft) return;
     setLoading(true); setNotice(null);
     try {
@@ -294,6 +297,7 @@ export default function NewEvaluation({ projectId, intelligence, providers, exec
   };
 
   const saveReusablePair = async () => {
+    if (demoMode) { readOnlyNotice?.(); return; }
     if (!temporaryPair) return;
     setLoading(true);
     try {

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#b97cff">
+  <title>Target</title>
+  <g fill="none" stroke="currentColor" stroke-width="3.2"><circle cx="32" cy="32" r="22"/><circle cx="32" cy="32" r="13"/><circle cx="32" cy="32" r="4" fill="currentColor" stroke="none"/></g>
+  <path d="m32 32 15-15" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
+</svg>

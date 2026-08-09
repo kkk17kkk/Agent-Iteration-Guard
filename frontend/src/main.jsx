@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { API_BASE, stored, save, projectStorageKey, pathFor, getError } from "./lib.js";
+import { API_BASE, stored, save, projectStorageKey, pathFor, getError, collection } from "./lib.js";
 import { I } from "./components.jsx";
 import Overview from "./pages/Overview.jsx";
 import ProjectDetail from "./pages/ProjectDetail.jsx";
@@ -18,6 +18,10 @@ const NAV_ITEMS = [
 ];
 
 const initialProjectId = localStorage.getItem("aig.projectId") || "";
+const LIGHTTABLE_ID = "lighttable-pair-nutrition";
+const READ_ONLY_NOTICE = "此项目仅供示意，不可编辑。请上传正式 Project 后执行此操作。";
+const initialDemoMode = localStorage.getItem("aig.demoMode") === "1";
+const captureMode = new URLSearchParams(window.location.search).get("capture") === "1";
 
 function App() {
   const [activeView, setActiveView] = useState("overview");
@@ -41,6 +45,7 @@ function App() {
   const [gate, setGate] = useState(() => stored(projectStorageKey(initialProjectId, "gate")));
   const [fixtureRoot, setFixtureRoot] = useState(() => localStorage.getItem(projectStorageKey(initialProjectId, "fixtureRoot")) || "");
   const [runContext, setRunContext] = useState(() => stored(projectStorageKey(initialProjectId, "runContext")));
+  const [demoMode, setDemoMode] = useState(initialDemoMode);
   const [evalPrefill, setEvalPrefill] = useState(null);
   const [notice, setNotice] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -70,10 +75,39 @@ function App() {
     setEvalPrefill(null);
   };
 
+  const exitProject = () => {
+    setProjectId("");
+    setDemoMode(false);
+    setIntelligence(null);
+    setScans([]);
+    setUploads([]);
+    setProviders([]);
+    setExecutionConfigs([]);
+    setKnowledge([]);
+    setBenchmarks([]);
+    setReportList([]);
+    setRequestRecord(null);
+    setPlan(null);
+    setReadiness(null);
+    setRun(null);
+    setMatrix(null);
+    setEvidence(null);
+    setReportEvidence(null);
+    setReport(null);
+    setGate(null);
+    setFixtureRoot("");
+    setRunContext(null);
+    setEvalPrefill(null);
+    setActiveView("overview");
+    localStorage.removeItem("aig.projectId");
+    localStorage.removeItem("aig.demoMode");
+    setNotice({ kind: "success", text: "已退出当前项目，请上传项目文件或选择 LightTable 示例。" });
+  };
+
   const refreshProject = async (value = projectId) => {
     const id = value.trim();
     if (!id) throw new Error("请先输入项目 ID。");
-    const [nextIntelligence, nextScans, nextUploads, nextProviders, nextConfigs, nextReports, nextKnowledge, nextBenchmarks] = await Promise.all([
+    const [nextIntelligence, rawScans, rawUploads, rawProviders, rawConfigs, rawReports, rawKnowledge, rawBenchmarks] = await Promise.all([
       request(pathFor(id, "/intelligence")),
       request(pathFor(id, "/scans")),
       request(pathFor(id, "/uploads")),
@@ -83,6 +117,13 @@ function App() {
       request(pathFor(id, "/evaluation-knowledge")),
       request(pathFor(id, "/benchmark-evidence")),
     ]);
+    const nextScans = collection(rawScans);
+    const nextUploads = collection(rawUploads);
+    const nextProviders = collection(rawProviders);
+    const nextConfigs = collection(rawConfigs);
+    const nextReports = collection(rawReports);
+    const nextKnowledge = collection(rawKnowledge);
+    const nextBenchmarks = collection(rawBenchmarks);
     setProjectId(id);
     localStorage.setItem("aig.projectId", id);
     setIntelligence(nextIntelligence);
@@ -98,6 +139,7 @@ function App() {
   };
 
   const importBenchmark = async (file) => {
+    if (demoMode) { setNotice({ kind: "error", text: READ_ONLY_NOTICE }); return; }
     if (!file || !projectId) {
       setNotice({ kind: "error", text: "请先加载项目，再导入 Benchmark JSON。" });
       return;
@@ -123,7 +165,14 @@ function App() {
   const loadProject = async () => {
     setLoading(true);
     setNotice(null);
+    if (!projectId.trim()) {
+      exitProject();
+      setLoading(false);
+      return;
+    }
     try {
+      setDemoMode(false);
+      localStorage.removeItem("aig.demoMode");
       await refreshProject();
       setNotice({ kind: "success", text: "项目、扫描记录、Provider、执行契约与报告已加载。" });
     } catch (error) {
@@ -132,6 +181,60 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadDemoProject = async () => {
+    setLoading(true);
+    setNotice(null);
+    try {
+      const [nextIntelligence, rawScans, rawUploads, rawProviders, rawConfigs, rawReports, rawKnowledge, rawBenchmarks] = await Promise.all([
+        request(pathFor(LIGHTTABLE_ID, "/intelligence")),
+        request(pathFor(LIGHTTABLE_ID, "/scans")),
+        request(pathFor(LIGHTTABLE_ID, "/uploads")),
+        request(pathFor(LIGHTTABLE_ID, "/provider-bindings")),
+        request(pathFor(LIGHTTABLE_ID, "/evaluation-execution-configurations")),
+        request(pathFor(LIGHTTABLE_ID, "/reports")),
+        request(pathFor(LIGHTTABLE_ID, "/evaluation-knowledge")),
+        request(pathFor(LIGHTTABLE_ID, "/benchmark-evidence")),
+      ]);
+      const nextReports = collection(rawReports);
+      setDemoMode(true);
+      setProjectId(LIGHTTABLE_ID);
+      localStorage.setItem("aig.projectId", LIGHTTABLE_ID);
+      localStorage.setItem("aig.demoMode", "1");
+      setIntelligence(nextIntelligence);
+      setScans(collection(rawScans)); setUploads(collection(rawUploads)); setProviders(collection(rawProviders));
+      setExecutionConfigs(collection(rawConfigs)); setReportList(nextReports); setKnowledge(collection(rawKnowledge));
+      setBenchmarks(collection(rawBenchmarks));
+      setRequestRecord(null); setPlan(null); setReadiness(null); setRun(null); setRunContext(null);
+      setMatrix(null); setEvidence(null); setReportEvidence(null); setGate(null); setFixtureRoot("");
+      const latest = nextReports[0];
+      if (latest?.report_id) {
+        const demoReport = await request(pathFor(LIGHTTABLE_ID, `/reports/${encodeURIComponent(latest.report_id)}`));
+        const demoEvidence = await request(pathFor(LIGHTTABLE_ID, `/reports/${encodeURIComponent(latest.report_id)}/evidence`));
+        const summary = demoReport.evaluation_results?.summary || demoReport.evidence?.summary || {};
+        const typeData = demoReport.evaluation_results?.type_data || demoReport.evidence?.type_data || {};
+        const evidenceConditions = demoEvidence?.conditions || demoReport.evidence?.conditions || [];
+        const scenarioIds = typeData.scenario_ids || [...new Set(evidenceConditions.map((item) => item.scenario_id).filter(Boolean))];
+        const demoPlan = {
+          plan_id: demoReport.evaluation?.evaluation_id || "demo-plan-lighttable",
+          evaluation_name: demoReport.evaluation?.evaluation_name || "LightTable nutrition interaction evaluation",
+          component_type: demoReport.subject?.component_type || "skill_pair",
+          component_name: demoReport.subject?.component_name || "recipe_planning_nutrition_check",
+          scenarios: scenarioIds.map((scenarioId, index) => ({ scenario_id: scenarioId, category: typeData.scenario_categories?.[index] || "interaction", input_contract: { requirements: [] } })),
+          evaluation_scope: { baseline_version: "main-fa774ef", candidate_version: "candidate-gui-v2-20260806", provider: "deepseek", model: "deepseek-chat", budget_usd: 0.3, timeout_seconds: 120, side_effect_policy: "denied" },
+        };
+        const demoRun = { run_id: latest.run_id || "demo-run-lighttable", status: "completed", current_stage: "completed", progress_percent: 100, events: [{ event_id: "demo-start", stage: "planning", status: "completed", detail: "示例评估计划已冻结" }, { event_id: "demo-finish", stage: "report", status: "completed", detail: "示例 Evidence 已生成" }], artifact: { conditions: evidenceConditions, metrics: summary } };
+        const demoGate = await request(pathFor(LIGHTTABLE_ID, `/evaluations/runs/${encodeURIComponent(demoRun.run_id)}/gate`));
+        setReport(demoReport); setReportEvidence(demoEvidence); setGate(demoGate); setPlan(demoPlan); setReadiness({ status: "ready", blocking_reasons: [] }); setRun(demoRun); setMatrix(demoEvidence); setEvidence(demoEvidence); setRequestRecord({ request_id: "demo-request-lighttable" });
+        setRunContext({ executionConfigId: collection(rawConfigs)[0]?.config_id || "demo-config", providerBindingId: collection(rawProviders).find((item) => item.role === "control_plane")?.provider_binding_id || "demo-provider", productDefinition: demoReport.product_context || {} });
+      } else setReport(null);
+      setActiveView("overview");
+      setNotice({ kind: "success", text: "LightTable 示例项目已加载，仅供浏览，编辑操作已锁定。" });
+    } catch (error) {
+      setIntelligence(null);
+      setNotice({ kind: "error", text: `LightTable 示例项目加载失败：${error.message}` });
+    } finally { setLoading(false); }
   };
 
   const loadReadiness = async () => {
@@ -205,13 +308,11 @@ function App() {
     setLoading(true);
     try {
       const value = await request(pathFor(projectId, `/reports/${encodeURIComponent(reportId)}`));
-      const [nextGate, nextEvidence] = await Promise.all([
-        request(pathFor(projectId, "/release-decision"), {
-          method: "POST",
-          body: JSON.stringify({ report: value }),
-        }),
-        request(pathFor(projectId, `/reports/${encodeURIComponent(reportId)}/evidence`)),
-      ]);
+      const nextEvidence = await request(pathFor(projectId, `/reports/${encodeURIComponent(reportId)}/evidence`));
+      const nextGate = demoMode && reportRunId ? await request(pathFor(projectId, `/evaluations/runs/${encodeURIComponent(reportRunId)}/gate`)) : demoMode ? null : await request(pathFor(projectId, "/release-decision"), {
+        method: "POST",
+        body: JSON.stringify({ report: value }),
+      });
       setReport(value);
       setGate(nextGate);
       setReportEvidence(nextEvidence);
@@ -220,7 +321,7 @@ function App() {
       save(projectStorageKey(projectId, "reportEvidence"), nextEvidence);
       if (reportRunId) setRun((current) => current || { run_id: reportRunId });
       setActiveView("report");
-      setNotice({ kind: "success", text: `报告 ${reportId} 已加载，Gate 已评估。` });
+      setNotice({ kind: "success", text: `报告 ${reportId} 已加载${demoMode ? "（示例项目只读）" : "，Gate 已评估"}。` });
     } catch (error) {
       setNotice({ kind: "error", text: error.message });
     } finally {
@@ -231,6 +332,7 @@ function App() {
   const importReport = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (demoMode) { setNotice({ kind: "error", text: READ_ONLY_NOTICE }); event.target.value = ""; return; }
     try {
       const raw = JSON.parse(await file.text());
       const value = raw.report || raw.data?.report || raw;
@@ -259,22 +361,28 @@ function App() {
 
   useEffect(() => {
     if (!projectId) return;
-    loadProject();
+    if (initialDemoMode && projectId === LIGHTTABLE_ID) loadDemoProject();
+    else loadProject();
     // The persisted project is loaded once when the application opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const openNewEvaluation = (prefill) => {
+    if (demoMode) { setNotice({ kind: "error", text: READ_ONLY_NOTICE }); return; }
+    setEvalPrefill(prefill || null); setActiveView("new");
+  };
+
   return (
-    <div className="app-shell">
+    <div className={`app-shell${captureMode ? " capture-mode" : ""}`}>
       <aside className="rail">
         <div className="brand-lockup">
-          <span className="brand-mark"><I name="shield" /></span>
+          <span className="brand-mark"><img src="/icons/agent-guard-logo.svg" alt="Agent Iteration Guard" /></span>
           <span className="brand-text">
             <strong>Agent Iteration Guard</strong>
             <span>AIG · v1.0</span>
           </span>
         </div>
-        <div className="rail-caption">Capability Evolution · Local</div>
+        <div className="rail-caption">项目工作台 · Local</div>
         <nav className="nav-list" aria-label="Primary">
           {NAV_ITEMS.map(([id, zh, en, icon]) => (
             <button key={id} className={activeView === id ? "nav-item active" : "nav-item"} onClick={() => setActiveView(id)}>
@@ -284,24 +392,24 @@ function App() {
             </button>
           ))}
         </nav>
-        <div className="rail-footer"><span className="live-dot" /><span>证据驱动 · Evidence-first</span></div>
+        <div className="rail-footer"><span className="live-dot" /><span>Evidence-first · Local</span></div>
       </aside>
 
       <main className="main-column">
         <header className="topbar">
           <div className="topbar-left">
-            <span className="topbar-badge">AIG v1.0</span>
             <span className="topbar-title">Agent 能力演进评估工作台</span>
+            {demoMode && <span className="demo-badge">LightTable Demo · 只读</span>}
           </div>
           <div className="project-switcher">
-            <span>Project</span>
+            <span>项目</span>
             <input
               value={projectId}
               onChange={(event) => setProjectId(event.target.value)}
               onKeyDown={(event) => event.key === "Enter" && loadProject()}
-              placeholder="project-id"
+              placeholder="输入 Project ID"
             />
-            <button onClick={loadProject} disabled={loading}>{loading ? "加载中…" : "加载"}</button>
+            <button onClick={loadProject} disabled={loading}>{loading ? "加载中…" : "加载项目"}</button>
           </div>
         </header>
 
@@ -321,14 +429,22 @@ function App() {
             scans={scans}
             uploads={uploads}
             benchmarks={benchmarks}
-            onNew={(prefill) => { setEvalPrefill(prefill || null); setActiveView("new"); }}
+            reportList={reportList}
+            report={report}
+            gate={gate}
+            onNew={openNewEvaluation}
             onDetail={() => setActiveView("project")}
+            onExitProject={exitProject}
+            onReport={openReport}
             onUploaded={(upload) => setUploads((current) => [upload, ...current.filter((item) => item.upload_id !== upload.upload_id)])}
             onProjectIdChange={setProjectId}
             request={request}
             refreshProject={refreshProject}
             setLoading={setLoading}
             setNotice={setNotice}
+            demoMode={demoMode}
+            onDemoLoad={loadDemoProject}
+            readOnlyNotice={() => setNotice({ kind: "error", text: READ_ONLY_NOTICE })}
           />}
           {activeView === "project" && <ProjectDetail
             projectId={projectId}
@@ -339,9 +455,11 @@ function App() {
             executionConfigs={executionConfigs}
             benchmarks={benchmarks}
             onImportBenchmark={importBenchmark}
-            onNew={(prefill) => { setEvalPrefill(prefill || null); setActiveView("new"); }}
+            onNew={openNewEvaluation}
             onReport={openReport}
             onOverview={() => setActiveView("overview")}
+            demoMode={demoMode}
+            readOnlyNotice={() => setNotice({ kind: "error", text: READ_ONLY_NOTICE })}
           />}
           {activeView === "new" && <NewEvaluation
             key={projectId}
@@ -368,6 +486,8 @@ function App() {
               save(projectStorageKey(projectId, "report"), null); save(projectStorageKey(projectId, "gate"), null);
               setActiveView("running");
             }}
+            demoMode={demoMode}
+            readOnlyNotice={() => setNotice({ kind: "error", text: READ_ONLY_NOTICE })}
           />}
           {activeView === "running" && <Running
             projectId={projectId}
@@ -425,6 +545,8 @@ function App() {
               finally { setLoading(false); }
             }}
             loading={loading}
+            demoMode={demoMode}
+            readOnlyNotice={() => setNotice({ kind: "error", text: READ_ONLY_NOTICE })}
           />}
           {activeView === "report" && <Report
             projectId={projectId}
@@ -436,6 +558,8 @@ function App() {
             onImport={importReport}
             onRefresh={async () => { try { await refreshProject(projectId); setNotice({ kind: "success", text: "报告列表已刷新。" }); } catch (error) { setNotice({ kind: "error", text: error.message }); } }}
             loading={loading}
+            demoMode={demoMode}
+            readOnlyNotice={() => setNotice({ kind: "error", text: READ_ONLY_NOTICE })}
           />}
         </div>
       </main>

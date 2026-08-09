@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#ff625e">
+  <title>Shield alert</title>
+  <path d="M32 6 13 13v15c0 12 7.6 21.4 19 27 11.4-5.6 19-15 19-27V13z" fill="currentColor" fill-opacity=".13" stroke="currentColor" stroke-width="3.2" stroke-linejoin="round"/>
+  <g fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"><path d="M32 20v14"/><circle cx="32" cy="43" r="1.5" fill="currentColor" stroke="none"/></g>
+</svg>

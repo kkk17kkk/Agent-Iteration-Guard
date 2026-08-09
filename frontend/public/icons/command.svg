@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#9aa7ca">
+  <title>Command shortcut</title>
+  <g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="13" y="13" width="38" height="38" rx="7"/><path d="M25 21v22M39 21v22M21 25h22M21 39h22"/>
+  </g>
+</svg>

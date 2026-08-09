@@ -74,7 +74,7 @@ function artifactStatus(condition) {
   return "review";
 }
 
-export default function Running({ projectId, plan, requestRecord, runContext, readiness, run, matrix, evidence, onReadiness, onStart, onRefresh, onPoll, onArtifacts, onReport, loading }) {
+export default function Running({ projectId, plan, requestRecord, runContext, readiness, run, matrix, evidence, onReadiness, onStart, onRefresh, onPoll, onArtifacts, onReport, loading, demoMode = false, readOnlyNotice }) {
   const active = isActiveRun(run);
 
   // Silent polling while a run is in flight — keeps the live view fresh
@@ -164,11 +164,11 @@ export default function Running({ projectId, plan, requestRecord, runContext, re
         </div>
 
         <div className="button-row">
-          <button className="secondary" onClick={onReadiness} disabled={loading}><I name="shieldCheck" />运行 Readiness</button>
-          <button className="primary" onClick={onStart} disabled={loading || readiness?.status !== "ready"} title={readiness?.status !== "ready" ? "Readiness 未通过，无法启动" : ""}><I name="play" />启动评估</button>
-          <button className="secondary" onClick={onRefresh} disabled={loading || !run}><I name="refresh" />刷新状态</button>
-          <button className="secondary" onClick={onArtifacts} disabled={loading || !runTerminal}><I name="doc" />加载 Matrix / Evidence</button>
-          <button className="primary" onClick={onReport} disabled={loading || !runDone}><I name="file" />生成报告</button>
+          <button className="secondary" onClick={() => demoMode ? readOnlyNotice?.() : onReadiness()} disabled={loading}><I name="shieldCheck" />运行 Readiness</button>
+          <button className="primary" onClick={() => demoMode ? readOnlyNotice?.() : onStart()} disabled={loading || readiness?.status !== "ready"} title={readiness?.status !== "ready" ? "Readiness 未通过，无法启动" : ""}><I name="play" />启动评估</button>
+          <button className="secondary" onClick={() => demoMode ? readOnlyNotice?.() : onRefresh()} disabled={loading || !run}><I name="refresh" />刷新状态</button>
+          <button className="secondary" onClick={() => demoMode ? readOnlyNotice?.() : onArtifacts()} disabled={loading || !runTerminal}><I name="doc" />加载 Matrix / Evidence</button>
+          <button className="primary" onClick={() => demoMode ? readOnlyNotice?.() : onReport()} disabled={loading || !runDone}><I name="file" />生成报告</button>
         </div>
 
         {readiness?.blocking_reasons?.length ? (

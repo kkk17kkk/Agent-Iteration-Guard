@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#b77dff">
+  <title>Radar</title>
+  <g fill="none" stroke="currentColor" stroke-width="3.2"><circle cx="32" cy="32" r="22"/><circle cx="32" cy="32" r="12"/><circle cx="32" cy="32" r="3" fill="currentColor" stroke="none"/></g>
+  <path d="m32 32 16-16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#6da0ff">
+  <title>Server settings</title>
+  <g fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="10" width="35" height="13" rx="3"/><rect x="10" y="28" width="35" height="13" rx="3"/><path d="M17 17h.1M17 35h.1M25 17h12M25 35h8"/><circle cx="45" cy="44" r="8"/><path d="M45 32v4M45 52v4M33 44h4M53 44h4M36.5 35.5l3 3M50.5 49.5l3 3M53.5 35.5l-3 3M39.5 49.5l-3 3"/></g>
+</svg>

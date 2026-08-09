@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#8cc7ff">
+  <title>Evaluation</title>
+  <g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="15" y="8" width="34" height="48" rx="5"/><path d="M24 8v-2h16v2M24 22h16M24 32h16M24 42h10"/><path d="m17 22 3 3 5-6M17 32l3 3 5-6"/>
+  </g>
+</svg>

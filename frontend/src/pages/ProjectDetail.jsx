@@ -3,12 +3,12 @@ import { I, CapIcon, FileButton, Status, Page, SectionHeading, EmptyState, Metri
 import { projectDisplayName } from "../lib.js";
 
 const TABS = [
-  ["overview", "Overview"],
-  ["versions", "Versions"],
-  ["knowledge", "Knowledge"],
-  ["benchmarks", "Benchmarks"],
-  ["experiments", "Experiments"],
-  ["configuration", "Configuration"],
+  ["overview", "总览"],
+  ["versions", "版本"],
+  ["knowledge", "知识"],
+  ["benchmarks", "Benchmark"],
+  ["experiments", "评估历史"],
+  ["configuration", "配置"],
 ];
 
 function formatDate(value) {
@@ -16,7 +16,7 @@ function formatDate(value) {
   return String(value).replace("T", " ").replace(/\.\d+Z$/, " UTC");
 }
 
-export default function ProjectDetail({ projectId, intelligence, knowledge = [], benchmarks = [], reportList = [], providers = [], executionConfigs = [], onNew, onReport, onOverview, onImportBenchmark }) {
+export default function ProjectDetail({ projectId, intelligence, knowledge = [], benchmarks = [], reportList = [], providers = [], executionConfigs = [], onNew, onReport, onOverview, onImportBenchmark, demoMode = false, readOnlyNotice }) {
   const [activeTab, setActiveTab] = useState("overview");
   const controlProviders = providers.filter((item) => item.role === "control_plane");
   const [selectedProviderId, setSelectedProviderId] = useState(controlProviders[0]?.provider_binding_id || "");
@@ -148,7 +148,7 @@ export default function ProjectDetail({ projectId, intelligence, knowledge = [],
             <div className="form-panel">
               <h3>Provider bindings</h3>
               <label className="field">当前 Control-plane Binding
-                <select value={selectedProviderId} onChange={(event) => setSelectedProviderId(event.target.value)}>
+                  <select value={selectedProviderId} onChange={(event) => { if (demoMode) { readOnlyNotice?.(); return; } setSelectedProviderId(event.target.value); }}>
                   <option value="">选择一个 control-plane binding</option>
                   {controlProviders.map((item) => <option key={item.provider_binding_id} value={item.provider_binding_id}>{item.provider} / {item.model} / {item.status} · {item.provider_binding_id.slice(-6)}</option>)}
                 </select>
@@ -213,7 +213,7 @@ export default function ProjectDetail({ projectId, intelligence, knowledge = [],
       <section className="project-detail-hero">
         <div className="agent-tile"><I name="cube" /></div>
         <div className="agent-hero-info"><h2>{displayName}</h2><p>{manifest.purpose}</p><div className="chip-row"><span className="chip"><I name="database" />{manifest.source_kind} · <span className="mono">{manifest.source_ref}</span></span><span className="chip"><I name="branch" />{baseline.baseline_version || "baseline"} → {latest.version || "candidate"}</span><span className="chip"><I name="gear" />{runtime.runtime_kind || "runtime"}</span></div></div>
-        <div className="project-detail-status"><Status value={intelligence.status} /><button className="secondary" onClick={() => setActiveTab("versions")}><I name="branch" />Compare Versions</button><button className="secondary" onClick={() => setActiveTab("configuration")}><I name="gear" />Settings</button></div>
+        <div className="project-detail-status"><Status value={intelligence.status} /><button className="secondary" onClick={() => setActiveTab("versions")}><I name="branch" />版本对比</button><button className="secondary" onClick={() => setActiveTab("configuration")}><I name="gear" />配置 Provider</button></div>
       </section>
       <div className="project-tabs" role="tablist" aria-label="Project detail sections">
         {TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={activeTab === id} className={activeTab === id ? "project-tab active" : "project-tab"} onClick={() => setActiveTab(id)}>{label}</button>)}

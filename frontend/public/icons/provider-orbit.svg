@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#dbe2f4">
+  <title>Provider orbit</title>
+  <g fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M32 12c8 0 14 8 14 20s-6 20-14 20-14-8-14-20 6-20 14-20z"/>
+    <path d="M14 22c4-7 14-8 25-2s16 15 12 22-14 8-25 2S10 29 14 22z"/>
+    <path d="M14 42c-4-7 1-16 12-22s21-5 25 2-1 16-12 22-21 5-25-2z"/>
+  </g>
+  <circle cx="32" cy="32" r="3" fill="currentColor"/>
+</svg>

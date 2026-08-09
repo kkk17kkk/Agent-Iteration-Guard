@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#b7c1dd">
+  <title>Workspace building</title>
+  <g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 54V14l20-5 20 5v40M7 54h50M22 20h5M37 20h5M22 30h5M37 30h5M22 40h5M37 40h5M28 54V45h8v9"/>
+  </g>
+</svg>

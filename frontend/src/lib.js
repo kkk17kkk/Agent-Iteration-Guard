@@ -27,7 +27,14 @@ export function pathFor(projectId, suffix = "") {
 export function projectDisplayName(manifest = {}, projectId = "") {
   const raw = String(manifest.agent_name || projectId || "Project").trim();
   const token = raw.match(/^[A-Za-z0-9][A-Za-z0-9_-]*/)?.[0];
-  return token ? token.toLowerCase() : raw;
+  return token || raw;
+}
+
+export function collection(value) {
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value?.items)) return value.items;
+  if (Array.isArray(value?.results)) return value.results;
+  return value && typeof value === "object" ? [value] : [];
 }
 
 export function getError(body, status) {

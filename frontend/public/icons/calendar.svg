@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title" style="color:#9aa9d4">
+  <title>Calendar</title>
+  <g fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><rect x="10" y="14" width="44" height="40" rx="4"/><path d="M20 10v9M44 10v9M10 26h44M20 35h.1M32 35h.1M44 35h.1M20 44h.1M32 44h.1"/></g>
+</svg>
