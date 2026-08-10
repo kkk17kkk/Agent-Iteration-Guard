@@ -12,6 +12,5 @@ RUN pip install --no-cache-dir --no-deps .
 ENV AGENTGUARD_DB=/data/agentguard.db
 ENV AGENTGUARD_ASSET_ROOT=/app
 ENV AGENTGUARD_UPLOAD_ROOT=/data/uploads
-VOLUME ["/data"]
 EXPOSE 8000
 CMD ["/bin/sh", "-c", "uvicorn agentguard.api:app --host 0.0.0.0 --port ${PORT:-8000}"]
