@@ -35,6 +35,7 @@ from agentguard.skill_ablation_adapter import (
     build_skill_evaluation_target,
     skill_ablation_experiment_ids_by_condition,
 )
+from agentguard.evaluation_suite import scenario_category_sequence
 
 
 class FakeProvider:
@@ -58,6 +59,10 @@ class FakeProvider:
 
 class FakeScenarioGenerator:
     def generate(self, target, change):
+        categories = scenario_category_sequence(
+            ("normal", "constraint_conflict", "boundary", "robustness"),
+            change.scenario_suite,
+        )
         return [
             EvaluationScenario(
                 scenario_id=f"scenario_{index}",
@@ -67,7 +72,7 @@ class FakeScenarioGenerator:
                 expected_success_behavior=["完成用户任务"],
                 evidence_to_collect=["用户任务结果"],
             )
-            for index, category in enumerate(("normal", "constraint_conflict", "boundary"), 1)
+            for index, category in enumerate(categories, 1)
         ]
 
 

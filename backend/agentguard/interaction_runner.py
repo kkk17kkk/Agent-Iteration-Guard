@@ -43,6 +43,7 @@ from .integrations.native_command import CommandOperation
 OracleOutcome = Literal["passed", "failed", "unresolved"]
 OracleType = Literal["rule_based", "frozen_lookup", "structured_state"]
 OracleAssertionStatus = Literal["passed", "failed", "unresolved"]
+OracleScope = Literal["structural", "behavioral", "domain_correctness", "external_fact"]
 
 
 class InteractionRunnerError(ValueError):
@@ -118,6 +119,7 @@ class OracleAssertion(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     status: OracleAssertionStatus
     detail: str = Field(min_length=1, max_length=500)
+    failure_type: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class IndependentOracleResult(BaseModel):
@@ -135,6 +137,24 @@ class IndependentOracleResult(BaseModel):
     assertions: list[OracleAssertion] = Field(min_length=1, max_length=64)
     evidence_refs: list[str] = Field(min_length=1, max_length=100)
     summary: str = Field(min_length=1, max_length=600)
+    verification_scopes: list[OracleScope] = Field(default_factory=list, max_length=4)
+    scope_limitations: list[str] = Field(default_factory=list, max_length=8)
+    failure_types_evaluated: list[str] = Field(default_factory=list, max_length=32)
+
+    @model_validator(mode="after")
+    def validate_declared_failure_types(self) -> "IndependentOracleResult":
+        if len(set(self.verification_scopes)) != len(self.verification_scopes):
+            raise ValueError("Oracle verification_scopes must be unique.")
+        if len(set(self.failure_types_evaluated)) != len(self.failure_types_evaluated):
+            raise ValueError("Oracle failure_types_evaluated must be unique.")
+        typed = [item.failure_type for item in self.assertions if item.failure_type is not None]
+        if len(set(typed)) != len(typed):
+            raise ValueError("Oracle must emit at most one assertion for each evaluated failure type.")
+        if set(typed) != set(self.failure_types_evaluated):
+            raise ValueError(
+                "Every declared failure type must have exactly one typed assertion, and typed assertions must be declared."
+            )
+        return self
 
 
 class InteractionOracle(Protocol):
@@ -321,6 +341,7 @@ class ManifestInteractionTrialRunner:
         oracle: InteractionOracle,
         binding: ProviderBinding | None = None,
         fixture_provider: FilesystemScenarioFixtureProvider | None = None,
+        timeout_seconds: float | None = None,
     ) -> None:
         if target.manifest.interaction is None:
             raise TargetExecutionError("Target manifest does not declare an interaction command.")
@@ -332,6 +353,7 @@ class ManifestInteractionTrialRunner:
         self.oracle = oracle
         self.binding = binding
         self.fixture_provider = fixture_provider or FilesystemScenarioFixtureProvider()
+        self.timeout_seconds = timeout_seconds
 
     def run(
         self,
@@ -384,7 +406,11 @@ class ManifestInteractionTrialRunner:
                     "request_path": request_path,
                     "trace_path": trace_path or "",
                 },
-                timeout_seconds=interaction.timeout_seconds,
+                timeout_seconds=(
+                    min(interaction.timeout_seconds, self.timeout_seconds)
+                    if self.timeout_seconds is not None
+                    else interaction.timeout_seconds
+                ),
             )
         except TargetInfrastructureError as error:
             raise
@@ -397,9 +423,9 @@ class ManifestInteractionTrialRunner:
             observation = TargetInteractionObservation.model_validate(evidence.stdout)
         except ValueError as error:
             raise TargetExecutionError("Target interaction command returned an invalid observation contract.") from error
-
         trace = observation.trace
         scenario_trace = scenario.input_contract.trace_for_condition(condition_kind)
+        target_trace_status: object | None = None
         if self.target.manifest.trace:
             if trace_path is None:
                 raise TargetExecutionError("Target trace contract did not receive a trace path.")
@@ -407,9 +433,27 @@ class ManifestInteractionTrialRunner:
                 target_trace = self.target.read_trace(trace_path, scenario_trace=scenario_trace)
             except TargetInfrastructureError as error:
                 raise
-            if target_trace.verification.get("status") != "passed":
-                raise TargetExecutionError("Target trace did not satisfy its declared contract.")
             trace = list(target_trace.events)
+            target_trace_status = target_trace.verification.get("status")
+        if self.binding is not None:
+            provider_event_types = set(
+                self.target.manifest.trace.provider_event_types
+                if self.target.manifest.trace is not None
+                else []
+            )
+            provider_observed = any(event.get("event_type") in provider_event_types for event in trace)
+            if (provider_observed or scenario_trace.provider_usage == "required") and (
+                not observation.provider_request_ids or not observation.usage
+            ):
+                raise TargetExecutionError(
+                    "A target provider call was required or observed, but the trial did not record provider request IDs and usage."
+                )
+            if not observation.output_artifact_ref:
+                raise TargetExecutionError(
+                    "A target provider binding was configured, but the trial did not record output artifact evidence."
+                )
+        if target_trace_status is not None and target_trace_status != "passed":
+            raise TargetExecutionError("Target trace did not satisfy its declared contract.")
         violations = verify_scenario_trace_contract(
             scenario.input_contract,
             trace,
@@ -497,6 +541,7 @@ __all__ = [
     "TargetExecutionError",
     "ManifestInteractionTrialRunner",
     "OracleAssertion",
+    "OracleScope",
     "OracleType",
     "SubprocessInteractionOracle",
     "TargetInteractionObservation",

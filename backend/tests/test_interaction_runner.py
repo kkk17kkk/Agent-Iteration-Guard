@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from agentguard.domain import ProviderBinding
 from agentguard.evaluation_planning import (
     EvaluationChange,
     EvaluationScenario,
@@ -15,6 +16,7 @@ from agentguard.evaluation_planning import (
     scenario_hash_for,
 )
 from agentguard.evaluation_scenario_generator import ScenarioEvidenceRequirementsGenerator
+from agentguard.evaluation_suite import ScenarioSuiteConfig
 from agentguard.interaction_evaluation import (
     InteractionHypothesisSource,
     InteractionRelationshipProfile,
@@ -64,7 +66,9 @@ print(json.dumps({
     "output": {"condition": request["condition_kind"], "prompt_seen": bool(request["user_prompt"])},
     "trace": [],
     "observations": {"target_completed": True},
-    "metrics": {"latency_ms": 1, "cost_usd": 0.002}
+    "metrics": {"latency_ms": 1, "cost_usd": 0.002},
+    "usage": {"input_tokens": 0, "output_tokens": 0},
+    "output_artifact_ref": "sha256:declared-output"
 }))
 """,
         encoding="utf-8",
@@ -80,6 +84,11 @@ print(json.dumps({
         kind="native_command",
         command=["{python}", "run_interaction.py"],
         required_source_files=["run_interaction.py"],
+        sut_provider={
+            "api_key_variable": "TARGET_API_KEY",
+            "model_variable": "TARGET_MODEL",
+            "base_url_variable": "TARGET_BASE_URL",
+        },
         trace={
             "trace_path_variable": "TRACE_PATH",
             "required_event_types": ["skill_output"],
@@ -175,6 +184,79 @@ def test_failed_product_outcome_is_verified_evidence_not_runner_failure(tmp_path
     assert result.oracle["outcome"] == "failed"
 
 
+def test_runner_requires_live_provider_metadata_when_target_binding_is_configured(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("TEST_TARGET_API_KEY", "test-secret")
+    target, oracle_source, _ = _target_and_oracle(tmp_path)
+    oracle = SubprocessInteractionOracle(
+        (sys.executable, str(oracle_source / "verify.py")),
+        verifier_id="independent-test-oracle",
+        working_directory=oracle_source,
+    )
+    runner = ManifestInteractionTrialRunner(
+        target,
+        fixture_catalog=FixtureCatalog(),
+        fixture_root=None,
+        oracle=oracle,
+        binding=ProviderBinding(
+            project_id="demo",
+            role="sut_native",
+            provider="openai",
+            base_url="https://api.example.invalid/v1",
+            model="target-model",
+            expected_environment_variable="TEST_TARGET_API_KEY",
+            credential_source_ref="test-env",
+            batch_budget_usd=1,
+            timeout_seconds=30,
+            allowed_hosts=["api.example.invalid"],
+            data_retention_policy="test",
+        ),
+    )
+
+    with pytest.raises(InteractionRunnerError, match="did not record provider request IDs"):
+        runner.run(
+            _scenario(ScenarioTraceContract(provider_usage="required")),
+            "combined",
+            trial_root=tmp_path / "trial",
+        )
+
+
+def test_runner_allows_bound_zero_provider_boundary_with_output_evidence(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("TEST_TARGET_API_KEY", "test-secret")
+    target, oracle_source, _ = _target_and_oracle(tmp_path)
+    runner = ManifestInteractionTrialRunner(
+        target,
+        fixture_catalog=FixtureCatalog(),
+        fixture_root=None,
+        oracle=SubprocessInteractionOracle(
+            (sys.executable, str(oracle_source / "verify.py")),
+            verifier_id="independent-test-oracle",
+            working_directory=oracle_source,
+        ),
+        binding=ProviderBinding(
+            project_id="demo",
+            role="sut_native",
+            provider="openai",
+            base_url="https://api.example.invalid/v1",
+            model="target-model",
+            expected_environment_variable="TEST_TARGET_API_KEY",
+            credential_source_ref="test-env",
+            batch_budget_usd=1,
+            timeout_seconds=30,
+            allowed_hosts=["api.example.invalid"],
+            data_retention_policy="test",
+        ),
+    )
+
+    result = runner.run(
+        _scenario(ScenarioTraceContract(provider_usage="optional")),
+        "combined",
+        trial_root=tmp_path / "trial",
+    )
+
+    assert result.provider_request_ids == []
+    assert result.output_artifact_ref == "sha256:declared-output"
+
+
 def test_runner_rejects_scenario_trace_contract_violation(tmp_path: Path) -> None:
     runner, _ = _runner(tmp_path)
     scenario = _scenario(ScenarioTraceContract(required_event_types=["required_but_missing"]))
@@ -198,6 +280,30 @@ def test_oracle_result_model_keeps_verification_and_outcome_separate() -> None:
 
     assert result.status == "verified"
     assert result.outcome == "unresolved"
+
+
+def test_oracle_result_requires_declared_typed_failure_support_and_preserves_scope() -> None:
+    payload = {
+        "verifier_id": "oracle",
+        "oracle_type": "structured_state",
+        "oracle_version": "1.0",
+        "validation_input": {"scenario_id": "scenario_1"},
+        "status": "verified",
+        "outcome": "failed",
+        "assertions": [{"name": "contradiction_check", "status": "failed", "detail": "conflict", "failure_type": "contradiction"}],
+        "failure_types_evaluated": ["contradiction"],
+        "verification_scopes": ["behavioral"],
+        "scope_limitations": ["Domain correctness was not evaluated."],
+        "evidence_refs": ["oracle:evidence"],
+        "summary": "Behavioral contradiction detected.",
+    }
+
+    result = IndependentOracleResult.model_validate(payload)
+
+    assert result.failure_types_evaluated == ["contradiction"]
+    assert result.verification_scopes == ["behavioral"]
+    with pytest.raises(ValueError, match="exactly one typed assertion"):
+        IndependentOracleResult.model_validate({**payload, "failure_types_evaluated": []})
 
 
 class _MatrixGenerator:
@@ -281,6 +387,15 @@ def test_manifest_runner_executes_complete_pair_matrix(tmp_path: Path) -> None:
             evaluation_type="skill_pair_evaluation",
             evaluation_name="Pair matrix",
             summary="Run the interaction matrix",
+            scenario_suite=ScenarioSuiteConfig(
+                scenarios_per_category=1,
+                max_scenarios=4,
+                max_trials=12,
+                default_repetitions=1,
+                stability_sample_per_category=0,
+                stability_repetitions=1,
+                trial_timeout_seconds=30,
+            ),
         ),
         scenario_generator=_MatrixGenerator(),
         evidence_requirements_generator=ScenarioEvidenceRequirementsGenerator(),

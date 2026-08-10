@@ -16,6 +16,7 @@ from typing import Literal, Protocol, Sequence
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .evaluation_planning import EvaluationPlan, EvaluationScenario, scenario_hash_for
+from .evaluation_suite import build_evaluation_suite_aggregate
 from .scenario_contracts import EvaluationReadinessResult
 
 
@@ -41,6 +42,8 @@ class InteractionTrialResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     scenario_id: str = Field(min_length=1, max_length=100)
+    repetition_id: str | None = Field(default=None, min_length=1, max_length=160)
+    repetition_index: int = Field(default=1, ge=1, le=10)
     condition_kind: ConditionKind
     category: str = Field(min_length=1, max_length=80)
     label: str = Field(min_length=1, max_length=240)
@@ -99,8 +102,10 @@ class InteractionMatrixArtifact(BaseModel):
     evaluation_plan_id: str = Field(min_length=1)
     scenario_readiness: EvaluationReadinessResult
     interaction_hypothesis: dict[str, object] | None = None
+    scenario_suite: dict[str, object] | None = None
+    suite_aggregate: dict[str, object] | None = None
     scenarios: list[dict[str, object]] = Field(min_length=1, max_length=200)
-    conditions: list[dict[str, object]] = Field(min_length=1, max_length=200)
+    conditions: list[dict[str, object]] = Field(min_length=1, max_length=1000)
     metrics: dict[str, int | float | str]
     evidence_refs: list[str] = Field(min_length=1)
     integrity: dict[str, object]
@@ -120,9 +125,11 @@ class EvaluationMatrixArtifact(BaseModel):
     evaluation_plan_id: str = Field(min_length=1)
     scenario_readiness: EvaluationReadinessResult
     interaction_hypothesis: dict[str, object] | None = None
+    scenario_suite: dict[str, object] | None = None
+    suite_aggregate: dict[str, object] | None = None
     scenarios: list[dict[str, object]] = Field(min_length=1, max_length=200)
     condition_kinds: list[str] = Field(min_length=1, max_length=8)
-    conditions: list[dict[str, object]] = Field(min_length=1, max_length=200)
+    conditions: list[dict[str, object]] = Field(min_length=1, max_length=1000)
     metrics: dict[str, int | float | str]
     evidence_refs: list[str] = Field(min_length=1)
     integrity: dict[str, object]
@@ -161,31 +168,45 @@ def execute_evaluation_matrix(
     run_root.mkdir(parents=True, exist_ok=True)
     conditions: list[dict[str, object]] = []
     expected_keys = {
-        (scenario.scenario_id, condition_kind)
+        (scenario.scenario_id, condition_kind, repetition_index)
         for scenario in plan.scenarios
         for condition_kind in condition_kinds
+        for repetition_index in range(1, scenario.repetition_count + 1)
     }
+    if plan.scenario_suite is not None and len(expected_keys) > plan.scenario_suite.max_trials:
+        raise InteractionExecutionError(
+            f"Frozen matrix requires {len(expected_keys)} trials, exceeding max_trials={plan.scenario_suite.max_trials}."
+        )
 
     for scenario in plan.scenarios:
         for condition_kind in condition_kinds:
-            trial_root = run_root / scenario.scenario_id / condition_kind
-            trial_root.mkdir(parents=True, exist_ok=True)
-            try:
-                result = InteractionTrialResult.model_validate(
-                    runner.run(scenario, condition_kind, trial_root=trial_root)
-                )
-            except Exception as error:
-                raise InteractionExecutionError(
-                    f"Interaction trial failed before evidence completion: "
-                    f"scenario={scenario.scenario_id}; condition={condition_kind}; error={error}"
-                ) from error
-            if result.scenario_id != scenario.scenario_id or result.condition_kind != condition_kind:
-                raise InteractionExecutionError("Interaction trial result identity does not match the requested matrix cell.")
-            if result.category != scenario.category:
-                raise InteractionExecutionError("Interaction trial category does not match the generated scenario.")
-            conditions.append(result.model_dump(mode="json"))
+            for repetition_index in range(1, scenario.repetition_count + 1):
+                repetition_id = f"{scenario.scenario_id}:{condition_kind}:r{repetition_index}"
+                trial_root = run_root / scenario.scenario_id / condition_kind / f"repetition_{repetition_index}"
+                trial_root.mkdir(parents=True, exist_ok=True)
+                try:
+                    result = InteractionTrialResult.model_validate(
+                        runner.run(scenario, condition_kind, trial_root=trial_root)
+                    ).model_copy(update={
+                        "repetition_id": repetition_id,
+                        "repetition_index": repetition_index,
+                    })
+                except Exception as error:
+                    raise InteractionExecutionError(
+                        f"Interaction trial failed before evidence completion: "
+                        f"scenario={scenario.scenario_id}; condition={condition_kind}; "
+                        f"repetition={repetition_index}; error={error}"
+                    ) from error
+                if result.scenario_id != scenario.scenario_id or result.condition_kind != condition_kind:
+                    raise InteractionExecutionError("Interaction trial result identity does not match the requested matrix cell.")
+                if result.category != scenario.category:
+                    raise InteractionExecutionError("Interaction trial category does not match the generated scenario.")
+                conditions.append(result.model_dump(mode="json"))
 
-    observed_keys = {(item["scenario_id"], item["condition_kind"]) for item in conditions}
+    observed_keys = {
+        (item["scenario_id"], item["condition_kind"], item["repetition_index"])
+        for item in conditions
+    }
     if observed_keys != expected_keys:
         raise InteractionExecutionError("Interaction executor did not produce the exact scenario × condition matrix.")
 
@@ -212,6 +233,15 @@ def execute_evaluation_matrix(
         })
         if ref not in evidence_refs
     )
+    scenario_payloads = [scenario.model_dump(mode="json") for scenario in plan.scenarios]
+    suite_aggregate = build_evaluation_suite_aggregate(
+        scenario_payloads,
+        conditions,
+        condition_kinds=condition_kinds,
+        evaluation_type=plan.evaluation_type,
+        suite_config=plan.scenario_suite,
+        component_members=plan.component_members,
+    )
     unsigned = {
         "schema_version": "aig.evaluation-matrix-artifact.v1",
         "evaluation_id": evaluation_id,
@@ -225,11 +255,15 @@ def execute_evaluation_matrix(
             if plan.interaction_hypothesis is not None
             else None
         ),
-        "scenarios": [scenario.model_dump(mode="json") for scenario in plan.scenarios],
+        "scenario_suite": plan.scenario_suite.model_dump(mode="json") if plan.scenario_suite else None,
+        "suite_aggregate": suite_aggregate.model_dump(mode="json"),
+        "scenarios": scenario_payloads,
         "condition_kinds": list(condition_kinds),
         "conditions": conditions,
         "metrics": {
             "scenario_count": len(plan.scenarios),
+            "planned_repetition_count": sum(item.repetition_count for item in plan.scenarios),
+            "executed_repetition_count": sum(item.repetition_count for item in plan.scenarios),
             "condition_count": len(conditions),
             "expected_condition_count": len(expected_keys),
             "verified_condition_count": len(conditions),
@@ -287,6 +321,8 @@ def execute_interaction_matrix(
         "evaluation_plan_id": generic.evaluation_plan_id,
         "scenario_readiness": generic.scenario_readiness.model_dump(mode="json"),
         "interaction_hypothesis": generic.interaction_hypothesis,
+        "scenario_suite": generic.scenario_suite,
+        "suite_aggregate": generic.suite_aggregate,
         "scenarios": generic.scenarios,
         "conditions": generic.conditions,
         "metrics": generic.metrics,

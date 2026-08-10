@@ -262,7 +262,7 @@ def test_interaction_adapter_rejects_incomplete_scenario_matrix() -> None:
     artifact = _interaction_artifact()
     artifact["conditions"] = artifact["conditions"][:-1]
 
-    with pytest.raises(ValueError, match="exactly one A-only"):
+    with pytest.raises(ValueError, match="every planned A-only"):
         SkillPairEvaluationAdapter().adapt(
             artifact,
             context=AdapterContext(

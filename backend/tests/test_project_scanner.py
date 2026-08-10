@@ -101,6 +101,7 @@ class PairProvider:
                 "signals": ["shared user job", "distinct responsibilities"],
             }
         else:
+            required_categories = json.loads(messages[-1]["content"])["required_categories"]
             arguments = {
                 "scenarios": [
                     {
@@ -115,7 +116,7 @@ class PairProvider:
                         },
                         "evidence_to_collect": ["activation, handoff, output, and cost"],
                     }
-                    for index, category in enumerate(("complementary", "synergy", "conflict", "boundary"), 1)
+                    for index, category in enumerate(required_categories, 1)
                 ]
             }
         return ProviderTurn(
@@ -433,5 +434,6 @@ def test_lighttable_knowledge_hit_flows_through_planner_to_scenario_generator(tm
 
     assert [item.knowledge_id for item in plan.evaluation_knowledge] == [knowledge.knowledge_id]
     assert provider.calls == ["submit_pair_relationship", "submit_pair_evaluation_scenarios"]
-    assert [item.category for item in plan.scenarios] == ["complementary", "synergy", "conflict", "boundary"]
+    assert len(plan.scenarios) == 32
+    assert {item.category for item in plan.scenarios} == {"complementary", "synergy", "conflict", "boundary"}
     assert all(item.scenario_provenance and item.scenario_provenance.frozen for item in plan.scenarios)

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .project_intelligence import ProjectIntelligence
 from .runtime_comparability import RuntimeComparabilityResult, compare_runtime_snapshots
+from .evaluation_suite import ScenarioSuiteConfig
 from .store import Store
 
 
@@ -38,6 +39,7 @@ class EvaluationRequest(BaseModel):
     component_type: RequestComponentType
     component_name: str = Field(min_length=1)
     pair_members: list[str] = Field(default_factory=list, max_length=2)
+    scenario_suite: ScenarioSuiteConfig | None = None
     change_type: RequestChangeType
     candidate_version: str = Field(min_length=1)
     baseline_version: str = Field(min_length=1)

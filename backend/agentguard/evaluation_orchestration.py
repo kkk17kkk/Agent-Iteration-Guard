@@ -21,7 +21,7 @@ from .product_evaluation_report import ProductEvaluationReport, assemble_product
 from .semantic_reporting import ProductDefinition
 from .project_intelligence import ProjectIntelligence
 from .scenario_contracts import check_evaluation_plan_readiness
-from .skill_ablation import execute_skill_ablation_matrix
+from .skill_ablation import SKILL_ABLATION_CONDITIONS, execute_skill_ablation_matrix
 from .skill_ablation_adapter import skill_ablation_experiment_ids_by_condition
 from .skill_pair_evaluation import skill_pair_experiment_ids_by_condition
 from .target_runtime import TargetRuntimeAdapter
@@ -45,7 +45,7 @@ def evaluation_condition_kinds(plan: EvaluationPlan) -> tuple[str, ...]:
 def planned_trial_count(plan: EvaluationPlan) -> int:
     """Calculate the frozen matrix size without leaking condition counts to API/CLI."""
 
-    return len(plan.scenarios) * len(evaluation_condition_kinds(plan))
+    return sum(item.repetition_count for item in plan.scenarios) * len(evaluation_condition_kinds(plan))
 
 
 def execute_evaluation_run(
@@ -89,6 +89,7 @@ def execute_evaluation_run(
         fixture_root=fixture_root,
         oracle=oracle,
         binding=target_binding,
+        timeout_seconds=plan.scenario_suite.trial_timeout_seconds if plan.scenario_suite else None,
     )
     if plan.evaluation_type == "skill_pair_evaluation":
         return execute_interaction_matrix(

@@ -84,6 +84,8 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
   const [expectedBehavior, setExpectedBehavior] = useState("");
   const [qualityDimensions, setQualityDimensions] = useState("");
   const [boundary, setBoundary] = useState("");
+  const [scenarioSuiteDefaults, setScenarioSuiteDefaults] = useState(null);
+  const [scenarioSuite, setScenarioSuite] = useState(null);
   const [pairSkillOne, setPairSkillOne] = useState("");
   const [pairSkillTwo, setPairSkillTwo] = useState("");
   const [toolModalOpen, setToolModalOpen] = useState(false);
@@ -150,6 +152,22 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
   }, [projectId]);
 
   useEffect(() => {
+    if (!projectId) return undefined;
+    let cancelled = false;
+    request(pathFor(projectId, "/evaluations/scenario-suite-defaults"))
+      .then((value) => {
+        if (cancelled) return;
+        setScenarioSuiteDefaults(value);
+        setScenarioSuite(value[componentType]);
+      })
+      .catch((error) => {
+        if (!cancelled) setNotice({ kind: "error", text: `Scenario suite configuration unavailable: ${error.message}` });
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  useEffect(() => {
     const available = credentialOptions.find((item) => item.status === "available");
     if (!available || providerForm.provider === available.provider) return;
     setProviderForm((current) => ({
@@ -195,6 +213,9 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
     }
   }, [selectedComponent?.name, componentType]);
   useEffect(() => {
+    if (scenarioSuiteDefaults) setScenarioSuite(scenarioSuiteDefaults[componentType]);
+  }, [componentType, scenarioSuiteDefaults]);
+  useEffect(() => {
     if (!controlBindingId && controlBindings[0]) setControlBindingId(controlBindings[0].provider_binding_id);
     if (!executionConfigId && executionConfigs[0]) setExecutionConfigId(executionConfigs[0].config_id);
   }, [providers, executionConfigs]);
@@ -226,6 +247,9 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
     if (!projectId || !selectedComponent || !description || !responsibility || !userJob) {
       setNotice({ kind: "error", text: "请选择组件，并填写产品描述、产品职责与用户任务。" }); return;
     }
+    if (!scenarioSuite) {
+      setNotice({ kind: "error", text: "Scenario suite configuration is still loading." }); return;
+    }
     if (!candidateVersion) {
       setNotice({ kind: "error", text: "请选择一个已扫描的 Snapshot。首次导入可直接使用初始冻结 Snapshot 进行 capability evaluation。" }); return;
     }
@@ -239,7 +263,7 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
     try {
       const created = createdRequest || await request(pathFor(projectId, "/evaluations"), {
         method: "POST",
-        body: JSON.stringify({ component_type: componentType, component_name: selectedComponent.name, pair_members: componentType === "skill_pair" ? selectedPairMembers : undefined, change_type: changeType, candidate_version: candidateVersion, baseline_version: baselineVersion, candidate_available: candidateAvailable, candidate_component_name: candidateComponent?.name || undefined }),
+        body: JSON.stringify({ component_type: componentType, component_name: selectedComponent.name, pair_members: componentType === "skill_pair" ? selectedPairMembers : undefined, scenario_suite: scenarioSuite, change_type: changeType, candidate_version: candidateVersion, baseline_version: baselineVersion, candidate_available: candidateAvailable, candidate_component_name: candidateComponent?.name || undefined }),
       });
       setCreatedRequest(created);
       if (!controlBindingId) {
@@ -470,6 +494,14 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
               <label className="field">边界 Boundary
                 <textarea value={boundary} onChange={(event) => setBoundary(event.target.value)} placeholder="每行一个评测边界，例如：不发送外部消息；不修改源代码；不伪造结果。" />
               </label>
+              {scenarioSuite && <div className="field"><span>Scenario Suite</span><div className="form-grid compact-grid">
+                <label>Scenarios / category<input type="number" min="1" max="20" value={scenarioSuite.scenarios_per_category} onChange={(event) => setScenarioSuite({ ...scenarioSuite, scenarios_per_category: Number(event.target.value) })} /></label>
+                <label>Max scenarios<input type="number" min="3" max="200" value={scenarioSuite.max_scenarios} onChange={(event) => setScenarioSuite({ ...scenarioSuite, max_scenarios: Number(event.target.value) })} /></label>
+                <label>Max trials<input type="number" min="3" max="1000" value={scenarioSuite.max_trials} onChange={(event) => setScenarioSuite({ ...scenarioSuite, max_trials: Number(event.target.value) })} /></label>
+                <label>Stability samples / category<input type="number" min="0" max="20" value={scenarioSuite.stability_sample_per_category} onChange={(event) => setScenarioSuite({ ...scenarioSuite, stability_sample_per_category: Number(event.target.value) })} /></label>
+                <label>Stability repetitions<input type="number" min="1" max="10" value={scenarioSuite.stability_repetitions} onChange={(event) => setScenarioSuite({ ...scenarioSuite, stability_repetitions: Number(event.target.value) })} /></label>
+                <label>Trial timeout (s)<input type="number" min="1" max="3600" value={scenarioSuite.trial_timeout_seconds} onChange={(event) => setScenarioSuite({ ...scenarioSuite, trial_timeout_seconds: Number(event.target.value) })} /></label>
+              </div></div>}
               <label className="field">Project Runtime
                 <select value={executionConfigId} onChange={(event) => setExecutionConfigId(event.target.value)}>
                   <option value="">稍后在 Readiness 前配置</option>

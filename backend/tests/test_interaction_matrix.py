@@ -12,6 +12,7 @@ from agentguard.evaluation_planning import (
     scenario_hash_for,
 )
 from agentguard.evaluation_scenario_generator import ScenarioEvidenceRequirementsGenerator
+from agentguard.evaluation_suite import ScenarioSuiteConfig
 from agentguard.interaction_evaluation import (
     InteractionHypothesisSource,
     InteractionRelationshipProfile,
@@ -112,6 +113,15 @@ def _plan():
         evaluation_type="skill_pair_evaluation",
         evaluation_name="Pair",
         summary="Evaluate the pair",
+        scenario_suite=ScenarioSuiteConfig(
+            scenarios_per_category=1,
+            max_scenarios=4,
+            max_trials=12,
+            default_repetitions=1,
+            stability_sample_per_category=0,
+            stability_repetitions=1,
+            trial_timeout_seconds=30,
+        ),
     )
     return build_evolution_evaluation_plan(
         target,

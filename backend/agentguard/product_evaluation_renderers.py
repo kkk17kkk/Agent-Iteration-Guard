@@ -113,6 +113,7 @@ def render_product_evaluation_markdown(
 
     experiments = view.experiments
     lines.extend([f"## {sections['experiment_overview'].eyebrow}", f"### {sections['experiment_overview'].title}", "", experiments.get("summary", ""), ""])
+    lines.extend(_suite_markdown(view.evaluation_suite))
     for item in experiments.get("questions", []):
         lines.extend([f"### {item.get('name', '')}", "", f"**{labels['experiment_question']}**：{item.get('question', '')}", "", f"**{labels['experiment_purpose_short']}**：{item.get('purpose', '')}", ""])
 
@@ -122,6 +123,18 @@ def render_product_evaluation_markdown(
     interaction = getattr(report, "interaction_analysis", None)
     if interaction is not None:
         lines.extend(_markdown_interaction(interaction))
+    if report.root_cause_findings:
+        lines.extend(["### Recurring Failure Patterns and Analyst RCA", ""])
+        for finding in report.root_cause_findings:
+            lines.extend([
+                f"#### {finding.observed_failure_type} · {finding.root_cause_category}", "",
+                f"- Support: {finding.frequency} occurrences / {finding.affected_trial_count} affected trials / {finding.affected_scenario_count} scenarios",
+                f"- Conditions: {', '.join(finding.affected_conditions)}",
+                f"- Stability: {finding.stability}",
+                f"- Confidence: {finding.root_cause_confidence}",
+                f"- Analyst hypothesis: {finding.analyst_hypothesis}",
+                f"- Evidence refs: {', '.join(finding.evidence_refs)}", "",
+            ])
 
     stability = view.scenario_stability
     lines.extend([f"## {sections['scenario_stability'].eyebrow}", f"### {sections['scenario_stability'].title}", "", stability.get("summary", ""), "", f"**{labels['scenario_conclusion']}**：{stability.get('coverage_conclusion', '')}", ""])
@@ -175,7 +188,7 @@ def render_product_evaluation_html(
         _section(sections["evaluation_context"], _context_html(view.evaluation_context, esc)),
         _section(sections["executive_summary"], _summary_html(view.summary, view.decision, labels=template.labels, esc=esc), class_name="report-summary-section"),
         _section(sections["evaluation_dimensions"], _dimensions_html(view.dimensions, template, esc)),
-        _section(sections["experiment_overview"], _experiments_overview_html(view.experiments, esc)),
+        _section(sections["experiment_overview"], _experiments_overview_html(view.experiments, esc) + _suite_html(view.evaluation_suite, esc)),
         _section(sections["experiment_analysis"], _analysis_html(view.experiments.get("analysis", []), template, esc)),
         _section(sections["scenario_stability"], _stability_html(view.scenario_stability, template, esc)),
         _section(sections["product_impact"], _impact_html(view.impact, esc)),
@@ -187,6 +200,8 @@ def render_product_evaluation_html(
     interaction = getattr(report, "interaction_analysis", None)
     if interaction is not None:
         sections_html[5] += _interaction_html(interaction, esc)
+    if report.root_cause_findings:
+        sections_html[5] += _root_cause_html(report.root_cause_findings, esc)
     aside = (
         "<aside class='sidebar' aria-label='证据索引'>"
         "<div class='side-index'><span>Product Evidence</span><strong>产品证据</strong><p>来自报告的能力结果与影响。</p></div>"
@@ -352,7 +367,25 @@ def _observation_label(key: str) -> str:
 
 def _interaction_html(interaction: Any, esc) -> str:
     rows = "".join(f"<tr><td>{esc(item.scenario_name)}</td><td>{esc(item.a_only)}</td><td>{esc(item.b_only)}</td><td>{esc(item.combined)}</td><td>{esc(item.product_meaning)}</td></tr>" for item in interaction.scenario_comparisons)
-    return f"<article class='analysis-card'><span class='card-label'>Skill Pair Scenario Comparison</span><h3>Skill Pair 对照</h3><p>{esc(interaction.summary)}</p><table class='context-table'><thead><tr><th>Scenario</th><th>A Only</th><th>B Only</th><th>A+B</th><th>Product Meaning</th></tr></thead><tbody>{rows}</tbody></table><p><strong>Synergy Gain</strong>：{esc(interaction.synergy_gain)}</p><p><strong>Reliability &amp; Cost Impact</strong>：{esc(interaction.reliability_cost)}</p></article>"
+    semantics = ""
+    if interaction.outcome_gain_status is not None:
+        semantics += f"<p><strong>Observed outcome · {esc(interaction.outcome_gain_status)}</strong>：{esc(interaction.observed_outcome)}</p>"
+    if interaction.mechanism_status is not None:
+        semantics += f"<p><strong>Observed mechanism · {esc(interaction.mechanism_status)}</strong>：{esc(interaction.observed_mechanism)}</p>"
+    return f"<article class='analysis-card'><span class='card-label'>Observed Metrics and Interaction Mechanisms · Skill Pair Scenario Comparison</span><h3>Skill Pair 对照</h3><p>{esc(interaction.summary)}</p>{semantics}<table class='context-table'><thead><tr><th>Scenario</th><th>A Only</th><th>B Only</th><th>A+B</th><th>Product Meaning</th></tr></thead><tbody>{rows}</tbody></table><p><strong>Synergy Gain interpretation</strong>：{esc(interaction.synergy_gain)}</p><p><strong>Reliability &amp; Cost Impact</strong>：{esc(interaction.reliability_cost)}</p></article>"
+
+
+def _root_cause_html(findings: list[Any], esc) -> str:
+    rows = "".join(
+        "<tr>"
+        f"<td>{esc(item.observed_failure_type)}</td><td>{esc(item.root_cause_category)}</td>"
+        f"<td>{esc(item.frequency)} / {esc(item.affected_trial_count)} trials / {esc(item.affected_scenario_count)} scenarios</td>"
+        f"<td>{esc(item.stability)}</td><td>{esc(item.root_cause_confidence)}</td>"
+        f"<td>{esc(item.analyst_hypothesis)}</td>"
+        "</tr>"
+        for item in findings
+    )
+    return f"<article class='analysis-card'><span class='card-label'>Recurring Failure Patterns</span><h3>Analyst Root-Cause Interpretation</h3><table class='context-table'><thead><tr><th>Observed failure</th><th>Hypothesis category</th><th>Support</th><th>Stability</th><th>Confidence</th><th>Interpretation</th></tr></thead><tbody>{rows}</tbody></table></article>"
 
 
 def _markdown_analysis(item: Mapping[str, Any], labels: Mapping[str, str]) -> list[str]:
@@ -372,7 +405,12 @@ def _markdown_analysis(item: Mapping[str, Any], labels: Mapping[str, str]) -> li
 
 
 def _markdown_interaction(interaction: Any) -> list[str]:
-    lines = ["### Skill Pair Scenario Comparison", "", interaction.summary, "", "| Scenario | A Only | B Only | A+B | Product Meaning |", "| --- | --- | --- | --- | --- |"]
+    lines = ["### Observed Interaction Metrics and Mechanisms", "", "#### Skill Pair Scenario Comparison", "", interaction.summary, ""]
+    if interaction.outcome_gain_status is not None:
+        lines.extend([f"**Observed outcome ({interaction.outcome_gain_status})**：{interaction.observed_outcome}", ""])
+    if interaction.mechanism_status is not None:
+        lines.extend([f"**Observed mechanism ({interaction.mechanism_status})**：{interaction.observed_mechanism}", ""])
+    lines.extend(["| Scenario | A Only | B Only | A+B | Product Meaning |", "| --- | --- | --- | --- | --- |"])
     lines.extend(f"| {item.scenario_name} | {item.a_only} | {item.b_only} | {item.combined} | {item.product_meaning} |" for item in interaction.scenario_comparisons)
     lines.extend(["", f"**Capability Contribution**：{interaction.capability_contribution}", "", f"**Composition Gain**：{interaction.composition_gain}", "", f"**Synergy Gain**：{interaction.synergy_gain}", "", f"**Coordination**：{interaction.coordination}", "", f"**Conflict / Interference**：{interaction.conflict}", "", f"**Reliability & Cost Impact**：{interaction.reliability_cost}", ""])
     return lines
@@ -391,6 +429,165 @@ def _dimension_label(template: ProductReportTemplate, dimension: str) -> str:
 
 def _scenario_id_markdown(value: str | None) -> str:
     return f" (`scenario_id: {value}`)" if value else ""
+
+
+def _suite_markdown(suite: Mapping[str, object] | None) -> list[str]:
+    if not suite:
+        return []
+    coverage = suite.get("coverage") if isinstance(suite.get("coverage"), Mapping) else {}
+    lines = [
+        "### Evaluation Coverage",
+        "",
+        f"- Coverage status: {coverage.get('status', 'unavailable')}",
+        f"- Scenarios executed / planned / intended: {coverage.get('executed_scenario_count', '-')} / "
+        f"{coverage.get('planned_scenario_count', '-')} / {coverage.get('intended_scenario_count', '-')}",
+        f"- Trials: {coverage.get('executed_trial_count', '-')} / {coverage.get('planned_trial_count', '-')}",
+        f"- Repeated scenarios executed / intended: {coverage.get('repeated_scenario_count', '-')} / "
+        f"{coverage.get('intended_repeated_scenario_count', '-')}",
+        "",
+        "| Category | Condition | Scenarios | Trials | Passed | Failed | Unresolved | Resolved coverage | Observed pass rate |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for item in suite.get("category_aggregates", []):
+        if not isinstance(item, Mapping):
+            continue
+        rate = item.get("observed_success_rate")
+        rate_text = "unavailable" if rate is None else f"{float(rate):.1%}"
+        resolved_text = f"{item.get('resolved_count', 0)} / {item.get('trial_count', 0)}"
+        lines.append(
+            f"| {item.get('category', '')} | {item.get('condition_kind', '')} | "
+            f"{item.get('scenario_count', 0)} | {item.get('trial_count', 0)} | "
+            f"{item.get('verified_success_count', 0)} | {item.get('failure_count', 0)} | "
+            f"{item.get('unresolved_count', 0)} | {resolved_text} | {rate_text} |"
+        )
+    for title, values in (("Derived metrics", suite.get("derived_metrics")), ("Routing", suite.get("routing"))):
+        if not isinstance(values, Mapping):
+            continue
+        lines.extend(["", f"#### {title}", ""])
+        lines.extend(
+            f"- {key}: {value}"
+            for key, value in values.items()
+            if value is None or isinstance(value, (str, int, float, bool))
+        )
+    oracle_scope = suite.get("oracle_scope")
+    if isinstance(oracle_scope, Mapping):
+        lines.extend(["", "#### Oracle Scope", "", f"- Declared scopes: {', '.join(oracle_scope.get('declared_scopes', []))}", f"- Scoped trials: {oracle_scope.get('scoped_trial_count')} / {oracle_scope.get('total_trial_count')}"])
+        lines.extend(f"- Limitation: {item}" for item in oracle_scope.get("limitations", []))
+    failure_patterns = suite.get("failure_patterns")
+    if isinstance(failure_patterns, list) and failure_patterns:
+        lines.extend(["", "#### Recurring Failure Patterns", "", "| Failure | Status | Condition | Trials | Scenarios | Stability | Evidence refs |", "| --- | --- | --- | ---: | ---: | --- | --- |"])
+        for item in failure_patterns:
+            if isinstance(item, Mapping):
+                lines.append(f"| {item.get('failure_type')} | {item.get('assertion_status', 'unavailable')} | {item.get('condition_kind')} | {item.get('affected_trial_count', item.get('frequency'))} | {item.get('affected_scenario_count', len(item.get('affected_scenario_ids', [])))} | {item.get('stability', 'unavailable')} | {', '.join(item.get('evidence_refs', []))} |")
+    incidence = suite.get("failure_incidence")
+    if isinstance(incidence, list) and incidence:
+        lines.extend(["", "#### Typed Oracle Failure Incidence", "", "| Type | Failed | Resolved / Applicable | Unresolved | Observed rate | Affected conditions |", "| --- | ---: | ---: | ---: | ---: | --- |"])
+        for item in incidence:
+            if isinstance(item, Mapping):
+                rate = item.get("observed_rate")
+                lines.append(f"| {item.get('failure_type')} | {item.get('failure_count')} | {item.get('resolved_trial_count')} / {item.get('applicable_trial_count')} | {item.get('unresolved_count')} | {'unavailable' if rate is None else f'{float(rate):.1%}'} | {', '.join(item.get('affected_conditions', []))} |")
+    scenario_routing = suite.get("scenario_routing")
+    if isinstance(scenario_routing, list) and scenario_routing:
+        lines.extend(["", "#### Scenario Routing", "", "| Scenario | N | A | B | Both | Neither | Empirical A / B share | Stability |", "| --- | ---: | ---: | ---: | ---: | ---: | --- | --- |"])
+        for item in scenario_routing:
+            if isinstance(item, Mapping):
+                shares = "observed routing only" if item.get("a_empirical_share") is None else f"{float(item['a_empirical_share']):.1%} / {float(item['b_empirical_share']):.1%}"
+                stability = "unavailable" if item.get("routing_stability") is None else f"{float(item['routing_stability']):.1%}"
+                lines.append(f"| {item.get('scenario_id')} | {item.get('repetition_count')} | {item.get('a_selected_count')} | {item.get('b_selected_count')} | {item.get('both_selected_count')} | {item.get('neither_selected_count')} | {shares} | {stability} |")
+    return [*lines, ""]
+
+
+def _suite_html(suite: Mapping[str, object] | None, esc) -> str:
+    if not suite:
+        return ""
+    coverage = suite.get("coverage") if isinstance(suite.get("coverage"), Mapping) else {}
+    rows = []
+    for item in suite.get("category_aggregates", []):
+        if not isinstance(item, Mapping):
+            continue
+        rate = item.get("observed_success_rate")
+        rate_text = "unavailable" if rate is None else f"{float(rate):.1%}"
+        resolved_text = f"{item.get('resolved_count', 0)} / {item.get('trial_count', 0)}"
+        rows.append(
+            "<tr>"
+            f"<td>{esc(item.get('category'))}</td><td>{esc(item.get('condition_kind'))}</td>"
+            f"<td>{esc(item.get('scenario_count'))}</td><td>{esc(item.get('trial_count'))}</td>"
+            f"<td>{esc(item.get('verified_success_count'))}</td><td>{esc(item.get('failure_count'))}</td>"
+            f"<td>{esc(item.get('unresolved_count'))}</td><td>{esc(resolved_text)}</td><td>{esc(rate_text)}</td>"
+            "</tr>"
+        )
+    oracle_scope = suite.get("oracle_scope")
+    scope_html = ""
+    if isinstance(oracle_scope, Mapping):
+        scopes = ", ".join(str(item) for item in oracle_scope.get("declared_scopes", [])) or "unavailable"
+        limits = "".join(f"<li>{esc(item)}</li>" for item in oracle_scope.get("limitations", []))
+        scope_html = (
+            f"<h3>Oracle Scope</h3><p><strong>Declared:</strong> {esc(scopes)} · "
+            f"<strong>Scoped trials:</strong> {esc(oracle_scope.get('scoped_trial_count'))} / {esc(oracle_scope.get('total_trial_count'))}</p>"
+            + (f"<ul>{limits}</ul>" if limits else "")
+        )
+    incidence_rows = "".join(
+        "<tr>"
+        f"<td>{esc(item.get('failure_type'))}</td><td>{esc(item.get('failure_count'))}</td>"
+        f"<td>{esc(item.get('resolved_trial_count'))} / {esc(item.get('applicable_trial_count'))}</td>"
+        f"<td>{esc(item.get('unresolved_count'))}</td>"
+        f"<td>{esc(_observed_rate_text(item.get('observed_rate')))}</td>"
+        "</tr>"
+        for item in suite.get("failure_incidence", []) if isinstance(item, Mapping)
+    )
+    incidence_html = ("<h3>Typed Oracle Failure Incidence</h3><table class='context-table'><thead><tr><th>Type</th><th>Failed</th><th>Resolved / Applicable</th><th>Unresolved</th><th>Observed rate</th></tr></thead><tbody>" + incidence_rows + "</tbody></table>") if incidence_rows else ""
+    pattern_rows = "".join(
+        "<tr>"
+        f"<td>{esc(item.get('failure_type'))}</td><td>{esc(item.get('assertion_status', 'unavailable'))}</td>"
+        f"<td>{esc(item.get('condition_kind'))}</td><td>{esc(item.get('affected_trial_count', item.get('frequency')))}</td>"
+        f"<td>{esc(item.get('affected_scenario_count', len(item.get('affected_scenario_ids', []))))}</td>"
+        f"<td>{esc(item.get('stability', 'unavailable'))}</td>"
+        "</tr>"
+        for item in suite.get("failure_patterns", []) if isinstance(item, Mapping)
+    )
+    patterns_html = ("<h3>Recurring Failure Patterns</h3><table class='context-table'><thead><tr><th>Failure</th><th>Status</th><th>Condition</th><th>Trials</th><th>Scenarios</th><th>Stability</th></tr></thead><tbody>" + pattern_rows + "</tbody></table>") if pattern_rows else ""
+    routing_rows = "".join(
+        "<tr>"
+        f"<td>{esc(item.get('scenario_id'))}</td><td>{esc(item.get('repetition_count'))}</td>"
+        f"<td>{esc(item.get('a_selected_count'))}</td><td>{esc(item.get('b_selected_count'))}</td>"
+        f"<td>{esc(item.get('both_selected_count'))}</td><td>{esc(item.get('neither_selected_count'))}</td>"
+        f"<td>{esc(_routing_share_text(item))}</td>"
+        "</tr>"
+        for item in suite.get("scenario_routing", []) if isinstance(item, Mapping)
+    )
+    scenario_routing_html = ("<h3>Scenario Routing</h3><table class='context-table'><thead><tr><th>Scenario</th><th>N</th><th>A</th><th>B</th><th>Both</th><th>Neither</th><th>Empirical A / B share</th></tr></thead><tbody>" + routing_rows + "</tbody></table>") if routing_rows else ""
+    return (
+        "<article class='analysis-card'><span class='card-label'>Evaluation Coverage</span>"
+        f"<h3>{esc(coverage.get('executed_scenario_count', '-'))} / "
+        f"{esc(coverage.get('intended_scenario_count', '-'))} scenarios · "
+        f"{esc(coverage.get('executed_trial_count', '-'))} trials · {esc(coverage.get('status', 'unavailable'))}</h3>"
+        "<table class='context-table'><thead><tr><th>Category</th><th>Condition</th><th>Scenarios</th>"
+        "<th>Trials</th><th>Passed</th><th>Failed</th><th>Unresolved</th><th>Resolved coverage</th><th>Observed pass rate</th>"
+        f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        f"{_scalar_table_html('Derived metrics', suite.get('derived_metrics'), esc)}"
+        f"{_scalar_table_html('Routing', suite.get('routing'), esc)}{scope_html}{patterns_html}{incidence_html}{scenario_routing_html}</article>"
+    )
+
+
+def _scalar_table_html(title: str, values: object, esc) -> str:
+    if not isinstance(values, Mapping):
+        return ""
+    rows = "".join(
+        f"<tr><th>{esc(key)}</th><td>{esc(value)}</td></tr>"
+        for key, value in values.items()
+        if value is None or isinstance(value, (str, int, float, bool))
+    )
+    return f"<h3>{esc(title)}</h3><table class='context-table'><tbody>{rows}</tbody></table>" if rows else ""
+
+
+def _observed_rate_text(value: object) -> str:
+    return "unavailable" if value is None else f"{float(value):.1%}"
+
+
+def _routing_share_text(item: Mapping[str, object]) -> str:
+    if item.get("a_empirical_share") is None:
+        return "observed routing only"
+    return f"{float(item['a_empirical_share']):.1%} / {float(item['b_empirical_share']):.1%}"
 
 
 def _status_class(value: object) -> str:

@@ -32,6 +32,7 @@ from .product_evaluation_analyst import (
     ProductRecommendation,
     ProductSemanticAnalysis,
     InteractionAnalysis,
+    RootCauseFinding,
     ScenarioStability,
 )
 from .semantic_reporting import ProductDefinition
@@ -66,6 +67,8 @@ class ReportProvenance(BaseModel):
     analyst_provider: str = Field(min_length=1)
     analyst_model: str = Field(min_length=1)
     analyst_request_id: str = Field(min_length=1)
+    analyst_request_ids: list[str] = Field(default_factory=list, max_length=10)
+    analyst_retrieved_evidence_refs: list[str] = Field(default_factory=list, max_length=400)
     interpretation_evidence_level: Literal["inferred"] = "inferred"
 
 
@@ -91,6 +94,7 @@ class ProductEvaluationReport(BaseModel):
     experiment_analysis: list[ExperimentAnalysis] = Field(min_length=1, max_length=8)
     scenario_stability: ScenarioStability
     interaction_analysis: InteractionAnalysis | None = None
+    root_cause_findings: list[RootCauseFinding] = Field(default_factory=list, max_length=8)
     evidence_explorer: EvidenceExplorer
     findings: list[ProductFinding] = Field(min_length=1, max_length=5)
     business_impact: ProductImpactInterpretation
@@ -156,6 +160,7 @@ def assemble_product_evaluation_report(
         "experiment_analysis": [item.model_dump(mode="json") for item in analysis.experiment_analysis],
         "scenario_stability": analysis.scenario_stability.model_dump(mode="json"),
         "interaction_analysis": analysis.interaction_analysis.model_dump(mode="json") if analysis.interaction_analysis else None,
+        "root_cause_findings": [item.model_dump(mode="json") for item in analysis.root_cause_findings],
         "evidence_explorer": analysis.evidence_explorer.model_dump(mode="json"),
         "findings": [item.model_dump(mode="json") for item in analysis.findings],
         "business_impact": analysis.business_impact.model_dump(mode="json"),
@@ -173,6 +178,8 @@ def assemble_product_evaluation_report(
             "analyst_provider": analyst_result.provider,
             "analyst_model": analyst_result.model,
             "analyst_request_id": analyst_result.request_id,
+            "analyst_request_ids": list(analyst_result.request_ids),
+            "analyst_retrieved_evidence_refs": list(analyst_result.retrieved_evidence_refs),
             "interpretation_evidence_level": "inferred",
         },
     }
@@ -209,6 +216,14 @@ def _canonical_report_payload(payload: dict[str, object]) -> dict[str, object]:
             for item_key, item_value in value.items():
                 child = normalize(item_value, key=item_key)
                 if item_key == "input_contract" and child is None:
+                    continue
+                if item_key in {"analyst_request_ids", "analyst_retrieved_evidence_refs"} and child == []:
+                    continue
+                if item_key == "root_cause_findings" and child == []:
+                    continue
+                if item_key in {
+                    "outcome_gain_status", "observed_outcome", "mechanism_status", "observed_mechanism"
+                } and child is None:
                     continue
                 normalized[item_key] = child
             return normalized

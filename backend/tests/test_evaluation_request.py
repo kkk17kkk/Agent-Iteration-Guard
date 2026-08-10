@@ -248,6 +248,11 @@ def test_api_creates_and_rejects_evaluation_requests_at_the_creation_boundary(tm
         }
     ).status_code == 200
 
+    defaults = client.get("/api/v1/projects/generic-agent/evaluations/scenario-suite-defaults")
+    assert defaults.status_code == 200
+    assert defaults.json()["skill"]["scenarios_per_category"] == 5
+    assert defaults.json()["skill_pair"]["scenarios_per_category"] == 8
+
     created = client.post(
         "/api/v1/projects/generic-agent/evaluations",
         json={
@@ -257,11 +262,14 @@ def test_api_creates_and_rejects_evaluation_requests_at_the_creation_boundary(tm
             "candidate_version": "git:candidate",
             "baseline_version": "git:baseline",
             "candidate_available": True,
+            "scenario_suite": defaults.json()["skill"],
         },
     )
     assert created.status_code == 200
     request_id = created.json()["request_id"]
-    assert client.get(f"/api/v1/projects/generic-agent/evaluations/{request_id}").status_code == 200
+    loaded = client.get(f"/api/v1/projects/generic-agent/evaluations/{request_id}")
+    assert loaded.status_code == 200
+    assert loaded.json()["scenario_suite"] == defaults.json()["skill"]
 
     temporary_pair = client.post(
         "/api/v1/projects/generic-agent/evaluations",

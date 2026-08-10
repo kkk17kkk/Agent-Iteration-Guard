@@ -149,10 +149,18 @@ def test_llm_scenario_generator_normalizes_ids_and_covers_required_categories() 
     assert [item.category for item in result] == ["normal", "constraint_conflict", "boundary"]
 
 
+def test_llm_scenario_generator_rejects_explicit_capability_selection_leakage() -> None:
+    scenarios = _scenarios()
+    scenarios[0] = {**scenarios[0], "user_prompt": "Use recipe_planning to arrange dinner."}
+
+    with pytest.raises(ProviderRuntimeError, match="explicitly directs target capability selection"):
+        LLMEvaluationScenarioGenerator(FakeProvider({"scenarios": scenarios}), _binding()).generate(_target(), _change())
+
+
 def test_llm_scenario_generator_rejects_missing_required_category() -> None:
     scenarios = _scenarios()
     scenarios[-1]["category"] = "normal"
-    with pytest.raises(ProviderRuntimeError, match="normal, constraint_conflict, and boundary"):
+    with pytest.raises(ProviderRuntimeError, match="required category counts"):
         LLMEvaluationScenarioGenerator(FakeProvider({"scenarios": scenarios}), _binding()).generate(_target(), _change())
 
 
@@ -186,6 +194,10 @@ def test_pair_scenario_generator_uses_pair_prompt_and_complementary_matrix() -> 
     ]
     assert scenarios[0].expected_behavior is not None
     assert scenarios[0].expected_behavior.combined == "The combined result serves the user job."
+    pair_prompt = generator._pair_scenario_system_prompt()
+    assert "every non-boundary scenario must use only fixtures declared present" in pair_prompt
+    assert "Never infer that a checker, validator, or tool arm is deterministic" in pair_prompt
+    assert "may correctly short-circuit before either Skill completes" in pair_prompt
 
 
 def test_pair_scenario_generator_selects_competitive_policy_without_fixed_five_categories() -> None:

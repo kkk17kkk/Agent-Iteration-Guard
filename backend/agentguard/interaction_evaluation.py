@@ -12,12 +12,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .evaluation_suite import ScenarioSuiteConfig, scenario_category_sequence
+
 
 InteractionRelationship = Literal[
     "complementary",
     "competitive",
     "validator_checker",
     "uncertain",
+    "overlapping",
 ]
 InteractionScenarioCategory = Literal[
     "complementary",
@@ -25,6 +28,10 @@ InteractionScenarioCategory = Literal[
     "conflict",
     "single_skill_dominant",
     "boundary",
+    "equivalent_choice",
+    "a_preferred",
+    "b_preferred",
+    "ambiguous_overlap",
 ]
 
 
@@ -74,6 +81,7 @@ _SCENARIO_POLICIES: dict[InteractionRelationship, tuple[InteractionScenarioCateg
     "competitive": ("conflict", "single_skill_dominant", "boundary"),
     "validator_checker": ("synergy", "conflict", "boundary"),
     "uncertain": ("complementary", "conflict", "single_skill_dominant", "boundary"),
+    "overlapping": ("equivalent_choice", "a_preferred", "b_preferred", "ambiguous_overlap"),
 }
 
 
@@ -88,8 +96,16 @@ def scenario_categories_for_relationship(
 def validate_scenario_categories(
     relationship: InteractionRelationship,
     categories: list[str] | tuple[str, ...],
+    *,
+    suite_config: ScenarioSuiteConfig | None = None,
 ) -> None:
-    expected = Counter(scenario_categories_for_relationship(relationship))
+    selected = scenario_categories_for_relationship(relationship)
+    expected_sequence = (
+        scenario_category_sequence(selected, suite_config)
+        if suite_config is not None
+        else selected
+    )
+    expected = Counter(expected_sequence)
     observed = Counter(categories)
     if observed != expected:
         raise ValueError(

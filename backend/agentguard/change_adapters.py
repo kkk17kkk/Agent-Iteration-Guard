@@ -348,8 +348,8 @@ class InteractionEvaluationAdapter:
         interaction_name: str,
     ) -> ImmutableEvidenceBundle:
         raw_scenarios = artifact.get("scenarios")
-        if not isinstance(raw_scenarios, list) or not 3 <= len(raw_scenarios) <= 5:
-            raise ValueError("Interaction artifact requires 3 to 5 generated scenarios.")
+        if not isinstance(raw_scenarios, list) or not 3 <= len(raw_scenarios) <= 200:
+            raise ValueError("Interaction artifact requires 3 to 200 generated scenarios.")
         raw_hypothesis = artifact.get("interaction_hypothesis")
         if not isinstance(raw_hypothesis, Mapping):
             raise ValueError("Interaction artifact requires the Eval Engineering interaction hypothesis.")
@@ -372,7 +372,10 @@ class InteractionEvaluationAdapter:
                 raise ValueError("Each interaction scenario requires scenario_id.")
             if scenario_id in scenario_by_id:
                 raise ValueError("Interaction artifact cannot contain duplicate scenario_id values.")
-            if category not in {"complementary", "synergy", "conflict", "single_skill_dominant", "boundary"}:
+            if category not in {
+                "complementary", "synergy", "conflict", "single_skill_dominant", "boundary",
+                "equivalent_choice", "a_preferred", "b_preferred", "ambiguous_overlap",
+            }:
                 raise ValueError("Interaction scenarios use a declared Pair category.")
             _validate_frozen_interaction_scenario(raw, hypothesis_hash=hypothesis.hypothesis_hash)
             input_contract = ScenarioInputContract.model_validate(
@@ -387,8 +390,13 @@ class InteractionEvaluationAdapter:
         raw_conditions = artifact.get("conditions")
         if not isinstance(raw_conditions, list) or not raw_conditions:
             raise ValueError("Interaction artifact requires scenario conditions.")
-        expected = {(scenario_id, kind) for scenario_id in scenario_by_id for kind in ("a_only", "b_only", "combined")}
-        observed: set[tuple[str, str]] = set()
+        expected = {
+            (scenario_id, kind, repetition_index)
+            for scenario_id, scenario in scenario_by_id.items()
+            for kind in ("a_only", "b_only", "combined")
+            for repetition_index in range(1, int(scenario.get("repetition_count", 1)) + 1)
+        }
+        observed: set[tuple[str, str, int]] = set()
         conditions: list[EvidenceCondition] = []
         facts: list[EvidenceFact] = []
         records: list[EvidenceRecord] = []
@@ -401,7 +409,13 @@ class InteractionEvaluationAdapter:
             condition_kind = raw.get("condition_kind")
             if condition_kind not in {"a_only", "b_only", "combined"}:
                 raise ValueError("Interaction conditions must use a_only, b_only, or combined.")
-            key = (scenario_id, condition_kind)
+            repetition_index = raw.get("repetition_index", 1)
+            repetition_id = raw.get("repetition_id")
+            if not isinstance(repetition_index, int) or isinstance(repetition_index, bool) or repetition_index < 1:
+                raise ValueError("Interaction condition repetition_index must be a positive integer.")
+            if repetition_id is not None and (not isinstance(repetition_id, str) or not repetition_id):
+                raise ValueError("Interaction condition repetition_id must be a non-empty string when present.")
+            key = (scenario_id, condition_kind, repetition_index)
             if key in observed:
                 raise ValueError("Interaction artifact cannot contain duplicate scenario conditions.")
             observed.add(key)
@@ -461,6 +475,8 @@ class InteractionEvaluationAdapter:
                 "scenario_id": scenario_id,
                 "scenario_category": declared_category,
                 "condition_kind": condition_kind,
+                "repetition_id": repetition_id,
+                "repetition_index": repetition_index,
                 "trace_event_count": len(trace),
                 "output_recorded": True,
                 "latency_ms": latency_ms,
@@ -471,15 +487,17 @@ class InteractionEvaluationAdapter:
                 **dict(observations),
             }
             conditions.append(EvidenceCondition(
-                condition_id=_opaque_id("condition", f"{interaction_name}:{scenario_id}:{condition_kind}"),
+                condition_id=_opaque_id("condition", f"{interaction_name}:{scenario_id}:{condition_kind}:{repetition_index}"),
                 scenario_id=scenario_id,
+                repetition_id=repetition_id,
+                repetition_index=repetition_index,
                 experiment_id=context.experiment_ids_by_condition.get(condition_kind),
                 label=label,
                 observations=normalized_observations,
                 evidence_refs=normalized_refs,
             ))
             facts.append(EvidenceFact(
-                fact_id=_opaque_id("fact", f"{interaction_name}:{scenario_id}:{condition_kind}"),
+                fact_id=_opaque_id("fact", f"{interaction_name}:{scenario_id}:{condition_kind}:{repetition_index}"),
                 label=f"{scenario_id} {condition_kind} observed behavior",
                 fact_type="interaction_behavior",
                 value=normalized_observations,
@@ -493,6 +511,8 @@ class InteractionEvaluationAdapter:
                     "interaction_name": interaction_name,
                     "scenario_id": scenario_id,
                     "condition_kind": condition_kind,
+                    "repetition_id": repetition_id,
+                    "repetition_index": repetition_index,
                     "observations": normalized_observations,
                     "trace": list(trace),
                     "output": raw["output"],
@@ -503,7 +523,7 @@ class InteractionEvaluationAdapter:
             ))
         if observed != expected:
             raise ValueError(
-                "Interaction artifact must contain exactly one A-only, B-only, and combined condition for every scenario."
+                "Interaction artifact must contain every planned A-only, B-only, and combined repetition for every scenario."
             )
         _required_refs(artifact)
         raw_readiness = artifact.get("scenario_readiness")
@@ -526,6 +546,8 @@ class InteractionEvaluationAdapter:
             records=records,
             type_data={
                 "interaction_name": interaction_name,
+                "scenario_suite": artifact.get("scenario_suite"),
+                "suite_aggregate": artifact.get("suite_aggregate"),
                 "interaction_hypothesis": hypothesis.model_dump(mode="json"),
                 "scenario_ids": list(scenario_by_id),
                 "scenario_hashes": {

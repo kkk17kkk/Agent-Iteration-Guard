@@ -32,6 +32,8 @@ class EvidenceCondition(BaseModel):
     # user scenario. Conditions without this field remain valid legacy
     # evidence, but cannot support a multi-scenario stability claim.
     scenario_id: str | None = Field(default=None, min_length=1)
+    repetition_id: str | None = Field(default=None, min_length=1)
+    repetition_index: int | None = Field(default=None, ge=1)
     experiment_id: str | None = None
     label: str = Field(min_length=1)
     observations: dict[str, object] = Field(default_factory=dict)

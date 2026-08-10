@@ -28,6 +28,16 @@ _CONDITION_KIND_LABELS = {
 }
 
 
+_CONDITION_KIND_LABELS.update({
+    "baseline": "Baseline",
+    "removal": "Skill Removal",
+    "replacement": "Capability Replacement",
+    "a_only": "Skill A only",
+    "b_only": "Skill B only",
+    "combined": "Skill A + Skill B",
+})
+
+
 class ReportProjectContext(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -59,12 +69,15 @@ class NormalizedReport(BaseModel):
     dimensions: list[dict[str, Any]]
     experiments: dict[str, Any]
     scenario_stability: dict[str, Any]
+    interaction_analysis: dict[str, Any] | None = None
+    root_cause_findings: list[dict[str, Any]] = Field(default_factory=list)
     impact: dict[str, Any]
     recommendations: list[dict[str, Any]]
     limitations: list[dict[str, Any]]
     evidence_bundle: dict[str, Any]
     technical_evidence: dict[str, Any]
     technical_metadata: dict[str, Any]
+    evaluation_suite: dict[str, Any] | None = None
 
 
 def project_context_from_intelligence(intelligence: ProjectIntelligence) -> dict[str, str]:
@@ -91,6 +104,7 @@ def normalize_product_evaluation_report(
 
     raw_evidence = report.evidence.model_dump(mode="json")
     evidence_summary = raw_evidence.get("summary") or {}
+    suite_aggregate = (raw_evidence.get("type_data") or {}).get("suite_aggregate")
     conditions = [_normalize_condition(condition, raw_evidence.get("records") or []) for condition in raw_evidence.get("conditions") or []]
     condition_counts = {
         "verified": sum(item["status"] in {"passed", "failed"} for item in conditions),
@@ -142,6 +156,15 @@ def normalize_product_evaluation_report(
         "condition_count": len(conditions),
         "cost_usd": cost,
     }
+    if isinstance(suite_aggregate, Mapping):
+        coverage = suite_aggregate.get("coverage")
+        if isinstance(coverage, Mapping):
+            metrics.update({
+                "scenario_count": coverage.get("executed_scenario_count"),
+                "trial_count": coverage.get("executed_trial_count"),
+                "coverage_status": coverage.get("status"),
+                "repeated_scenario_count": coverage.get("repeated_scenario_count"),
+            })
     return NormalizedReport(
         report_id=report.report_id,
         title=f"{report.subject.component_name} 评估",
@@ -172,6 +195,8 @@ def normalize_product_evaluation_report(
             "analysis": [_normalize_experiment(item.model_dump(mode="json")) for item in report.experiment_analysis],
         },
         scenario_stability=report.scenario_stability.model_dump(mode="json"),
+        interaction_analysis=(report.interaction_analysis.model_dump(mode="json") if report.interaction_analysis else None),
+        root_cause_findings=[item.model_dump(mode="json") for item in report.root_cause_findings],
         impact={
             **report.business_impact.model_dump(mode="json"),
             "findings": [item.model_dump(mode="json") for item in report.findings],
@@ -204,6 +229,7 @@ def normalize_product_evaluation_report(
             "analyst_request_id": report.provenance.analyst_request_id,
             "interpretation_evidence_level": report.provenance.interpretation_evidence_level,
         },
+        evaluation_suite=dict(suite_aggregate) if isinstance(suite_aggregate, Mapping) else None,
     )
 
 
@@ -240,13 +266,16 @@ def _normalize_condition(condition: Mapping[str, Any], records: list[Mapping[str
         ),
         None,
     )
+    condition_kind = str(observations.get("condition_kind") or _condition_kind(str(label)))
     return {
         "condition_id": condition.get("condition_id") or "condition",
         "experiment_id": condition.get("experiment_id") or "-",
         "scenario_id": condition.get("scenario_id") or "-",
+        "repetition_id": condition.get("repetition_id") or "-",
+        "repetition_index": condition.get("repetition_index"),
         "label": label,
-        "kind": _condition_kind(str(label)),
-        "kind_label": _CONDITION_KIND_LABELS.get(_condition_kind(str(label)), "实验条件"),
+        "kind": condition_kind,
+        "kind_label": _CONDITION_KIND_LABELS.get(condition_kind, "实验条件"),
         "status": status,
         "observations": observations,
         "evidence_refs": references,

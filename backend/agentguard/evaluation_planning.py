@@ -18,6 +18,7 @@ from .evolution_types import (
 )
 from .evaluation_memory import EvaluationKnowledge
 from .evaluation_scope import EvaluationScope
+from .evaluation_suite import ScenarioSuiteConfig
 from .interaction_evaluation import InteractionRelationshipProfile, PlanningCallMetadata
 from .scenario_contracts import FixtureCatalog, ScenarioInputContract
 
@@ -69,6 +70,7 @@ class EvaluationChange(BaseModel):
     candidate_ref: str | None = None
     related_target_ids: list[str] = Field(default_factory=list, max_length=8)
     evidence_refs: list[str] = Field(default_factory=list, max_length=8)
+    scenario_suite: ScenarioSuiteConfig | None = None
 
 
 class EvaluationDimensionPlan(BaseModel):
@@ -90,6 +92,10 @@ ScenarioCategory = Literal[
     "synergy",
     "conflict",
     "single_skill_dominant",
+    "equivalent_choice",
+    "a_preferred",
+    "b_preferred",
+    "ambiguous_overlap",
 ]
 
 
@@ -103,6 +109,15 @@ class PairScenarioExpectedBehavior(BaseModel):
     combined: str = Field(min_length=1, max_length=360)
 
 
+class RoutingExpectation(BaseModel):
+    """Frozen semantic routing expectation for an overlap-sensitive scenario."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    expected_routing: Literal["a", "b", "either", "neither"]
+    rationale: str = Field(min_length=1, max_length=360)
+
+
 class EvaluationScenario(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -113,9 +128,11 @@ class EvaluationScenario(BaseModel):
     expected_success_behavior: list[str] = Field(min_length=1, max_length=8)
     evidence_to_collect: list[str] = Field(min_length=1, max_length=8)
     expected_behavior: PairScenarioExpectedBehavior | None = None
+    routing_expectation: RoutingExpectation | None = None
     input_contract: ScenarioInputContract = Field(default_factory=ScenarioInputContract.no_input)
     scenario_hash: str | None = Field(default=None, min_length=16, max_length=200)
     scenario_provenance: "ScenarioProvenance | None" = None
+    repetition_count: int = Field(default=1, ge=1, le=10)
 
 
 class ScenarioProvenance(BaseModel):
@@ -176,8 +193,9 @@ class EvaluationPlan(BaseModel):
     dimensions: list[EvaluationDimensionPlan] = Field(min_length=4, max_length=8)
     experiments: list[EvaluationExperiment] = Field(min_length=1, max_length=8)
     comparison_question: str = Field(min_length=1, max_length=300)
-    scenarios: list[EvaluationScenario] = Field(min_length=3, max_length=5)
-    evidence_requirements: list[EvaluationEvidenceRequirement] = Field(min_length=3, max_length=5)
+    scenarios: list[EvaluationScenario] = Field(min_length=3, max_length=200)
+    evidence_requirements: list[EvaluationEvidenceRequirement] = Field(min_length=3, max_length=200)
+    scenario_suite: ScenarioSuiteConfig | None = None
     overall_success_criteria: list[str] = Field(min_length=1, max_length=8)
     interaction_hypothesis: InteractionRelationshipProfile | None = None
     evaluation_knowledge: list[EvaluationKnowledge] = Field(default_factory=list, max_length=8)
@@ -202,8 +220,9 @@ class EvaluationPlanDesign(BaseModel):
     dimensions: list[EvaluationDimensionPlan] = Field(min_length=4, max_length=8)
     experiments: list[EvaluationExperiment] = Field(min_length=1, max_length=8)
     comparison_question: str = Field(min_length=1, max_length=300)
-    scenarios: list[EvaluationScenario] = Field(min_length=3, max_length=5)
-    evidence_requirements: list[EvaluationEvidenceRequirement] = Field(min_length=3, max_length=5)
+    scenarios: list[EvaluationScenario] = Field(min_length=3, max_length=200)
+    evidence_requirements: list[EvaluationEvidenceRequirement] = Field(min_length=3, max_length=200)
+    scenario_suite: ScenarioSuiteConfig | None = None
     overall_success_criteria: list[str] = Field(min_length=1, max_length=8)
     interaction_hypothesis: InteractionRelationshipProfile | None = None
 
@@ -325,6 +344,7 @@ def build_evolution_plan(
         comparison_question=design.comparison_question,
         scenarios=design.scenarios,
         evidence_requirements=design.evidence_requirements,
+        scenario_suite=design.scenario_suite,
         overall_success_criteria=design.overall_success_criteria,
         interaction_hypothesis=design.interaction_hypothesis,
         evaluation_knowledge=list(target.evaluation_knowledge),
@@ -380,6 +400,7 @@ def _plan_id(
             "change_id": change.change_id,
             "evaluation_name": change.evaluation_name,
             "scenarios": [item.model_dump(mode="json") for item in design.scenarios],
+            "scenario_suite": design.scenario_suite.model_dump(mode="json") if design.scenario_suite else None,
             "evaluation_knowledge": [item.model_dump(mode="json") for item in target.evaluation_knowledge],
             "evaluation_scope": evaluation_scope.model_dump(mode="json") if evaluation_scope else None,
         },
@@ -417,6 +438,7 @@ __all__ = [
     "EvaluationTarget",
     "EvaluationScenario",
     "PairScenarioExpectedBehavior",
+    "RoutingExpectation",
     "EvaluationType",
     "PlannerStrategy",
     "PlannerStrategyError",

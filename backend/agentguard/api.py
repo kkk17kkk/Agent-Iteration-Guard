@@ -35,6 +35,7 @@ from .evaluation_request import EvaluationRequest, EvaluationRequestValidationEr
 from .evaluation_planning import EvaluationPlan, bind_evaluation_scope
 from .evaluation_dispatch import EvaluationDispatchError, build_evaluation_plan_for_request
 from .evaluation_scope import freeze_evaluation_scope
+from .evaluation_suite import ScenarioSuiteConfig, default_scenario_suite_config
 from .evaluation_orchestration import (
     adapt_evaluation_run_evidence,
     build_product_evaluation_report,
@@ -128,6 +129,7 @@ class EvaluationRequestBody(BaseModel):
     component_type: Literal["skill", "skill_pair", "tool"]
     component_name: str
     pair_members: list[str] = Field(default_factory=list, max_length=2)
+    scenario_suite: ScenarioSuiteConfig | None = None
     change_type: Literal["add", "remove", "modify", "replace"]
     candidate_version: str
     baseline_version: str
@@ -1012,6 +1014,16 @@ def list_evaluation_execution_configurations(project_id: str):
         ]
     except ProductNotFoundError as error:
         raise HTTPException(status_code=404, detail="project not found") from error
+
+
+@app.get("/api/v1/projects/{project_id}/evaluations/scenario-suite-defaults")
+def get_scenario_suite_defaults(project_id: str):
+    if service().project_intelligence(project_id) is None:
+        raise HTTPException(status_code=404, detail="project intelligence not found")
+    return {
+        "skill": default_scenario_suite_config("skill").model_dump(mode="json"),
+        "skill_pair": default_scenario_suite_config("skill_pair").model_dump(mode="json"),
+    }
 
 
 @app.get("/api/v1/projects/{project_id}/evaluations/{request_id}")

@@ -16,10 +16,16 @@ from agentguard.evaluation_memory import EvaluationKnowledge
 from agentguard.eval_engineering_skill import EvalEngineeringDesignAssistant
 from agentguard.evaluation_scenario_generator import ScenarioEvidenceRequirementsGenerator
 from agentguard.interaction_evaluation import InteractionRelationshipProfile
+from agentguard.evaluation_suite import scenario_category_sequence
+from agentguard.evaluation_suite import default_scenario_suite_config
 
 
 class FakeScenarioGenerator:
     def generate(self, target, change):
+        categories = scenario_category_sequence(
+            ("normal", "constraint_conflict", "boundary", "robustness"),
+            change.scenario_suite,
+        )
         return [
             EvaluationScenario(
                 scenario_id=f"scenario_{index}",
@@ -29,7 +35,7 @@ class FakeScenarioGenerator:
                 expected_success_behavior=["完成用户任务"],
                 evidence_to_collect=["用户任务结果"],
             )
-            for index, category in enumerate(("normal", "constraint_conflict", "boundary"), 1)
+            for index, category in enumerate(categories, 1)
         ]
 
 
@@ -42,7 +48,10 @@ class FakePairScenarioGenerator(FakeScenarioGenerator):
         )
 
     def generate_pair_scenarios(self, target, change, *, relationship):
-        categories = ("complementary", "synergy", "conflict", "boundary")
+        categories = scenario_category_sequence(
+            ("complementary", "synergy", "conflict", "boundary"),
+            change.scenario_suite,
+        )
         return [
             EvaluationScenario(
                 scenario_id=f"pair_scenario_{index}",
@@ -110,8 +119,11 @@ def test_generic_evolution_plan_preserves_skill_ablation_experiment_matrix() -> 
     ]
     assert all(len(item.dimensions) == 4 for item in plan.experiments)
     assert all(item.control_group for item in plan.experiments)
-    assert len(plan.scenarios) == 3
-    assert len(plan.evidence_requirements) == 3
+    assert len(plan.scenarios) == 20
+    assert len(plan.evidence_requirements) == 20
+    assert plan.scenario_suite is not None
+    assert plan.scenario_suite.scenarios_per_category == 5
+    assert sum(item.repetition_count for item in plan.scenarios) == 28
     assert "enabled" not in json.dumps(plan.model_dump(mode="json"), ensure_ascii=False)
     assert "replacement" not in json.dumps(plan.model_dump(mode="json"), ensure_ascii=False)
 
@@ -162,9 +174,12 @@ def test_registry_selects_strategy_by_component_and_change_type() -> None:
         change_type = "regression"
 
         def design(self, target, change, *, scenario_generator, evidence_requirements_generator) -> EvaluationPlanDesign:
-            return EvalEngineeringDesignAssistant().design(
-                target,
-                change.model_copy(update={"change_type": "ablation"}),
+                return EvalEngineeringDesignAssistant().design(
+                    target,
+                    change.model_copy(update={
+                        "change_type": "ablation",
+                        "scenario_suite": default_scenario_suite_config("skill"),
+                    }),
                 scenario_generator=scenario_generator,
                 evidence_requirements_generator=evidence_requirements_generator,
             )
@@ -213,9 +228,12 @@ def test_default_registry_generates_explicit_skill_pair_matrix() -> None:
         "task_planning only", "result_delivery only", "task_planning + result_delivery"
     ]
     assert plan.component_members == ["task_planning", "result_delivery"]
-    assert [item.category for item in plan.scenarios] == [
+    assert len(plan.scenarios) == 32
+    assert {item.category for item in plan.scenarios} == {
         "complementary", "synergy", "conflict", "boundary"
-    ]
+    }
+    assert plan.scenario_suite is not None
+    assert plan.scenario_suite.scenarios_per_category == 8
     assert [item.dimension for item in plan.dimensions] == [
         "trigger", "capability_contribution", "synergy_gain", "coordination", "conflict", "reliability_cost"
     ]

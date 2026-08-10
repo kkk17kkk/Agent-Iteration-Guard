@@ -47,17 +47,18 @@ class EvaluationMatrixEvidenceAdapter:
         self._validate_hash(matrix)
         scenarios = self._parse_scenarios(matrix.scenarios)
         expected_keys = {
-            (scenario.scenario_id, condition)
+            (scenario.scenario_id, condition, repetition_index)
             for scenario in scenarios.values()
             for condition in self.expected_condition_kinds
+            for repetition_index in range(1, scenario.repetition_count + 1)
         }
-        observed_keys: set[tuple[str, str]] = set()
+        observed_keys: set[tuple[str, str, int]] = set()
         conditions: list[EvidenceCondition] = []
         facts: list[EvidenceFact] = []
         records: list[EvidenceRecord] = []
         for index, raw in enumerate(matrix.conditions):
             result = InteractionTrialResult.model_validate(raw)
-            key = (result.scenario_id, result.condition_kind)
+            key = (result.scenario_id, result.condition_kind, result.repetition_index)
             if key in observed_keys or key not in expected_keys:
                 raise ValueError("Evaluation matrix contains a duplicate or unknown scenario condition.")
             if result.category != scenarios[result.scenario_id].category:
@@ -81,6 +82,9 @@ class EvaluationMatrixEvidenceAdapter:
                 "oracle_outcome": oracle.outcome,
                 "oracle_type": oracle.oracle_type,
                 "oracle_version": oracle.oracle_version,
+                "oracle_verification_scopes": list(oracle.verification_scopes),
+                "oracle_scope_limitations": list(oracle.scope_limitations),
+                "oracle_failure_types_evaluated": list(oracle.failure_types_evaluated),
                 "provider_request_ids": list(result.provider_request_ids),
                 "usage": dict(result.usage),
                 "output_artifact_ref": result.output_artifact_ref,
@@ -89,15 +93,17 @@ class EvaluationMatrixEvidenceAdapter:
             observed_keys.add(key)
             label = result.label
             conditions.append(EvidenceCondition(
-                condition_id=_opaque_id("condition", f"{matrix.evaluation_name}:{result.scenario_id}:{result.condition_kind}"),
+                condition_id=_opaque_id("condition", f"{matrix.evaluation_name}:{result.scenario_id}:{result.condition_kind}:{result.repetition_index}"),
                 scenario_id=result.scenario_id,
+                repetition_id=result.repetition_id,
+                repetition_index=result.repetition_index,
                 experiment_id=context.experiment_ids_by_condition.get(result.condition_kind),
                 label=label,
                 observations=observations,
                 evidence_refs=refs,
             ))
             facts.append(EvidenceFact(
-                fact_id=_opaque_id("fact", f"{matrix.evaluation_name}:{result.scenario_id}:{result.condition_kind}"),
+                fact_id=_opaque_id("fact", f"{matrix.evaluation_name}:{result.scenario_id}:{result.condition_kind}:{result.repetition_index}"),
                 label=f"{label} observed behavior",
                 fact_type="evaluation_behavior",
                 value=observations,
@@ -111,6 +117,8 @@ class EvaluationMatrixEvidenceAdapter:
                 payload={
                     "scenario_id": result.scenario_id,
                     "condition_kind": result.condition_kind,
+                    "repetition_id": result.repetition_id,
+                    "repetition_index": result.repetition_index,
                     "trace": result.trace,
                     "output": result.output,
                     "metrics": result.metrics,
@@ -149,6 +157,8 @@ class EvaluationMatrixEvidenceAdapter:
             summary={key: value for key, value in matrix.metrics.items() if isinstance(value, (int, float, str))},
             type_data={
                 "evaluation_name": matrix.evaluation_name,
+                "scenario_suite": matrix.scenario_suite,
+                "suite_aggregate": matrix.suite_aggregate,
                 "condition_kinds": list(matrix.condition_kinds),
                 "scenario_ids": [item.scenario_id for item in scenarios.values()],
                 "scenario_categories": [item.category for item in scenarios.values()],

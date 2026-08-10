@@ -46,6 +46,41 @@ class RetryProvider(FakeProvider):
         )
 
 
+class RetrievalProvider(FakeProvider):
+    def __init__(self, arguments):
+        super().__init__(arguments)
+        self.calls = 0
+        self.initial_payload = None
+        self.retrieved_payload = None
+
+    def complete(self, messages, tools):
+        self.calls += 1
+        tool_names = [item["function"]["name"] for item in tools]
+        assert tool_names[0] == "submit_product_semantic_analysis"
+        if self.calls == 1:
+            assert tool_names == ["submit_product_semantic_analysis", "read_evidence_refs"]
+            self.initial_payload = __import__("json").loads(messages[1]["content"])
+            return ProviderTurn(
+                "request-retrieval-1",
+                "tool_calls",
+                (ProviderToolCall("call-retrieval-1", "read_evidence_refs", {"evidence_refs": ["ref-b"]}),),
+                100, 20, 0, "request-1", "response-1",
+            )
+        assert tool_names == ["submit_product_semantic_analysis"]
+        self.retrieved_payload = __import__("json").loads(messages[-1]["content"])
+        turn = super().complete(messages, tools)
+        return ProviderTurn(
+            "request-retrieval-2",
+            turn.finish_reason,
+            turn.tool_calls,
+            turn.input_tokens,
+            turn.output_tokens,
+            turn.cache_hit_tokens,
+            turn.request_fingerprint,
+            turn.response_fingerprint,
+        )
+
+
 def _binding() -> ProviderBinding:
     return ProviderBinding(
         project_id="demo",
@@ -76,6 +111,13 @@ def _input() -> ProductAnalystInput:
         facts=[
             {"fact_id": "fact-a", "label": "reference", "fact_type": "machine", "evidence_level": "verified", "evidence_refs": ["ref-a"]},
             {"fact_id": "fact-b", "label": "changed", "fact_type": "machine", "evidence_level": "verified", "evidence_refs": ["ref-b"]},
+        ],
+        records=[
+            {"record_id": "record-a", "record_type": "trace", "source_ref": "source-a", "payload": {"trace": [{"event_type": "a"}]}, "evidence_refs": ["ref-a"]},
+            {"record_id": "record-b", "record_type": "verifier_result", "source_ref": "source-b", "payload": {"oracle": {"outcome": "failed"}, "trace": [{"event_type": "b"}]}, "evidence_refs": ["ref-b"]},
+        ],
+        metrics=[
+            {"metric_id": "metric-b", "name": "failure_count", "value": 1, "evidence_refs": ["ref-b"]},
         ],
         integrity={"status": "complete"},
     )
@@ -210,3 +252,65 @@ def test_dynamic_analyst_retries_once_after_contract_feedback() -> None:
     result = ProductEvaluationAnalyst().analyze(_input(), provider=provider, binding=_binding())
     assert provider.calls == 2
     assert result.request_id == "request-analyst-retry-2"
+
+
+def test_analyst_can_retrieve_complete_evidence_by_indexed_ref_before_submit() -> None:
+    provider = RetrievalProvider(_analysis())
+    analyst_input = _input()
+    ref_a = analyst_input.evidence.conditions[0]
+    conditions = [
+        ref_a.model_copy(update={"condition_id": f"condition-a-{index}"})
+        for index in range(5)
+    ] + [analyst_input.evidence.conditions[1]]
+    analyst_input = analyst_input.model_copy(update={
+        "evidence": analyst_input.evidence.model_copy(update={"conditions": conditions}),
+    })
+
+    result = ProductEvaluationAnalyst().analyze(analyst_input, provider=provider, binding=_binding())
+
+    assert provider.calls == 2
+    assert provider.initial_payload["compact_evidence_index"]["available_evidence_refs"] == ["ref-a", "ref-b"]
+    assert len(provider.initial_payload["compact_evidence_index"]["trials"]) == 6
+    assert provider.initial_payload["evidence_access"]["initially_expanded_evidence_refs"] == ["ref-a"]
+    assert provider.retrieved_payload["evidence_refs"] == ["ref-b"]
+    assert provider.retrieved_payload["records"][0]["payload"]["oracle"]["outcome"] == "failed"
+    assert provider.retrieved_payload["metrics"][0]["name"] == "failure_count"
+    assert provider.retrieved_payload["retrieval_status"]["remaining_available_evidence_refs"] == []
+    assert result.request_ids == ("request-retrieval-1", "request-retrieval-2")
+    assert result.retrieved_evidence_refs == ("ref-b",)
+
+
+def test_initial_expansion_is_limited_to_five_but_compact_index_is_complete() -> None:
+    analyst_input = _input()
+    template = analyst_input.evidence.conditions[0]
+    conditions = [
+        template.model_copy(update={
+            "condition_id": f"condition-{index}",
+            "scenario_id": f"scenario-{index}",
+            "evidence_refs": ["ref-a"],
+        })
+        for index in range(7)
+    ]
+    dense_input = analyst_input.model_copy(update={
+        "evidence": analyst_input.evidence.model_copy(update={"conditions": conditions}),
+    })
+
+    payload = ProductEvaluationAnalyst._provider_payload(dense_input)
+
+    assert len(payload["compact_evidence_index"]["scenarios"]) == 7
+    assert len(payload["compact_evidence_index"]["trials"]) == 7
+    assert len(payload["initial_expanded_evidence_packs"]) == 5
+
+
+def test_analyst_rejects_evidence_retrieval_outside_the_bundle() -> None:
+    class UnknownRefProvider(FakeProvider):
+        def complete(self, messages, tools):
+            return ProviderTurn(
+                "request-unknown-ref",
+                "tool_calls",
+                (ProviderToolCall("call-unknown-ref", "read_evidence_refs", {"evidence_refs": ["unknown"]}),),
+                1, 1, 0, "request", "response",
+            )
+
+    with pytest.raises(ProviderRuntimeError, match="outside the immutable bundle"):
+        ProductEvaluationAnalyst().analyze(_input(), provider=UnknownRefProvider(_analysis()), binding=_binding())

@@ -86,6 +86,7 @@ def build_skill_evaluation_change(
         summary=f"Evaluate the product contribution of {request.component_name}.",
         baseline_ref=request.baseline_version,
         candidate_ref=request.candidate_version,
+        scenario_suite=request.scenario_suite,
     )
 
 

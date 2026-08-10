@@ -6,6 +6,7 @@ from agentguard.evaluation_dispatch import EvaluationDispatchError, build_evalua
 from agentguard.evaluation_planning import EvaluationScenario, PairScenarioExpectedBehavior
 from agentguard.evaluation_request import EvaluationRequest
 from agentguard.evaluation_scenario_generator import ScenarioEvidenceRequirementsGenerator
+from agentguard.evaluation_suite import scenario_category_sequence
 from agentguard.interaction_evaluation import InteractionRelationshipProfile
 from agentguard.project_intelligence import (
     AgentManifest,
@@ -20,6 +21,10 @@ from agentguard.store import Store
 
 class FakeEvaluationScenarioGenerator:
     def generate(self, target, change):
+        categories = scenario_category_sequence(
+            ("normal", "constraint_conflict", "boundary", "robustness"),
+            change.scenario_suite,
+        )
         return [
             EvaluationScenario(
                 scenario_id=f"scenario_{index}",
@@ -29,7 +34,7 @@ class FakeEvaluationScenarioGenerator:
                 expected_success_behavior=["The declared user task is completed."],
                 evidence_to_collect=["structured output and trace"],
             )
-            for index, category in enumerate(("normal", "constraint_conflict", "boundary"), start=1)
+            for index, category in enumerate(categories, start=1)
         ]
 
     def analyze_pair_relationship(self, target, change):
@@ -40,6 +45,10 @@ class FakeEvaluationScenarioGenerator:
         )
 
     def generate_pair_scenarios(self, target, change, *, relationship):
+        categories = scenario_category_sequence(
+            ("complementary", "synergy", "conflict", "boundary"),
+            change.scenario_suite,
+        )
         return [
             EvaluationScenario(
                 scenario_id=f"pair_scenario_{index}",
@@ -54,7 +63,7 @@ class FakeEvaluationScenarioGenerator:
                     combined="The pair produces a coordinated result.",
                 ),
             )
-            for index, category in enumerate(("complementary", "synergy", "conflict", "boundary"), start=1)
+            for index, category in enumerate(categories, start=1)
         ]
 
 

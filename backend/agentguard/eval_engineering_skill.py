@@ -19,6 +19,13 @@ from .evaluation_planning import (
     EvaluationPlanningAssistant,
     EvaluationTarget,
     PlannerStrategyError,
+    scenario_hash_for,
+)
+from .evaluation_suite import (
+    ScenarioSuiteConfig,
+    allocate_repetitions,
+    default_scenario_suite_config,
+    scenario_category_sequence,
 )
 from .evaluation_scenario_generator import (
     EvaluationEvidenceRequirementsGenerator,
@@ -26,6 +33,11 @@ from .evaluation_scenario_generator import (
 )
 from .interaction_evaluation import InteractionRelationshipProfile, validate_scenario_categories
 from .evolution_types import ChangeType, ComponentType
+
+
+_SKILL_SCENARIO_CATEGORIES = ("normal", "constraint_conflict", "boundary", "robustness")
+
+
 class EvalEngineeringDesignAssistant:
     """Select experiments and define cases/criteria from the planning contract."""
 
@@ -41,10 +53,18 @@ class EvalEngineeringDesignAssistant:
             raise PlannerStrategyError(
                 f"Eval Engineering ablation design cannot handle {change.change_type}."
             )
-        scenarios = scenario_generator.generate(target, change)
+        suite_config = change.scenario_suite or default_scenario_suite_config(target.component_type)
+        planning_change = change.model_copy(update={"scenario_suite": suite_config})
+        scenarios = scenario_generator.generate(target, planning_change)
+        expected_categories = scenario_category_sequence(_SKILL_SCENARIO_CATEGORIES, suite_config)
+        if sorted(scenario.category for scenario in scenarios) != sorted(expected_categories):
+            raise PlannerStrategyError(
+                "Evaluation Scenario Generator did not satisfy the frozen Skill category quota."
+            )
+        scenarios = _apply_repetition_policy(scenarios, suite_config)
         evidence_requirements = evidence_requirements_generator.generate(target, change, scenarios)
-        if len(scenarios) < 3 or len(scenarios) > 5:
-            raise PlannerStrategyError("Evaluation Scenario Generator must return between 3 and 5 scenarios.")
+        if len(scenarios) > suite_config.max_scenarios:
+            raise PlannerStrategyError("Evaluation Scenario Generator exceeded max_scenarios.")
         scenario_ids = {scenario.scenario_id for scenario in scenarios}
         if {item.scenario_id for item in evidence_requirements} != scenario_ids:
             raise PlannerStrategyError("Evidence Requirements Generator must cover every generated scenario exactly once.")
@@ -116,6 +136,7 @@ class EvalEngineeringDesignAssistant:
                 "成功结论同时有机器证据和产品定义支持。",
                 "基础设施失败单独标记，不解释为 Agent 产品能力失败。",
             ],
+            scenario_suite=suite_config,
         )
 
     @staticmethod
@@ -168,9 +189,12 @@ class EvalEngineeringSkillPairStrategy:
             raise PlannerStrategyError(
                 "Skill Pair Planner requires exactly two registered component members."
             )
+        suite_config = change.scenario_suite or default_scenario_suite_config(target.component_type)
+        planning_change = change.model_copy(update={"scenario_suite": suite_config})
         relationship, scenarios = self._generate_scenarios_with_hypothesis(
-            target, change, scenario_generator=scenario_generator
+            target, planning_change, scenario_generator=scenario_generator
         )
+        scenarios = _apply_repetition_policy(scenarios, suite_config)
         dimension_plans = _interaction_dimensions()
         evidence_requirements = evidence_requirements_generator.generate(
             target,
@@ -230,8 +254,12 @@ class EvalEngineeringSkillPairStrategy:
                 "Compare A-only, B-only, and combined results for every planned user scenario.",
                 "Separate capability contribution from synergy; simple sequential execution is not synergy evidence.",
                 "Report coordination, conflict/interference, reliability, latency, token, and cost evidence separately.",
+                "Cover should-select, should-not-select, and ambiguous routing where the declared relationship makes them applicable.",
+                "Treat outcome Pair Gain and trace-level interaction mechanisms as separate evidence claims.",
+                "Declare Oracle scope and exclude evaluator leakage from user-facing scenario prompts.",
             ],
             interaction_hypothesis=relationship,
+            scenario_suite=suite_config,
         )
 
     def generate_scenarios(
@@ -265,12 +293,14 @@ class EvalEngineeringSkillPairStrategy:
             )
         relationship: InteractionRelationshipProfile = analyze(target, change)
         scenarios = generate_pair(target, change, relationship=relationship)
-        if not 3 <= len(scenarios) <= 5:
-            raise PlannerStrategyError("Interaction Scenario Generator must return between 3 and 5 scenarios.")
+        suite_config = change.scenario_suite or default_scenario_suite_config(target.component_type)
+        if len(scenarios) > suite_config.max_scenarios:
+            raise PlannerStrategyError("Interaction Scenario Generator exceeded max_scenarios.")
         try:
             validate_scenario_categories(
                 relationship.relationship,
                 [scenario.category for scenario in scenarios],
+                suite_config=suite_config,
             )
         except ValueError as error:
             raise PlannerStrategyError(str(error)) from error
@@ -279,6 +309,24 @@ class EvalEngineeringSkillPairStrategy:
                 "Interaction scenarios must declare expected behavior for A only, B only, and A+B."
             )
         return relationship, scenarios
+
+
+def _apply_repetition_policy(scenarios: list, suite_config: ScenarioSuiteConfig) -> list:
+    """Freeze per-scenario repetition counts without losing LLM provenance."""
+
+    counts = allocate_repetitions(scenarios, suite_config, condition_count=3)
+    result = []
+    for scenario in scenarios:
+        updated = scenario.model_copy(update={"repetition_count": counts[scenario.scenario_id]})
+        if updated.scenario_provenance is not None:
+            scenario_hash = scenario_hash_for(updated.model_dump(mode="json"))
+            provenance = updated.scenario_provenance.model_copy(update={"scenario_hash": scenario_hash})
+            updated = updated.model_copy(update={
+                "scenario_hash": scenario_hash,
+                "scenario_provenance": provenance,
+            })
+        result.append(updated)
+    return result
 
 
 def _default_dimensions() -> list[EvaluationDimensionPlan]:

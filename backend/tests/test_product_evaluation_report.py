@@ -106,6 +106,24 @@ def test_generic_report_is_type_neutral_and_portable() -> None:
     assert payload["scenario_stability"]["status"] == "insufficient_evidence"
 
 
+def test_report_records_analyst_evidence_retrieval_provenance() -> None:
+    analyst_input, result = _input_and_result()
+    result = ProductAnalystResult(
+        result.analysis,
+        result.provider,
+        result.model,
+        "request-report-final",
+        ("request-report-read", "request-report-final"),
+        ("ref-1",),
+    )
+
+    report = assemble_product_evaluation_report(analyst_input, result)
+
+    assert report.provenance.analyst_request_ids == ["request-report-read", "request-report-final"]
+    assert report.provenance.analyst_retrieved_evidence_refs == ["ref-1"]
+    assert report.recompute_report_hash() == report.report_hash
+
+
 def test_report_binds_optional_external_benchmark_evidence_into_hash() -> None:
     analyst_input, analyst_result = _input_and_result()
     evidence = BenchmarkEvidence(
@@ -204,6 +222,10 @@ def test_pair_report_renders_scenario_comparison_and_interaction_dimensions() ->
         coordination="The planner hands off one draft and the checker returns one revision.",
         conflict="No conflict is observed in ordinary tasks; boundary tasks still need review.",
         reliability_cost="The combined flow succeeds more often but adds latency and model calls.",
+        outcome_gain_status="no_observed_pair_gain",
+        observed_outcome="Pair Gain is 0 percentage points on matched resolved support.",
+        mechanism_status="mechanistic_coordination_observed",
+        observed_mechanism="Checker feedback changed the downstream plan in the combined condition.",
         dimension_conclusions=[
             InteractionDimensionConclusion(
                 dimension=dimension,
@@ -244,4 +266,5 @@ def test_pair_report_renders_scenario_comparison_and_interaction_dimensions() ->
 
     assert "Skill Pair Scenario Comparison" in html
     assert "A Only" in html and "A+B" in html and "Synergy Gain" in html
+    assert "no_observed_pair_gain" in html and "mechanistic_coordination_observed" in html
     assert "Capability Contribution" in markdown and "Conflict / Interference" in markdown

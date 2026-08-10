@@ -14,6 +14,7 @@ from agentguard.evaluation_planning import (
 )
 from agentguard.evaluation_adapters import AdapterContext
 from agentguard.evaluation_scenario_generator import ScenarioEvidenceRequirementsGenerator
+from agentguard.evaluation_suite import ScenarioSuiteConfig
 from agentguard.interaction_evaluation import PlanningCallMetadata
 from agentguard.interaction_matrix import InteractionTrialResult
 from agentguard.scenario_contracts import (
@@ -40,7 +41,7 @@ class SkillScenarioGenerator:
             response_fingerprint="response-fingerprint",
         )
         scenarios = []
-        for index, category in enumerate(("normal", "constraint_conflict", "boundary"), start=1):
+        for index, category in enumerate(("normal", "constraint_conflict", "boundary", "robustness"), start=1):
             scenario = EvaluationScenario(
                 scenario_id=f"skill_scenario_{index}",
                 category=category,
@@ -125,6 +126,15 @@ def _plan():
         evaluation_type="skill_ablation",
         evaluation_name="Profile Skill",
         summary="Evaluate profile Skill contribution.",
+        scenario_suite=ScenarioSuiteConfig(
+            scenarios_per_category=1,
+            max_scenarios=4,
+            max_trials=12,
+            default_repetitions=1,
+            stability_sample_per_category=0,
+            stability_repetitions=1,
+            trial_timeout_seconds=30,
+        ),
     )
     return build_evolution_evaluation_plan(
         target,
@@ -161,10 +171,10 @@ def test_skill_matrix_runs_three_conditions_per_frozen_scenario(tmp_path: Path) 
     )
 
     assert readiness.status == "ready"
-    assert len(runner.calls) == 9
+    assert len(runner.calls) == 12
     assert artifact.condition_kinds == ["baseline", "removal", "replacement"]
-    assert artifact.metrics["condition_count"] == 9
-    assert artifact.metrics["verified_condition_count"] == 9
+    assert artifact.metrics["condition_count"] == 12
+    assert artifact.metrics["verified_condition_count"] == 12
     assert (tmp_path / "matrix.json").is_file()
 
 
@@ -207,6 +217,6 @@ def test_skill_matrix_adapts_to_immutable_evidence_with_oracle_facts(tmp_path: P
     )
 
     assert bundle.evaluation_type == "skill_ablation"
-    assert len(bundle.conditions) == 9
+    assert len(bundle.conditions) == 12
     assert all(item.observations["oracle_verified"] is True for item in bundle.conditions)
     assert bundle.type_data["condition_kinds"] == ["baseline", "removal", "replacement"]

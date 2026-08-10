@@ -106,6 +106,7 @@ def build_skill_pair_evaluation_change(
         summary=f"Evaluate the interaction value and risk of {request.component_name}.",
         baseline_ref=request.baseline_version,
         candidate_ref=request.candidate_version,
+        scenario_suite=request.scenario_suite,
     )
 
 

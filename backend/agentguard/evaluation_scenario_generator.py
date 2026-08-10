@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import Counter
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -16,6 +17,7 @@ from .evaluation_planning import (
     ScenarioProvenance,
     EvaluationTarget,
     PairScenarioExpectedBehavior,
+    RoutingExpectation,
     scenario_hash_for,
 )
 from .interaction_evaluation import (
@@ -27,6 +29,7 @@ from .interaction_evaluation import (
     validate_scenario_categories,
 )
 from .evolution_types import EvaluationDimension
+from .evaluation_suite import default_scenario_suite_config, scenario_category_sequence
 from .provider_runtime import ProviderRuntimeError, ProviderTurn
 from .scenario_contracts import ScenarioInputContract
 
@@ -34,7 +37,7 @@ from .scenario_contracts import ScenarioInputContract
 class ScenarioGenerationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scenarios: list[EvaluationScenario] = Field(min_length=3, max_length=5)
+    scenarios: list[EvaluationScenario] = Field(min_length=3, max_length=200)
 
 
 class PairGeneratedScenario(BaseModel):
@@ -43,18 +46,22 @@ class PairGeneratedScenario(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scenario_id: str = Field(min_length=1, max_length=100)
-    category: Literal["complementary", "synergy", "conflict", "single_skill_dominant", "boundary"]
+    category: Literal[
+        "complementary", "synergy", "conflict", "single_skill_dominant", "boundary",
+        "equivalent_choice", "a_preferred", "b_preferred", "ambiguous_overlap",
+    ]
     user_prompt: str = Field(min_length=1, max_length=600)
     evaluation_goal: str = Field(min_length=1, max_length=300)
     expected_behavior: PairScenarioExpectedBehavior
     evidence_to_collect: list[str] = Field(min_length=1, max_length=8)
     input_contract: ScenarioInputContract = Field(default_factory=ScenarioInputContract.no_input)
+    routing_expectation: RoutingExpectation | None = None
 
 
 class PairScenarioGenerationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    scenarios: list[PairGeneratedScenario] = Field(min_length=3, max_length=5)
+    scenarios: list[PairGeneratedScenario] = Field(min_length=3, max_length=200)
 
 
 class EvaluationScenarioGenerator(Protocol):
@@ -121,6 +128,15 @@ class LLMEvaluationScenarioGenerator:
     def generate(self, target: EvaluationTarget, change: EvaluationChange) -> list[EvaluationScenario]:
         if self.binding.role != "control_plane":
             raise ValueError("Evaluation Scenario Generator requires a control_plane ProviderBinding.")
+        suite_config = change.scenario_suite
+        required_categories = (
+            scenario_category_sequence(
+                ("normal", "constraint_conflict", "boundary", "robustness"),
+                suite_config,
+            )
+            if suite_config is not None
+            else ("normal", "constraint_conflict", "boundary")
+        )
         messages = [
             {"role": "system", "content": self._system_prompt()},
             {
@@ -129,6 +145,7 @@ class LLMEvaluationScenarioGenerator:
                     {
                         "target": target.model_dump(mode="json"),
                         "change": change.model_dump(mode="json"),
+                        "required_category_counts": dict(Counter(required_categories)),
                     },
                     ensure_ascii=False,
                 ),
@@ -155,14 +172,20 @@ class LLMEvaluationScenarioGenerator:
         for attempt in range(self.max_format_retries + 1):
             try:
                 generated = ScenarioGenerationResult.model_validate(turn.tool_calls[0].arguments)
-                categories = {scenario.category for scenario in generated.scenarios}
-                required = {"normal", "constraint_conflict", "boundary"}
-                if not required.issubset(categories):
+                observed = Counter(scenario.category for scenario in generated.scenarios)
+                expected = Counter(required_categories)
+                invalid_coverage = (
+                    observed != expected
+                    if suite_config is not None
+                    else not set(expected).issubset(observed)
+                )
+                if invalid_coverage:
                     raise ValueError(
-                        "the scenario set must cover normal, constraint_conflict, and boundary categories"
+                        f"the scenario set must match required category counts {dict(expected)}; got {dict(observed)}"
                     )
                 _validate_trace_event_types(target, generated.scenarios)
                 _validate_fixture_declarations(target, generated.scenarios)
+                _validate_scenario_leakage(target, generated.scenarios)
             except ValueError as error:
                 message = f"Evaluation Scenario Generator returned invalid scenarios: {error}"
                 if attempt == self.max_format_retries:
@@ -249,7 +272,13 @@ class LLMEvaluationScenarioGenerator:
 
         if self.binding.role != "control_plane":
             raise ValueError("Pair Scenario Generator requires a control_plane ProviderBinding.")
-        required_categories = list(scenario_categories_for_relationship(relationship.relationship))
+        suite_config = change.scenario_suite
+        selected_categories = scenario_categories_for_relationship(relationship.relationship)
+        required_categories = list(
+            scenario_category_sequence(selected_categories, suite_config)
+            if suite_config is not None
+            else selected_categories
+        )
         messages = [
             {"role": "system", "content": self._pair_scenario_system_prompt()},
             {
@@ -282,11 +311,19 @@ class LLMEvaluationScenarioGenerator:
                 validate_scenario_categories(
                     relationship.relationship,
                     [scenario.category for scenario in generated.scenarios],
+                    suite_config=suite_config,
                 )
+                routing_categories = {"equivalent_choice", "a_preferred", "b_preferred", "ambiguous_overlap"}
+                if any(
+                    (scenario.routing_expectation is None) != (scenario.category not in routing_categories)
+                    for scenario in generated.scenarios
+                ):
+                    raise ValueError("Only routing-sensitive overlap scenarios require routing_expectation.")
                 _validate_pair_condition_trace_contract(generated.scenarios)
                 _validate_trace_event_types(target, generated.scenarios)
                 _validate_fixture_declarations(target, generated.scenarios)
                 _validate_pair_fixture_states(generated.scenarios)
+                _validate_scenario_leakage(target, generated.scenarios)
                 metadata = _planning_call_metadata(self.binding, turn)
                 return [
                     _freeze_scenario(EvaluationScenario(
@@ -298,6 +335,7 @@ class LLMEvaluationScenarioGenerator:
                         evidence_to_collect=scenario.evidence_to_collect,
                         expected_behavior=scenario.expected_behavior,
                         input_contract=scenario.input_contract,
+                        routing_expectation=scenario.routing_expectation,
                     ), metadata=metadata, hypothesis_hash=relationship.hypothesis_hash)
                     for index, scenario in enumerate(generated.scenarios)
                 ]
@@ -321,7 +359,9 @@ You are NOT evaluating a run and must not predict its result. You are designing 
 3. whether the final user-facing outcome improves,
 4. whether the capability handles constraints and boundaries safely.
 
-Given the component definition and Agent change definition, generate 3-5 diverse user task scenarios. Use the component's responsibility, expected behavior, user benefit, declared boundary, related constraints, and expected deliverable as the source of truth.
+Given the component definition and Agent change definition, generate the exact required category counts supplied by the caller. Use the component's responsibility, expected behavior, user benefit, declared boundary, related constraints, and expected deliverable as the source of truth.
+
+Within each category, vary meaningful dimensions rather than paraphrasing: user goal, task context, constraints, information availability, trigger wording, ambiguity, boundary conditions, and failure opportunities.
 
 The target may include evidence-linked evaluation_knowledge from earlier completed evaluations. Use it only as prior coverage guidance for risks, dimensions, and scenario templates; it is not ground truth, must not predict a result, and must not replace the declared core coverage.
 
@@ -353,7 +393,11 @@ Use exactly one relationship:
 - complementary: each capability contributes a distinct useful part of the same user job;
 - competitive: the capabilities optimize competing goals or may over-trigger one another;
 - validator_checker: one capability validates, checks, constrains, or reviews the other's output;
+- overlapping: the structured responsibilities, boundaries, dependencies, and tool needs show substantial functional overlap or substitutability;
 - uncertain: the declarations do not justify a stronger relationship.
+
+Do not classify overlap from names alone. Use the supplied member responsibility, capability description,
+boundary, dependency, and tool/runtime context.
 
 Return a concise rationale and observable relationship signals. The result only selects a bounded scenario
 matrix; it is not a product conclusion."""
@@ -372,13 +416,14 @@ ground-truth verdict for this pair and not evidence that the newly generated sce
 
 For every scenario return:
 1. scenario_id;
-2. category: complementary, synergy, conflict, single_skill_dominant, or boundary;
+2. category from the exact required category list;
 3. user_prompt: the exact message a real user would send, without internal component names or evaluator terminology;
 4. evaluation_goal;
 5. expected_behavior as an object with skill_a_only, skill_b_only, and combined product-language expectations;
 6. evidence_to_collect covering capability activation, execution trace, intermediate outputs, final deliverable,
    latency/cost, and boundary behavior as applicable.
-7. input_contract describing required or absent semantic fixture IDs from the target's declared Fixture Catalog and allowed trace behavior using only the target's declared Trace event catalog. The shared trace contract applies to every arm; use condition_traces keyed by a_only, b_only, and combined when required events or provider usage differ by matrix arm. Do not put a skill-specific completion event in the shared contract if that arm does not execute the skill. Interpret provider_usage per matrix arm, not as a copy of the target-wide Provider declaration: a deterministic checker or tool arm may be forbidden, while an arm that may or may not call a provider should be optional. Use required only when that arm's declared behavior necessarily calls the provider. Keep the contract compact: leave event arrays empty when provider_usage is sufficient, and use condition_traces only when a condition-specific event or provider rule is essential. Do not invent fixture IDs, file paths, subject values, event names, or silently use a substitute input.
+7. input_contract describing required or absent semantic fixture IDs from the target's declared Fixture Catalog and allowed trace behavior using only the target's declared Trace event catalog. The shared trace contract applies to every arm; use condition_traces keyed by a_only, b_only, and combined when required events or provider usage differ by matrix arm. Do not put a skill-specific completion event in the shared contract if that arm does not execute the skill. Interpret provider_usage per matrix arm, not as a copy of the target-wide Provider declaration. Never infer that a checker, validator, or tool arm is deterministic merely from its name or responsibility. Set provider_usage=forbidden only when the target declaration explicitly proves that the arm must not call a provider; otherwise use optional unless a provider call is necessarily required by declared behavior. Keep the contract compact: leave event arrays empty when provider_usage is sufficient, and use condition_traces only when a condition-specific event or provider rule is essential. Do not invent fixture IDs, file paths, subject values, event names, or silently use a substitute input.
+8. routing_expectation only for overlap-routing categories, with expected_routing a, b, either, or neither and a responsibility/boundary-grounded rationale.
 
 Category intent:
 - complementary: both capabilities are naturally needed for one useful user outcome;
@@ -386,8 +431,15 @@ Category intent:
 - conflict: objectives or constraints compete and the Agent must resolve them without override or looping;
 - single_skill_dominant: only one capability is genuinely needed and the other should not add needless work;
 - boundary: information is incomplete, ambiguous, unsafe, or outside one capability's boundary.
+- equivalent_choice: both capabilities are valid; measure natural routing preference without declaring one wrong;
+- a_preferred: both appear plausible, but Skill A better matches the declared responsibility or boundary;
+- b_preferred: symmetric for Skill B;
+- ambiguous_overlap: intent is genuinely underspecified; either a clarification or a bounded single selection may be valid.
 
-For boundary scenarios, input_contract is mandatory. If the scenario tests missing data, declare an absent fixture requirement; do not describe missing data while providing a normal data fixture. Keep trace.required_event_types and trace.forbidden_event_types empty for ordinary Pair scenarios; the target trace is still collected. If a boundary or deterministic checker arm must not call a provider, use a compact condition_traces entry only for that arm to set provider_usage=forbidden. Do not set every arm to required merely because the registered target has a provider mapping; that mapping describes what the target can inject, not what every isolated capability must call.
+Vary real task context, constraints, information availability, trigger wording, ambiguity, boundary conditions,
+and failure opportunities within each category. Do not return paraphrase clusters.
+
+Fixture availability is category-sensitive: every non-boundary scenario must use only fixtures declared present. An absent fixture is reserved exclusively for a boundary scenario that explicitly tests missing input; never use absence merely to vary complementary, synergy, conflict, dominance, or overlap context. For boundary scenarios, input_contract is mandatory. If the scenario tests missing data, declare an absent fixture requirement; do not describe missing data while providing a normal data fixture. A missing-input boundary may correctly short-circuit before either Skill completes, so do not require Skill completion events for that case; require a declared boundary or clarification event when the target catalog provides one. Keep trace.required_event_types and trace.forbidden_event_types empty for ordinary Pair scenarios; the target trace is still collected. Set provider_usage=forbidden only when target declarations explicitly establish that rule, including for a boundary or checker arm; otherwise use optional. Do not set every arm to required merely because the registered target has a provider mapping; that mapping describes what the target can inject, not what every isolated capability must call.
 
 Use the required category list supplied by Eval Engineering exactly, including duplicate categories when requested.
 Do not turn simple sequential execution into a synergy claim. Keep each user_prompt under 45 words and other descriptions concise, avoid double-quote characters inside strings, and return RFC 8259 JSON through the required tool only."""
@@ -425,7 +477,7 @@ Do not turn simple sequential execution into a synergy claim. Keep each user_pro
     @classmethod
     def _tool_spec(cls) -> dict[str, object]:
         schema = ScenarioGenerationResult.model_json_schema()
-        schema["description"] = "Three to five realistic, diverse user task scenarios for one Agent change evaluation."
+        schema["description"] = "A bounded, category-quota-matched set of realistic and meaningfully diverse user task scenarios."
         return {
             "type": "function",
             "function": {
@@ -535,6 +587,30 @@ def _pair_relationship_retry_messages(messages: list[dict[str, str]], error: str
             ),
         },
     ]
+
+
+def _validate_scenario_leakage(target: EvaluationTarget, scenarios: list[object]) -> None:
+    """Reject evaluator/arm instructions that invalidate trigger and routing observations."""
+
+    evaluator_terms = (
+        "a_only", "b_only", "combined condition", "baseline condition", "removal condition",
+        "replacement condition", "oracle", "verifier", "expected final answer", "hidden implementation",
+    )
+    member_names = [*target.component_members]
+    if not member_names:
+        member_names.append(target.name)
+    for scenario in scenarios:
+        prompt = str(getattr(scenario, "user_prompt", "")).casefold()
+        if any(term in prompt for term in evaluator_terms):
+            raise ValueError("Scenario user_prompt leaks evaluator, arm, answer, or implementation information.")
+        for member in member_names:
+            normalized = member.casefold()
+            directives = (
+                f"use {normalized}", f"invoke {normalized}", f"call {normalized}",
+                f"do not use {normalized}", f"don't use {normalized}", f"avoid {normalized}",
+            )
+            if any(item in prompt for item in directives):
+                raise ValueError("Scenario user_prompt explicitly directs target capability selection.")
 
 
 def _validate_trace_event_types(target: EvaluationTarget, scenarios: list[object]) -> None:
