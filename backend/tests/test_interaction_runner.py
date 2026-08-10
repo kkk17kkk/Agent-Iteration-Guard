@@ -22,7 +22,7 @@ from agentguard.interaction_evaluation import (
     InteractionRelationshipProfile,
     PlanningCallMetadata,
 )
-from agentguard.interaction_matrix import execute_interaction_matrix
+from agentguard.interaction_matrix import PAIR_INTERACTION_CONDITIONS, execute_evaluation_matrix
 from agentguard.interaction_runner import (
     IndependentOracleResult,
     InteractionRunnerError,
@@ -423,12 +423,13 @@ def test_manifest_runner_executes_complete_pair_matrix(tmp_path: Path) -> None:
         oracle=oracle,
     )
 
-    artifact = execute_interaction_matrix(
+    artifact = execute_evaluation_matrix(
         plan,
-        interaction_name="a_and_b",
+        evaluation_name="a_and_b",
         evaluation_id="evaluation-1",
         readiness=readiness,
         runner=runner,
+        condition_kinds=PAIR_INTERACTION_CONDITIONS,
         run_root=tmp_path / "matrix",
     )
 

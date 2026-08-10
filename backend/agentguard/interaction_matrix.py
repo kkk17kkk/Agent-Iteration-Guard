@@ -91,27 +91,6 @@ class InteractionTrialRunner(Protocol):
     ) -> InteractionTrialResult: ...
 
 
-class InteractionMatrixArtifact(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    schema_version: Literal["aig.interaction-matrix-artifact.v1"] = "aig.interaction-matrix-artifact.v1"
-    evaluation_id: str = Field(min_length=1)
-    evaluation_type: str = Field(min_length=1)
-    interaction_name: str = Field(min_length=1)
-    scope_id: str | None = Field(default=None, min_length=16)
-    evaluation_plan_id: str = Field(min_length=1)
-    scenario_readiness: EvaluationReadinessResult
-    interaction_hypothesis: dict[str, object] | None = None
-    scenario_suite: dict[str, object] | None = None
-    suite_aggregate: dict[str, object] | None = None
-    scenarios: list[dict[str, object]] = Field(min_length=1, max_length=200)
-    conditions: list[dict[str, object]] = Field(min_length=1, max_length=1000)
-    metrics: dict[str, int | float | str]
-    evidence_refs: list[str] = Field(min_length=1)
-    integrity: dict[str, object]
-    artifact_manifest_hash: str = Field(min_length=16)
-
-
 class EvaluationMatrixArtifact(BaseModel):
     """Type-neutral scenario matrix artifact used by Skill and future Tool runs."""
 
@@ -291,55 +270,6 @@ def execute_evaluation_matrix(
     return artifact
 
 
-def execute_interaction_matrix(
-    plan: EvaluationPlan,
-    *,
-    interaction_name: str,
-    evaluation_id: str,
-    readiness: EvaluationReadinessResult,
-    runner: InteractionTrialRunner,
-    run_root: Path,
-    output_path: Path | None = None,
-) -> InteractionMatrixArtifact:
-    """Run the Pair matrix through the common condition-set executor."""
-
-    generic = execute_evaluation_matrix(
-        plan,
-        evaluation_name=interaction_name,
-        evaluation_id=evaluation_id,
-        readiness=readiness,
-        runner=runner,
-        condition_kinds=PAIR_INTERACTION_CONDITIONS,
-        run_root=run_root,
-    )
-    unsigned = {
-        "schema_version": "aig.interaction-matrix-artifact.v1",
-        "evaluation_id": generic.evaluation_id,
-        "evaluation_type": generic.evaluation_type,
-        "interaction_name": generic.evaluation_name,
-        "scope_id": generic.scope_id,
-        "evaluation_plan_id": generic.evaluation_plan_id,
-        "scenario_readiness": generic.scenario_readiness.model_dump(mode="json"),
-        "interaction_hypothesis": generic.interaction_hypothesis,
-        "scenario_suite": generic.scenario_suite,
-        "suite_aggregate": generic.suite_aggregate,
-        "scenarios": generic.scenarios,
-        "conditions": generic.conditions,
-        "metrics": generic.metrics,
-        "evidence_refs": generic.evidence_refs,
-        "integrity": generic.integrity,
-    }
-    manifest_hash = "sha256:" + hashlib.sha256(
-        json.dumps(unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
-    artifact = InteractionMatrixArtifact(**unsigned, artifact_manifest_hash=manifest_hash)
-    if output_path is not None:
-        output_path = output_path.resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(artifact.model_dump(mode="json"), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return artifact
-
-
 def _validate_frozen_evaluation_plan(plan: EvaluationPlan) -> None:
     """Require every generated scenario to remain bound to its frozen content."""
 
@@ -393,11 +323,9 @@ __all__ = [
     "ConditionKind",
     "EvaluationConditionKind",
     "InteractionExecutionError",
-    "InteractionMatrixArtifact",
     "EvaluationMatrixArtifact",
     "InteractionTrialResult",
     "InteractionTrialRunner",
     "PAIR_INTERACTION_CONDITIONS",
     "execute_evaluation_matrix",
-    "execute_interaction_matrix",
 ]

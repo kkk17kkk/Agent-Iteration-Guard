@@ -7,7 +7,8 @@ import json
 from collections.abc import Mapping
 
 from .evaluation_adapters import AdapterContext
-from .evaluation_planning import EvaluationScenario, ScenarioProvenance, scenario_hash_for
+from .interaction_evaluation import InteractionRelationshipProfile
+from .evaluation_planning import EvaluationScenario, scenario_hash_for
 from .evidence_bundle import (
     EvidenceCondition,
     EvidenceFact,
@@ -18,14 +19,24 @@ from .evidence_bundle import (
 )
 from .interaction_matrix import EvaluationMatrixArtifact, InteractionTrialResult
 from .interaction_runner import IndependentOracleResult
+from .scenario_contracts import verify_scenario_trace_contract
 
 
 class EvaluationMatrixEvidenceAdapter:
     """Admission adapter for target-produced scenario matrix artifacts."""
 
-    def __init__(self, evaluation_type: str, expected_condition_kinds: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        evaluation_type: str,
+        expected_condition_kinds: tuple[str, ...],
+        *,
+        fact_type: str = "evaluation_behavior",
+        require_live_provider_metadata: bool = True,
+    ) -> None:
         self.evaluation_type = evaluation_type
         self.expected_condition_kinds = expected_condition_kinds
+        self.fact_type = fact_type
+        self.require_live_provider_metadata = require_live_provider_metadata
 
     def adapt(self, artifact: object, *, context: AdapterContext) -> ImmutableEvidenceBundle:
         if context.evaluation_type != self.evaluation_type:
@@ -46,6 +57,7 @@ class EvaluationMatrixEvidenceAdapter:
             raise ValueError("Evaluation matrix readiness does not match the Evaluation Plan.")
         self._validate_hash(matrix)
         scenarios = self._parse_scenarios(matrix.scenarios)
+        hypothesis = self._validate_interaction_hypothesis(matrix, scenarios)
         expected_keys = {
             (scenario.scenario_id, condition, repetition_index)
             for scenario in scenarios.values()
@@ -63,7 +75,22 @@ class EvaluationMatrixEvidenceAdapter:
                 raise ValueError("Evaluation matrix contains a duplicate or unknown scenario condition.")
             if result.category != scenarios[result.scenario_id].category:
                 raise ValueError("Evaluation matrix condition category does not match its scenario.")
-            if not result.provider_request_ids or not result.usage or not result.output_artifact_ref:
+            trace_violations = verify_scenario_trace_contract(
+                scenarios[result.scenario_id].input_contract,
+                result.trace,
+                condition_kind=result.condition_kind,
+            )
+            if trace_violations:
+                raise ValueError(
+                    f"Evaluation matrix trace violates the scenario contract for {result.scenario_id}: "
+                    + "; ".join(trace_violations)
+                )
+            provider_metadata_present = bool(result.provider_request_ids or result.usage)
+            if provider_metadata_present and (not result.provider_request_ids or not result.usage):
+                raise ValueError("Evaluation matrix Provider metadata must include both request IDs and usage.")
+            if self.require_live_provider_metadata and (
+                not result.provider_request_ids or not result.usage or not result.output_artifact_ref
+            ):
                 raise ValueError(
                     f"Evaluation matrix condition {result.scenario_id}/{result.condition_kind} lacks live target metadata."
                 )
@@ -105,7 +132,7 @@ class EvaluationMatrixEvidenceAdapter:
             facts.append(EvidenceFact(
                 fact_id=_opaque_id("fact", f"{matrix.evaluation_name}:{result.scenario_id}:{result.condition_kind}:{result.repetition_index}"),
                 label=f"{label} observed behavior",
-                fact_type="evaluation_behavior",
+                fact_type=self.fact_type,
                 value=observations,
                 evidence_level="verified",
                 evidence_refs=refs,
@@ -119,6 +146,7 @@ class EvaluationMatrixEvidenceAdapter:
                     "condition_kind": result.condition_kind,
                     "repetition_id": result.repetition_id,
                     "repetition_index": result.repetition_index,
+                    "observations": observations,
                     "trace": result.trace,
                     "output": result.output,
                     "metrics": result.metrics,
@@ -159,9 +187,27 @@ class EvaluationMatrixEvidenceAdapter:
                 "evaluation_name": matrix.evaluation_name,
                 "scenario_suite": matrix.scenario_suite,
                 "suite_aggregate": matrix.suite_aggregate,
+                "interaction_hypothesis": hypothesis.model_dump(mode="json") if hypothesis else None,
                 "condition_kinds": list(matrix.condition_kinds),
                 "scenario_ids": [item.scenario_id for item in scenarios.values()],
+                "scenario_hashes": {item.scenario_id: item.scenario_hash for item in scenarios.values()},
+                "scenario_provenance_sources": {
+                    item.scenario_id: item.scenario_provenance.model_dump(mode="json")
+                    for item in scenarios.values()
+                    if item.scenario_provenance is not None
+                },
                 "scenario_categories": [item.category for item in scenarios.values()],
+                "scenario_input_profiles": {
+                    item.scenario_id: item.input_contract.profile_id for item in scenarios.values()
+                },
+                "scenario_input_requirements": {
+                    item.scenario_id: bool(item.input_contract.requirements) for item in scenarios.values()
+                },
+                "scenario_trace_contracts": {
+                    item.scenario_id: item.input_contract.trace.model_dump(mode="json")
+                    for item in scenarios.values()
+                },
+                "interaction_model": "scenario_matrix" if hypothesis else None,
                 "scenario_readiness_required": True,
                 "scenario_readiness_status": matrix.scenario_readiness.status,
                 "matrix_artifact_schema": matrix.schema_version,
@@ -193,6 +239,26 @@ class EvaluationMatrixEvidenceAdapter:
                 raise ValueError(f"Evaluation scenario {scenario.scenario_id} provenance is not frozen.")
             result[scenario.scenario_id] = scenario
         return result
+
+    def _validate_interaction_hypothesis(
+        self,
+        matrix: EvaluationMatrixArtifact,
+        scenarios: dict[str, EvaluationScenario],
+    ) -> InteractionRelationshipProfile | None:
+        if self.evaluation_type != "skill_pair_evaluation":
+            return None
+        if matrix.interaction_hypothesis is None:
+            raise ValueError("Skill Pair matrix requires an interaction hypothesis.")
+        hypothesis = InteractionRelationshipProfile.model_validate(matrix.interaction_hypothesis)
+        if not hypothesis.hypothesis_hash:
+            raise ValueError("Skill Pair matrix interaction hypothesis must be content-addressed.")
+        for scenario in scenarios.values():
+            provenance = scenario.scenario_provenance
+            if provenance is None or provenance.relationship_hypothesis_hash != hypothesis.hypothesis_hash:
+                raise ValueError(
+                    f"Evaluation scenario {scenario.scenario_id} is not bound to the interaction hypothesis."
+                )
+        return hypothesis
 
     @staticmethod
     def _validate_hash(matrix: EvaluationMatrixArtifact) -> None:

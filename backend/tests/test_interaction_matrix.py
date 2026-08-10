@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pytest
 
+from agentguard.change_adapters import build_v1_evaluation_adapter_layer
+from agentguard.evaluation_adapters import AdapterContext
 from agentguard.evaluation_planning import (
     EvaluationChange,
     EvaluationScenario,
@@ -21,7 +23,8 @@ from agentguard.interaction_evaluation import (
 from agentguard.interaction_matrix import (
     InteractionExecutionError,
     InteractionTrialResult,
-    execute_interaction_matrix,
+    PAIR_INTERACTION_CONDITIONS,
+    execute_evaluation_matrix,
 )
 from agentguard.scenario_contracts import (
     FixtureCatalog,
@@ -147,10 +150,14 @@ class FakeRunner:
             output={"condition": condition_kind},
             metrics={"latency_ms": 10, "cost_usd": 0.001},
             oracle={
+                "verifier_id": "independent-test-oracle",
                 "oracle_type": "rule_based",
                 "oracle_version": "1.0",
                 "validation_input": {"scenario_id": scenario.scenario_id, "condition": condition_kind},
                 "status": "verified",
+                "outcome": "passed",
+                "assertions": [{"name": "task_success", "status": "passed", "detail": "valid"}],
+                "summary": "The independent Oracle verified the task result.",
                 "evidence_refs": [f"oracle:{scenario.scenario_id}:{condition_kind}"],
             },
             evidence_refs=[f"trial:{scenario.scenario_id}:{condition_kind}"],
@@ -175,12 +182,13 @@ def test_executor_runs_exact_matrix_and_writes_artifact(tmp_path: Path) -> None:
     runner = FakeRunner()
     output_path = tmp_path / "interaction-artifact.json"
 
-    artifact = execute_interaction_matrix(
+    artifact = execute_evaluation_matrix(
         plan,
-        interaction_name="a_and_b",
+        evaluation_name="a_and_b",
         evaluation_id="evaluation-1",
         readiness=readiness,
         runner=runner,
+        condition_kinds=PAIR_INTERACTION_CONDITIONS,
         run_root=tmp_path / "runs",
         output_path=output_path,
     )
@@ -190,6 +198,23 @@ def test_executor_runs_exact_matrix_and_writes_artifact(tmp_path: Path) -> None:
     assert artifact.metrics["expected_condition_count"] == 12
     assert artifact.integrity["status"] == "complete"
     assert output_path.is_file()
+
+    evidence = build_v1_evaluation_adapter_layer().adapt(
+        "skill_pair_evaluation",
+        artifact,
+        context=AdapterContext(
+            project_id="demo",
+            evaluation_name="a_and_b",
+            evaluation_type="skill_pair_evaluation",
+            component_name="a_and_b",
+            source_ref="evaluation-run:test",
+            evaluation_plan_id=plan.plan_id,
+        ),
+    )
+    assert len(evidence.conditions) == 12
+    assert {fact.fact_type for fact in evidence.facts} == {"interaction_behavior"}
+    assert evidence.type_data["interaction_hypothesis"]["hypothesis_hash"] == plan.interaction_hypothesis.hypothesis_hash
+    assert evidence.type_data["matrix_artifact_schema"] == "aig.evaluation-matrix-artifact.v1"
 
 
 def test_executor_refuses_blocked_readiness_before_running_target(tmp_path: Path) -> None:
@@ -201,12 +226,13 @@ def test_executor_refuses_blocked_readiness_before_running_target(tmp_path: Path
     runner = FakeRunner()
 
     with pytest.raises(InteractionExecutionError, match="Scenario Readiness is blocked"):
-        execute_interaction_matrix(
+        execute_evaluation_matrix(
             plan,
-            interaction_name="a_and_b",
+            evaluation_name="a_and_b",
             evaluation_id="evaluation-1",
             readiness=blocked,
             runner=runner,
+            condition_kinds=PAIR_INTERACTION_CONDITIONS,
             run_root=tmp_path / "runs",
         )
 

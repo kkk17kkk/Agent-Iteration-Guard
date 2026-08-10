@@ -142,17 +142,26 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
   }, [projectId]);
 
   useEffect(() => {
-    if (!projectId) return undefined;
+    if (!projectId || demoMode) {
+      if (demoMode) setCredentialOptions([]);
+      return undefined;
+    }
     let cancelled = false;
     request(pathFor(projectId, "/provider-credentials"))
       .then((value) => { if (!cancelled) setCredentialOptions(value); })
       .catch(() => { if (!cancelled) setCredentialOptions([]); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, demoMode]);
 
   useEffect(() => {
-    if (!projectId) return undefined;
+    if (!projectId || demoMode) {
+      if (demoMode) {
+        setScenarioSuiteDefaults(null);
+        setScenarioSuite(null);
+      }
+      return undefined;
+    }
     let cancelled = false;
     request(pathFor(projectId, "/evaluations/scenario-suite-defaults"))
       .then((value) => {
@@ -161,11 +170,11 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
         setScenarioSuite(value[componentType]);
       })
       .catch((error) => {
-        if (!cancelled) setNotice({ kind: "error", text: `Scenario suite configuration unavailable: ${error.message}` });
+        if (!cancelled) setNotice({ kind: "error", text: `评测场景配置不可用：${error.message}` });
       });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, demoMode]);
 
   useEffect(() => {
     const available = credentialOptions.find((item) => item.status === "available");
@@ -225,7 +234,7 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
   }, [executionConfigId]);
 
   useEffect(() => {
-    if (!projectId || !baselineVersion || !candidateVersion) {
+    if (!projectId || demoMode || !baselineVersion || !candidateVersion) {
       setComparability(null);
       return undefined;
     }
@@ -240,7 +249,7 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
     return () => { cancelled = true; };
     // request is an App callback recreated on render; project/version changes are the intended triggers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, baselineVersion, candidateVersion]);
+  }, [projectId, baselineVersion, candidateVersion, demoMode]);
 
   const createPlan = async () => {
     if (demoMode) { readOnlyNotice?.(); return; }
@@ -248,7 +257,7 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
       setNotice({ kind: "error", text: "请选择组件，并填写产品描述、产品职责与用户任务。" }); return;
     }
     if (!scenarioSuite) {
-      setNotice({ kind: "error", text: "Scenario suite configuration is still loading." }); return;
+      setNotice({ kind: "error", text: "评测场景配置仍在加载，请稍后再试。" }); return;
     }
     if (!candidateVersion) {
       setNotice({ kind: "error", text: "请选择一个已扫描的 Snapshot。首次导入可直接使用初始冻结 Snapshot 进行 capability evaluation。" }); return;

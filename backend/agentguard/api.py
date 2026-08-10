@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from fastapi import File, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, model_validator
 
 from .domain import (
@@ -24,6 +24,7 @@ from .domain import (
     TaskVerifierContract,
 )
 from .copilot import CopilotMessageRequest, CopilotService, ProviderCopilotReasoner
+from .assets import asset_path
 from .evaluation_memory import EvaluationKnowledge
 from .evaluation_execution_config import (
     EvaluationExecutionConfiguration,
@@ -41,7 +42,9 @@ from .evaluation_orchestration import (
     build_product_evaluation_report,
     execute_evaluation_run,
     planned_trial_count,
+    resolve_evaluation_execution_inputs,
 )
+from .evaluation_failures import classify_report_failure, classify_run_failure
 from .evaluation_run import EvaluationRun, append_event, content_ref
 from .evaluation_report import EvaluationReportRecord
 from .project_upload import ProjectUpload, fingerprint_file
@@ -65,17 +68,43 @@ from .product_report_template import default_product_report_template
 from .report_view_model import normalize_product_evaluation_report, project_context_from_intelligence
 from .service import AssistantInputError, ProductNotFoundError, Service
 from .targets import TargetInfrastructureError
-from .interaction_runner import InteractionRunnerError, OracleExecutionError, TargetExecutionError
 
 
 app = FastAPI(title="Agent Iteration Guard", version="0.1.0")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+
+
+def _demo_read_only_enabled() -> bool:
+    return any(
+        os.getenv(name, "false").strip().lower() in {"1", "true", "yes", "on"}
+        for name in ("AIG_DEMO_MODE", "AIG_DEMO_READ_ONLY")
+    )
+
+
+def _cors_origins() -> list[str]:
+    configured = [item.strip().rstrip("/") for item in os.getenv("AIG_CORS_ORIGINS", "").split(",") if item.strip()]
+    development = [
         "http://localhost:5173", "http://127.0.0.1:5173",
         "http://localhost:5174", "http://127.0.0.1:5174",
         "http://localhost:5175", "http://127.0.0.1:5175",
-    ],
+    ]
+    return list(dict.fromkeys(development + configured))
+
+
+@app.middleware("http")
+async def demo_read_only_guard(request, call_next):
+    """Keep a public demonstration deployment from accepting mutations."""
+
+    if _demo_read_only_enabled() and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "This Agent Iteration Guard demo is read-only."},
+        )
+    return await call_next(request)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -362,38 +391,9 @@ class EvaluationPlanRequest(BaseModel):
 
 class EvaluationRunRequest(BaseModel):
     evaluation_plan_id: str
-    execution_config_id: str | None = None
-    manifest_path: str | None = None
-    cache_root: str | None = None
-    run_root: str | None = None
+    execution_config_id: str = Field(min_length=1)
     fixture_root: str | None = None
     evaluation_id: str | None = None
-    oracle_command: list[str] = Field(default_factory=list)
-    oracle_id: str | None = None
-    oracle_type: Literal["rule_based", "frozen_lookup", "structured_state"] = "rule_based"
-    oracle_version: str = "1.0"
-    oracle_cwd: str | None = None
-    target_provider_binding_id: str | None = None
-
-    @model_validator(mode="after")
-    def validate_execution_source(self) -> "EvaluationRunRequest":
-        if self.execution_config_id:
-            return self
-        required = {
-            "manifest_path": self.manifest_path,
-            "cache_root": self.cache_root,
-            "run_root": self.run_root,
-            "oracle_id": self.oracle_id,
-        }
-        missing = [name for name, value in required.items() if not value]
-        if not self.oracle_command:
-            missing.append("oracle_command")
-        if missing:
-            raise ValueError(
-                "Evaluation Run requires execution_config_id or legacy execution fields: "
-                + ", ".join(missing)
-            )
-        return self
 
 
 class EvaluationRunReportRequest(BaseModel):
@@ -480,7 +480,7 @@ def _provider_from_onboarding(project_id: str, body: ProviderOnboardingRequest) 
 
 
 def _upload_root() -> Path:
-    return Path(os.getenv("AGENTGUARD_UPLOAD_ROOT", "D:/codexdata/agentguard-uploads")).resolve()
+    return Path(os.getenv("AGENTGUARD_UPLOAD_ROOT", "data/uploads")).resolve()
 
 
 def _is_supported_package_filename(filename: str) -> bool:
@@ -537,7 +537,12 @@ def _report_metadata(record: EvaluationReportRecord) -> EvaluationReportMetadata
 
 
 def _demo_report_bundle() -> tuple[GenericProductEvaluationReport, dict[str, str], object]:
-    report_path = Path(__file__).parents[2] / "examples" / "reports" / "lighttable-product-evaluation.zh-CN" / "product-evaluation-report.json"
+    report_path = asset_path(
+        "examples",
+        "reports",
+        "lighttable-product-evaluation.zh-CN",
+        "product-evaluation-report.json",
+    )
     report = GenericProductEvaluationReport.model_validate_json(report_path.read_text(encoding="utf-8"))
     context = {
         "project_id": "lighttable-pair-nutrition",
@@ -548,21 +553,6 @@ def _demo_report_bundle() -> tuple[GenericProductEvaluationReport, dict[str, str
         "runtime": "native_command",
     }
     return report, context, evaluate_release_decision(report)
-
-
-def _run_failure_classification(error: Exception) -> str:
-    cause = error
-    while cause.__cause__ is not None:
-        cause = cause.__cause__
-    if isinstance(cause, OracleExecutionError):
-        return "oracle_failure"
-    if isinstance(cause, (TargetExecutionError, InteractionRunnerError)):
-        return "target_failure"
-    if isinstance(cause, TargetInfrastructureError):
-        return "infrastructure_failure"
-    if isinstance(cause, ProviderRuntimeError):
-        return "provider_failure"
-    return "validation_failure"
 
 
 def _run_evidence(app_service: Service, project_id: str, run: EvaluationRun):
@@ -1113,12 +1103,25 @@ def run_evaluation(project_id: str, body: EvaluationRunRequest):
         raise HTTPException(status_code=404, detail="project intelligence not found")
     if plan.evaluation_scope is None:
         raise _unprocessable(ValueError("Evaluation execution requires a frozen Evaluation Scope."))
+    execution_config = app_service.evaluation_execution_configuration(project_id, body.execution_config_id)
+    if execution_config is None:
+        raise _unprocessable(ValueError("Evaluation execution configuration was not found for this project."))
+    evaluation_id = body.evaluation_id or f"evaluation_{plan.plan_id}"
+    try:
+        execution = resolve_evaluation_execution_inputs(plan, execution_config, evaluation_id=evaluation_id)
+        target_binding = None
+        if execution.target_provider_binding_id:
+            target_binding = app_service.provider_binding(project_id, execution.target_provider_binding_id)
+            if target_binding.role != "sut_native":
+                raise ValueError("Target execution requires a sut_native ProviderBinding.")
+    except (ProductNotFoundError, ValueError) as error:
+        raise _unprocessable(error) from error
     run = EvaluationRun(
-        evaluation_id=body.evaluation_id or f"evaluation_{plan.plan_id}",
+        evaluation_id=evaluation_id,
         project_id=project_id,
         evaluation_request_id=request.request_id,
         evaluation_plan_id=plan.plan_id,
-        execution_config_id=body.execution_config_id,
+        execution_config_id=execution_config.config_id,
         scope_id=plan.evaluation_scope.scope_id,
         status="running",
     )
@@ -1130,57 +1133,19 @@ def run_evaluation(project_id: str, body: EvaluationRunRequest):
     )
     app_service.save_evaluation_run(run)
     try:
-        execution_config = None
-        if body.execution_config_id:
-            execution_config = app_service.evaluation_execution_configuration(
-                project_id,
-                body.execution_config_id,
-            )
-            if execution_config is None:
-                raise ValueError("Evaluation execution configuration was not found for this project.")
-            if execution_config.snapshot_version and execution_config.snapshot_version != plan.evaluation_scope.candidate_version:
-                raise ValueError("Project runtime configuration is stale for this Evaluation Plan snapshot; review the runtime again.")
-            if body.target_provider_binding_id and body.target_provider_binding_id != execution_config.target_provider_binding_id:
-                raise ValueError("Target ProviderBinding does not match the Execution Configuration.")
-            manifest_path = Path(execution_config.manifest_path)
-            cache_root = Path(execution_config.cache_root)
-            run_root = Path(execution_config.run_root_parent) / run.evaluation_id
-            oracle_command = tuple(execution_config.oracle_command)
-            oracle_id = execution_config.oracle_id
-            oracle_type = execution_config.oracle_type
-            oracle_version = execution_config.oracle_version
-            oracle_cwd = Path(execution_config.oracle_cwd) if execution_config.oracle_cwd else None
-            target_provider_binding_id = execution_config.target_provider_binding_id
-        else:
-            manifest_path = Path(body.manifest_path)
-            cache_root = Path(body.cache_root)
-            run_root = Path(body.run_root)
-            oracle_command = tuple(body.oracle_command)
-            oracle_id = body.oracle_id
-            oracle_type = body.oracle_type
-            oracle_version = body.oracle_version
-            oracle_cwd = Path(body.oracle_cwd) if body.oracle_cwd else None
-            target_provider_binding_id = body.target_provider_binding_id
-        target_binding = None
-        if target_provider_binding_id:
-            target_binding = app_service.provider_binding(project_id, target_provider_binding_id)
-            if target_binding.role != "sut_native":
-                raise ValueError("Target execution requires a sut_native ProviderBinding.")
-        if plan.evaluation_scope.target_provider_binding_id != target_provider_binding_id:
-            raise ValueError("Target ProviderBinding does not match the frozen Evaluation Scope.")
         artifact = execute_evaluation_run(
             plan,
             intelligence,
-            manifest_path=manifest_path,
-            cache_root=cache_root,
+            manifest_path=execution.manifest_path,
+            cache_root=execution.cache_root,
             fixture_root=Path(body.fixture_root) if body.fixture_root else None,
-            run_root=run_root,
+            run_root=execution.run_root,
             evaluation_id=run.evaluation_id,
-            oracle_command=oracle_command,
-            oracle_id=oracle_id,
-            oracle_type=oracle_type,
-            oracle_version=oracle_version,
-            oracle_cwd=oracle_cwd,
+            oracle_command=execution.oracle_command,
+            oracle_id=execution.oracle_id,
+            oracle_type=execution.oracle_type,
+            oracle_version=execution.oracle_version,
+            oracle_cwd=execution.oracle_cwd,
             target_binding=target_binding,
         )
         artifact_payload = artifact.model_dump(mode="json")
@@ -1213,7 +1178,7 @@ def run_evaluation(project_id: str, body: EvaluationRunRequest):
         failed = run.model_copy(update={
             "status": "failed",
             "current_stage": "failed",
-            "failure_classification": _run_failure_classification(error),
+            "failure_classification": classify_run_failure(error),
             "error": str(error),
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1393,7 +1358,7 @@ def build_evaluation_run_report(project_id: str, run_id: str, body: EvaluationRu
         app_service.save_evaluation_run(run.model_copy(update={
             "status": "failed",
             "current_stage": "failed",
-            "failure_classification": "report_failure",
+            "failure_classification": classify_report_failure(error),
             "error": str(error),
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1468,6 +1433,14 @@ def export_lighttable_demo_report(format: Literal["json", "md", "html"] = "html"
         content=render_product_evaluation_html(report, default_product_report_template(), project_context=context, gate=gate),
         media_type="text/html; charset=utf-8",
     )
+
+
+@app.get("/api/v1/demo/reports/lighttable/pair", response_class=FileResponse)
+def get_lighttable_skill_pair_demo_report():
+    pair_path = asset_path("examples", "lighttable-skill-pair-evaluation.html")
+    if not pair_path.is_file():
+        raise HTTPException(status_code=404, detail="LightTable Skill Pair report not found")
+    return FileResponse(pair_path, media_type="text/html")
 
 
 @app.get("/api/v1/projects/{project_id}/reports/{report_id}/evidence")

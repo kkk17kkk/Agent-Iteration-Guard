@@ -12,6 +12,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .assets import asset_path
+
 
 ReportSectionId = Literal[
     "capability_overview",
@@ -122,7 +124,7 @@ def load_product_report_template(path: Path) -> ProductReportTemplate:
 
 
 def default_product_report_template() -> ProductReportTemplate:
-    path = Path(__file__).parents[2] / "examples" / "report-templates" / "product-evaluation.zh-CN.json"
+    path = asset_path("examples", "report-templates", "product-evaluation.zh-CN.json")
     return load_product_report_template(path)
 
 

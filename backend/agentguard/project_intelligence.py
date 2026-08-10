@@ -6,13 +6,12 @@ not injected into the target Agent execution loop.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .content_identity import canonical_fingerprint as _fingerprint
 from .store import Store
 from .scenario_contracts import FixtureCatalog
 
@@ -27,11 +26,6 @@ IntelligenceStatus = Literal["registered", "ready", "stale"]
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _fingerprint(value: object) -> str:
-    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _stable_id(prefix: str, *parts: str) -> str:

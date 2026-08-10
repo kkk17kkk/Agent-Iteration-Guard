@@ -1,0 +1,9 @@
+services:
+  backend:
+    environment:
+      AIG_DEMO_READ_ONLY: "true"
+      AIG_DEMO_MODE: "true"
+      AIG_CORS_ORIGINS: ""
+      DEEPSEEK_API_KEY: ""
+      OPENAI_API_KEY: ""
+      VLLM_API_KEY: ""

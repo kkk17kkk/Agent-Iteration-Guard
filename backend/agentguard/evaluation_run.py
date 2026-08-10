@@ -11,21 +11,12 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field
 
 from .store import Store
+from .evaluation_failures import FailureClassification
 
 
 RunStatus = Literal["running", "completed", "failed"]
 RunStage = Literal["execution", "evidence", "analysis", "completed", "failed"]
 RunEventStatus = Literal["running", "completed", "failed"]
-FailureClassification = Literal[
-    "validation_failure",
-    "target_failure",
-    "oracle_failure",
-    "provider_failure",
-    "infrastructure_failure",
-    "report_failure",
-]
-
-
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 

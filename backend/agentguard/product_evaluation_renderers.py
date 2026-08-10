@@ -13,6 +13,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from .assets import asset_path
 from .product_evaluation_report import ProductEvaluationReport
 from .product_report_template import ProductReportTemplate, default_product_report_template
 from .report_view_model import NormalizedReport, normalize_product_evaluation_report
@@ -634,7 +635,7 @@ def _esc(value: object) -> str:
 
 
 def _logo_svg() -> str:
-    path = Path(__file__).parents[2] / "frontend" / "public" / "icons" / "agent-guard-logo.svg"
+    path = asset_path("frontend", "public", "icons", "agent-guard-logo.svg")
     if path.is_file():
         return path.read_text(encoding="utf-8")
     return "<span aria-label='Agent Iteration Guard'>AIG</span>"

@@ -37,14 +37,15 @@ from .evaluation_orchestration import (
     build_product_evaluation_report,
     execute_evaluation_run,
     planned_trial_count,
+    resolve_evaluation_execution_inputs,
 )
+from .evaluation_failures import classify_report_failure, classify_run_failure
 from .evaluation_run import EvaluationRun, content_ref
 from .evaluation_report import EvaluationReportRecord
 from .evaluation_scope import freeze_evaluation_scope
 from .evaluation_scenario_generator import LLMEvaluationScenarioGenerator, ScenarioEvidenceRequirementsGenerator
-from .interaction_matrix import execute_interaction_matrix
+from .interaction_matrix import PAIR_INTERACTION_CONDITIONS, execute_evaluation_matrix
 from .interaction_runner import ManifestInteractionTrialRunner, SubprocessInteractionOracle
-from .interaction_runner import InteractionRunnerError, OracleExecutionError, TargetExecutionError
 from .product_evaluation_analyst import ProductAnalystInput, ProductEvaluationAnalyst
 from .product_evaluation_report import assemble_product_evaluation_report
 from .product_evaluation_report import ProductEvaluationReport
@@ -61,7 +62,6 @@ from .semantic_reporting import (
     build_skill_ablation_analyst_input,
     product_definition_from_skill_artifact,
 )
-from .skill_pair_evaluation import build_skill_pair_evaluation_change, build_skill_pair_evaluation_target, skill_pair_experiment_ids_by_condition
 from .skill_ablation_adapter import (
     build_skill_ablation_change,
     build_skill_evaluation_target,
@@ -72,19 +72,6 @@ from .service import AssistantInputError, ProductNotFoundError, Service
 from .target_onboarding import TargetEnvironmentCache, initialize_target_manifest, inspect_target_manifest, target_golden_path
 from .target_runtime import TargetRuntimeAdapter
 from .targets import TargetInfrastructureError
-
-
-def _run_failure_classification(error: Exception) -> str:
-    cause = error
-    while cause.__cause__ is not None:
-        cause = cause.__cause__
-    if isinstance(cause, OracleExecutionError):
-        return "oracle_failure"
-    if isinstance(cause, (TargetExecutionError, InteractionRunnerError)):
-        return "target_failure"
-    if isinstance(cause, TargetInfrastructureError):
-        return "infrastructure_failure"
-    return "validation_failure"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -155,17 +142,9 @@ def build_parser() -> argparse.ArgumentParser:
     evaluation_run = evaluation.add_parser("run")
     evaluation_run.add_argument("--project-id", required=True)
     evaluation_run.add_argument("--plan", required=True, help="Persisted frozen EvaluationPlan JSON.")
-    evaluation_run.add_argument("--manifest", required=True, help="Target manifest declaring the interaction command.")
-    evaluation_run.add_argument("--cache-root", required=True)
+    evaluation_run.add_argument("--execution-config-id", required=True, help="Reviewed server-owned target and Oracle contract.")
     evaluation_run.add_argument("--fixture-root")
-    evaluation_run.add_argument("--run-root", required=True)
     evaluation_run.add_argument("--evaluation-id")
-    evaluation_run.add_argument("--oracle-command-part", action="append", required=True)
-    evaluation_run.add_argument("--oracle-id", required=True)
-    evaluation_run.add_argument("--oracle-type", choices=["rule_based", "frozen_lookup", "structured_state"], default="rule_based")
-    evaluation_run.add_argument("--oracle-version", default="1.0")
-    evaluation_run.add_argument("--oracle-cwd")
-    evaluation_run.add_argument("--target-binding", help="Optional target-native ProviderBinding JSON.")
     evaluation_run.add_argument("--output", help="Optional completed EvaluationRun JSON output.")
     evaluation_evidence = evaluation.add_parser("evidence")
     evaluation_evidence.add_argument("--project-id", required=True)
@@ -821,46 +800,40 @@ def main(argv: list[str] | None = None) -> int:
             request = service.evaluation_request(args.project_id, plan.change_id)
             if request is None:
                 raise ProductNotFoundError(plan.change_id)
+            execution_config = service.evaluation_execution_configuration(args.project_id, args.execution_config_id)
+            if execution_config is None:
+                raise ProductNotFoundError(args.execution_config_id)
+            evaluation_id = args.evaluation_id or f"evaluation_{plan.plan_id}"
+            execution = resolve_evaluation_execution_inputs(plan, execution_config, evaluation_id=evaluation_id)
+            target_binding = None
+            if execution.target_provider_binding_id:
+                target_binding = service.provider_binding(args.project_id, execution.target_provider_binding_id)
+                if target_binding.role != "sut_native":
+                    raise ValueError("Target execution requires a sut_native ProviderBinding.")
             run = EvaluationRun(
-                evaluation_id=args.evaluation_id or f"evaluation_{plan.plan_id}",
+                evaluation_id=evaluation_id,
                 project_id=args.project_id,
                 evaluation_request_id=request.request_id,
                 evaluation_plan_id=plan.plan_id,
+                execution_config_id=execution_config.config_id,
                 scope_id=plan.evaluation_scope.scope_id,
                 status="running",
             )
             service.save_evaluation_run(run)
             try:
-                target_binding = None
-                if args.target_binding:
-                    target_payload = _load_json_object(Path(args.target_binding))
-                    if not target_payload.get("provider_binding_id"):
-                        raise ValueError(
-                            "Target ProviderBinding JSON must declare provider_binding_id when it is frozen into Evaluation Scope."
-                        )
-                    target_binding = ProviderBinding.model_validate({
-                        **target_payload,
-                        "project_id": args.project_id,
-                    })
-                    if target_binding.role != "sut_native":
-                        raise ValueError("Target execution requires a sut_native ProviderBinding.")
-                if plan.evaluation_scope.target_provider_binding_id != (
-                    target_binding.provider_binding_id if target_binding else None
-                ):
-                    raise ValueError("Target ProviderBinding does not match the frozen Evaluation Scope.")
                 artifact = execute_evaluation_run(
                     plan,
                     intelligence,
-                    manifest_path=Path(args.manifest),
-                    cache_root=Path(args.cache_root),
+                    manifest_path=execution.manifest_path,
+                    cache_root=execution.cache_root,
                     fixture_root=Path(args.fixture_root) if args.fixture_root else None,
-                    run_root=Path(args.run_root),
+                    run_root=execution.run_root,
                     evaluation_id=run.evaluation_id,
-                    oracle_command=tuple(args.oracle_command_part),
-                    oracle_id=args.oracle_id,
-                    oracle_type=args.oracle_type,
-                    oracle_version=args.oracle_version,
-                    oracle_cwd=Path(args.oracle_cwd) if args.oracle_cwd else None,
+                    oracle_command=execution.oracle_command,
+                    oracle_id=execution.oracle_id,
+                    oracle_type=execution.oracle_type,
+                    oracle_version=execution.oracle_version,
+                    oracle_cwd=execution.oracle_cwd,
                     target_binding=target_binding,
                 )
                 artifact_payload = artifact.model_dump(mode="json")
@@ -886,7 +859,7 @@ def main(argv: list[str] | None = None) -> int:
                 service.save_evaluation_run(run.model_copy(update={
                     "status": "failed",
                     "current_stage": "failed",
-                    "failure_classification": _run_failure_classification(error),
+                    "failure_classification": classify_run_failure(error),
                     "error": str(error),
                     "completed_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -972,7 +945,7 @@ def main(argv: list[str] | None = None) -> int:
                 service.save_evaluation_run(run.model_copy(update={
                     "status": "failed",
                     "current_stage": "failed",
-                    "failure_classification": "report_failure",
+                    "failure_classification": classify_report_failure(error),
                     "error": str(error),
                     "completed_at": datetime.now(timezone.utc).isoformat(),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -1011,12 +984,13 @@ def main(argv: list[str] | None = None) -> int:
                 oracle=oracle,
                 binding=binding,
             )
-            artifact = execute_interaction_matrix(
+            artifact = execute_evaluation_matrix(
                 plan,
-                interaction_name=args.interaction_name,
+                evaluation_name=args.interaction_name,
                 evaluation_id=args.evaluation_id,
                 readiness=readiness,
                 runner=runner,
+                condition_kinds=PAIR_INTERACTION_CONDITIONS,
                 run_root=Path(args.run_root),
                 output_path=Path(args.output),
             )

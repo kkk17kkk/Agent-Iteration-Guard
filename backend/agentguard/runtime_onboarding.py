@@ -7,25 +7,19 @@ separate, explicit point at which a server-owned execution contract is made.
 
 from __future__ import annotations
 
-import hashlib
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .content_identity import canonical_fingerprint as _fingerprint
 from .project_intelligence import ProjectIntelligence, RuntimeProfile
 from .store import Store
 
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _fingerprint(value: object) -> str:
-    payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class RuntimeAdapterCandidate(BaseModel):

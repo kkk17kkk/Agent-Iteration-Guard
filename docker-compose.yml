@@ -1,22 +1,40 @@
 services:
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       AGENTGUARD_DB: /data/agentguard.db
+      AGENTGUARD_ASSET_ROOT: /app
+      AGENTGUARD_UPLOAD_ROOT: /data/uploads
+      AIG_DEMO_READ_ONLY: ${AIG_DEMO_READ_ONLY:-false}
+      AIG_DEMO_MODE: ${AIG_DEMO_MODE:-false}
+      AIG_CORS_ORIGINS: ${AIG_CORS_ORIGINS:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      VLLM_API_KEY: ${VLLM_API_KEY:-}
     volumes:
       - agentguard-data:/data
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
 
   frontend:
     build:
       context: ./frontend
       args:
-        VITE_API_BASE: http://localhost:8000
+        VITE_API_BASE: ""
+        VITE_AIG_DEMO_MODE: "false"
     ports:
-      - "5173:5173"
+      - "${AIG_HTTP_PORT:-8080}:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   agentguard-data:

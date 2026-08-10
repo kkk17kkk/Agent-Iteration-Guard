@@ -23,6 +23,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .content_identity import canonical_fingerprint as _fingerprint
 from .project_intelligence import (
     AgentManifest,
     CapabilityRecord,
@@ -148,13 +149,16 @@ class ProjectScanner:
         source_fingerprint_override: str | None = None,
         source_identity_override: str | None = None,
     ) -> ProjectScanResult:
-        source_fingerprint = source_fingerprint_override or _tree_fingerprint(source, self.ignored_directories)
+        source_files = _source_files(source, self.ignored_directories)
+        source_fingerprint = source_fingerprint_override or _tree_fingerprint(source, source_files)
         identity = source_identity_override or _repository_identity(source, source_fingerprint)
         source_ref = f"{request.source_kind}:{identity}"
         findings = [ScanFinding(path=".", kind="metadata", detail=f"scanned {source_fingerprint[:16]} source fingerprint")]
         declaration_path, payload = self._load_declaration(source, request.declaration_file)
         if payload is None:
-            registration = self._discover_registration(request, source, source_ref, source_fingerprint, findings)
+            registration = self._discover_registration(
+                request, source, source_files, source_ref, source_fingerprint, findings
+            )
             if registration is None:
                 return self._result(
                     request,
@@ -169,7 +173,7 @@ class ProjectScanner:
         else:
             try:
                 registration = self._registration_from_payload(
-                    request, payload, source, source_ref, source_fingerprint, findings
+                    request, payload, source, source_files, source_ref, source_fingerprint, findings
                 )
             except (TypeError, ValueError, KeyError) as error:
                 return self._result(
@@ -327,6 +331,7 @@ class ProjectScanner:
         request: ProjectScanRequest,
         payload: dict[str, object],
         source: Path,
+        source_files: list[Path],
         source_ref: str,
         source_fingerprint: str,
         findings: list[ScanFinding],
@@ -358,7 +363,8 @@ class ProjectScanner:
         entrypoint = request.entrypoint or runtime_data.get("entrypoint") or _infer_entrypoint(source, runtime_kind)
         if not entrypoint:
             raise ProjectScanError("runtime entrypoint could not be discovered; provide --entrypoint")
-        dependencies = list(runtime_data.get("dependencies") or _dependency_files(source))
+        discovered_dependencies = _dependency_files(source, source_files)
+        dependencies = list(runtime_data.get("dependencies") or discovered_dependencies)
         if not dependencies:
             dependencies = ["source metadata only"]
         execution_requirements = list(runtime_data.get("execution_requirements") or [
@@ -374,7 +380,7 @@ class ProjectScanner:
             "source_ref": source_ref,
             "source_kind": request.source_kind,
             "source_fingerprint": source_fingerprint,
-            "dependency_lock_fingerprint": _dependency_fingerprint(source),
+            "dependency_lock_fingerprint": _dependency_fingerprint(source, discovered_dependencies),
             "scanner_ref": self.scanner_ref,
             "preflight_contract_ref": f"preflight:{source_fingerprint}",
         }
@@ -392,11 +398,14 @@ class ProjectScanner:
         self,
         request: ProjectScanRequest,
         source: Path,
+        source_files: list[Path],
         source_ref: str,
         source_fingerprint: str,
         findings: list[ScanFinding],
     ) -> ProjectIntelligenceRegistration | None:
-        capabilities = _discover_semantic_components(source, request.project_id, source_fingerprint)
+        capabilities = _discover_semantic_components(
+            source, source_files, request.project_id, source_fingerprint
+        )
         if not capabilities:
             return None
         names = [item.name for item in capabilities]
@@ -412,18 +421,19 @@ class ProjectScanner:
         )
         runtime_kind = request.runtime_kind or _infer_runtime_kind(source)
         entrypoint = request.entrypoint or _infer_entrypoint(source, runtime_kind)
+        dependencies = _dependency_files(source, source_files)
         if not entrypoint:
             findings.append(ScanFinding(path="runtime", kind="warning", detail="components found but runtime entrypoint is unresolved; review it before readiness/run"))
         runtime = {
             "project_id": request.project_id,
             "entrypoint": entrypoint,
             "runtime_kind": runtime_kind,
-            "dependencies": _dependency_files(source) or ["source metadata only"],
+            "dependencies": dependencies or ["source metadata only"],
             "execution_requirements": ["source fingerprint is pinned by the scanner", "runtime entrypoint must be reviewed before readiness/run"],
             "source_ref": source_ref,
             "source_kind": request.source_kind,
             "source_fingerprint": source_fingerprint,
-            "dependency_lock_fingerprint": _dependency_fingerprint(source),
+            "dependency_lock_fingerprint": _dependency_fingerprint(source, dependencies),
             "scanner_ref": self.scanner_ref,
             "preflight_contract_ref": f"preflight:{source_fingerprint}",
         }
@@ -490,7 +500,12 @@ _DECLARED_NAME = re.compile(r"(?m)^\s*(?:name|skill_name|tool_name)\s*[:=]\s*[\"
 _FRONTMATTER_DESCRIPTION = re.compile(r"(?mi)^description\s*:\s*[\"']?(?P<description>[^\n\"']+)")
 
 
-def _discover_semantic_components(source: Path, project_id: str, source_fingerprint: str) -> list[CapabilityRecord]:
+def _discover_semantic_components(
+    source: Path,
+    source_files: list[Path],
+    project_id: str,
+    source_fingerprint: str,
+) -> list[CapabilityRecord]:
     """Discover explicit, runtime-facing component conventions without executing code.
 
     The scanner intentionally uses evidence local to the imported repository:
@@ -500,9 +515,7 @@ def _discover_semantic_components(source: Path, project_id: str, source_fingerpr
     """
 
     discovered: dict[tuple[str, str], CapabilityRecord] = {}
-    for path in sorted(source.rglob("*")):
-        if not path.is_file() or any(part in ProjectScanner.ignored_directories for part in path.parts):
-            continue
+    for path in source_files:
         relative = path.relative_to(source).as_posix()
         if path.name == "SKILL.md":
             name = path.parent.name
@@ -611,11 +624,17 @@ def _source_responsibility(text: str, fallback: str) -> str:
     return fallback
 
 
-def _tree_fingerprint(root: Path, ignored: set[str]) -> str:
+def _source_files(root: Path, ignored: set[str]) -> list[Path]:
+    return [
+        path
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and not any(part in ignored for part in path.relative_to(root).parts)
+    ]
+
+
+def _tree_fingerprint(root: Path, source_files: list[Path]) -> str:
     entries: list[dict[str, str | int]] = []
-    for path in sorted(root.rglob("*")):
-        if not path.is_file() or any(part in ignored for part in path.parts):
-            continue
+    for path in source_files:
         relative = path.relative_to(root).as_posix()
         if relative.startswith(".env") or path.suffix.lower() in {".db", ".sqlite", ".sqlite3", ".pyc"}:
             continue
@@ -636,16 +655,15 @@ def _repository_identity(root: Path, source_fingerprint: str) -> str:
     return f"git:{revision}" if revision else f"tree:{source_fingerprint}"
 
 
-def _dependency_files(root: Path) -> list[str]:
+def _dependency_files(root: Path, source_files: list[Path]) -> list[str]:
     known = {
         "requirements.txt", "requirements.lock", "pyproject.toml", "poetry.lock", "uv.lock",
         "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock",
     }
-    return [path.relative_to(root).as_posix() for path in sorted(root.rglob("*")) if path.is_file() and path.name in known]
+    return [path.relative_to(root).as_posix() for path in source_files if path.name in known]
 
 
-def _dependency_fingerprint(root: Path) -> str | None:
-    files = _dependency_files(root)
+def _dependency_fingerprint(root: Path, files: list[str]) -> str | None:
     if not files:
         return None
     return _fingerprint({path: hashlib.sha256((root / path).read_bytes()).hexdigest() for path in files})
@@ -738,12 +756,6 @@ def _docker_metadata_digest(metadata: dict[str, object]) -> str | None:
             if "@sha256:" in text:
                 return text.split("@", 1)[1]
     return None
-
-
-def _fingerprint(value: object) -> str:
-    return hashlib.sha256(
-        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
 
 
 __all__ = [

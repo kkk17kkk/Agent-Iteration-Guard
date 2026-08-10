@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from .domain import ProviderBinding
 from .change_adapters import build_v1_evaluation_adapter_layer
 from .evaluation_adapters import AdapterContext
+from .evaluation_failures import EvidenceIncompleteError
+from .evaluation_execution_config import EvaluationExecutionConfiguration
 from .evaluation_planning import EvaluationPlan
 from .interaction_matrix import (
     PAIR_INTERACTION_CONDITIONS,
-    InteractionMatrixArtifact,
     EvaluationMatrixArtifact,
-    execute_interaction_matrix,
+    execute_evaluation_matrix,
 )
 from .interaction_runner import ManifestInteractionTrialRunner, SubprocessInteractionOracle
 from .evaluation_request import EvaluationRequest
@@ -27,7 +29,49 @@ from .skill_pair_evaluation import skill_pair_experiment_ids_by_condition
 from .target_runtime import TargetRuntimeAdapter
 
 
-EvaluationRunArtifact = InteractionMatrixArtifact | EvaluationMatrixArtifact
+EvaluationRunArtifact = EvaluationMatrixArtifact
+
+
+@dataclass(frozen=True)
+class EvaluationExecutionInputs:
+    manifest_path: Path
+    cache_root: Path
+    run_root: Path
+    oracle_command: tuple[str, ...]
+    oracle_id: str
+    oracle_type: str
+    oracle_version: str
+    oracle_cwd: Path | None
+    target_provider_binding_id: str | None
+
+
+def resolve_evaluation_execution_inputs(
+    plan: EvaluationPlan,
+    config: EvaluationExecutionConfiguration,
+    *,
+    evaluation_id: str,
+) -> EvaluationExecutionInputs:
+    """Bind one reviewed server-owned runtime contract to a frozen Plan."""
+
+    if config.project_id != plan.project_id:
+        raise ValueError("Evaluation Execution Configuration belongs to a different project.")
+    if plan.evaluation_scope is None:
+        raise ValueError("Evaluation execution requires a frozen Evaluation Scope.")
+    if config.snapshot_version and config.snapshot_version != plan.evaluation_scope.candidate_version:
+        raise ValueError("Project runtime configuration is stale for this Evaluation Plan snapshot; review the runtime again.")
+    if config.target_provider_binding_id != plan.evaluation_scope.target_provider_binding_id:
+        raise ValueError("Target ProviderBinding does not match the frozen Evaluation Scope.")
+    return EvaluationExecutionInputs(
+        manifest_path=Path(config.manifest_path),
+        cache_root=Path(config.cache_root),
+        run_root=Path(config.run_root_parent) / evaluation_id,
+        oracle_command=tuple(config.oracle_command),
+        oracle_id=config.oracle_id,
+        oracle_type=config.oracle_type,
+        oracle_version=config.oracle_version,
+        oracle_cwd=Path(config.oracle_cwd) if config.oracle_cwd else None,
+        target_provider_binding_id=config.target_provider_binding_id,
+    )
 
 
 def evaluation_condition_kinds(plan: EvaluationPlan) -> tuple[str, ...]:
@@ -92,12 +136,13 @@ def execute_evaluation_run(
         timeout_seconds=plan.scenario_suite.trial_timeout_seconds if plan.scenario_suite else None,
     )
     if plan.evaluation_type == "skill_pair_evaluation":
-        return execute_interaction_matrix(
+        return execute_evaluation_matrix(
             plan,
-            interaction_name=plan.evaluation_name,
+            evaluation_name=plan.evaluation_name,
             evaluation_id=evaluation_id,
             readiness=readiness,
             runner=runner,
+            condition_kinds=PAIR_INTERACTION_CONDITIONS,
             run_root=run_root,
         )
     if plan.evaluation_type == "skill_ablation":
@@ -131,23 +176,26 @@ def adapt_evaluation_run_evidence(
         experiment_ids = skill_pair_experiment_ids_by_condition(plan)
     else:
         raise ValueError(f"Evidence adaptation is deferred for evaluation_type={plan.evaluation_type}.")
-    return build_v1_evaluation_adapter_layer().adapt(
-        plan.evaluation_type,
-        artifact,
-        context=AdapterContext(
-            project_id=plan.project_id,
-            evaluation_name=plan.evaluation_name,
-            evaluation_type=plan.evaluation_type,
-            component_name=plan.component_name,
-            source_ref=f"evaluation-run:{run_id}",
-            evaluation_request_id=request.request_id,
-            baseline_version=request.baseline_version,
-            candidate_version=request.candidate_version,
-            scope_id=scope_id,
-            evaluation_plan_id=plan.plan_id,
-            experiment_ids_by_condition=experiment_ids,
-        ),
-    )
+    try:
+        return build_v1_evaluation_adapter_layer().adapt(
+            plan.evaluation_type,
+            artifact,
+            context=AdapterContext(
+                project_id=plan.project_id,
+                evaluation_name=plan.evaluation_name,
+                evaluation_type=plan.evaluation_type,
+                component_name=plan.component_name,
+                source_ref=f"evaluation-run:{run_id}",
+                evaluation_request_id=request.request_id,
+                baseline_version=request.baseline_version,
+                candidate_version=request.candidate_version,
+                scope_id=scope_id,
+                evaluation_plan_id=plan.plan_id,
+                experiment_ids_by_condition=experiment_ids,
+            ),
+        )
+    except (TypeError, ValueError) as error:
+        raise EvidenceIncompleteError("Evaluation artifact failed immutable evidence admission.") from error
 
 
 def build_product_evaluation_report(
@@ -189,4 +237,5 @@ __all__ = [
     "evaluation_condition_kinds",
     "execute_evaluation_run",
     "planned_trial_count",
+    "resolve_evaluation_execution_inputs",
 ]

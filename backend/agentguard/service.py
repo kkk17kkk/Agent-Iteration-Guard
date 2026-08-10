@@ -46,6 +46,7 @@ from .evaluation_execution_config import (
 )
 from .evaluation_memory import EvaluationKnowledge, EvaluationKnowledgeRepository, knowledge_from_report
 from .benchmark_evidence import BenchmarkEvidence, BenchmarkEvidenceRepository
+from .content_identity import canonical_fingerprint
 from .reporting import REPORT_SYSTEM_PROMPT, ReportNarrativeAdapter, build_report_manifest, record_blocked_report
 from .project_intelligence import (
     CapabilityRecord,
@@ -96,9 +97,7 @@ class AssistantInputError(ValueError):
 
 
 def _model_fingerprint(model) -> str:
-    return hashlib.sha256(
-        json.dumps(model.model_dump(mode="json"), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    return canonical_fingerprint(model.model_dump(mode="json"))
 
 
 class Service:
@@ -729,7 +728,7 @@ class Service:
 
 
 def _runtime_storage_root() -> Path:
-    return Path(os.getenv("AGENTGUARD_RUNTIME_SOURCE_ROOT", "D:/codexdata/agentguard-runtime")).resolve()
+    return Path(os.getenv("AGENTGUARD_RUNTIME_SOURCE_ROOT", "data/runtime")).resolve()
 
 
 def _entrypoint_path(entrypoint: str) -> str | None:

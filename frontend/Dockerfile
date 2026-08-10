@@ -4,11 +4,14 @@ COPY package.json ./
 RUN npm install
 COPY index.html ./
 COPY src ./src
-ARG VITE_API_BASE=http://localhost:8000
+ARG VITE_API_BASE=
+ARG VITE_AIG_DEMO_MODE=false
 ENV VITE_API_BASE=$VITE_API_BASE
+ENV VITE_AIG_DEMO_MODE=$VITE_AIG_DEMO_MODE
 RUN npm run build
-FROM node:24-slim
-WORKDIR /app
-RUN npm install -g serve
-COPY --from=build /app/dist ./dist
-CMD ["serve","-s","dist","-l","5173"]
+
+FROM nginx:1.27-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import agentguard.api as api_module
 from agentguard.domain import ProviderBinding
+from agentguard.evaluation_execution_config import EvaluationExecutionConfiguration
 from agentguard.evaluation_planning import EvaluationPlan
 from agentguard.evaluation_request import EvaluationRequest
 from agentguard.evaluation_scope import EvaluationScope
@@ -158,6 +159,15 @@ def test_run_status_evidence_and_report_api_share_one_run(tmp_path: Path, monkey
     service.save_evaluation_plan(plan)
     binding = _binding("generic-agent")
     service.record_provider_binding("generic-agent", binding)
+    execution_config = service.save_evaluation_execution_configuration(EvaluationExecutionConfiguration(
+        project_id="generic-agent",
+        name="test target contract",
+        manifest_path=str(tmp_path / "unused-manifest.json"),
+        cache_root=str(tmp_path / "unused-cache"),
+        run_root_parent=str(tmp_path / "unused-run"),
+        oracle_command=["unused-oracle"],
+        oracle_id="api-oracle",
+    ))
 
     def fake_execute(plan, intelligence, **kwargs):
         return execute_skill_ablation_matrix(
@@ -179,7 +189,7 @@ def test_run_status_evidence_and_report_api_share_one_run(tmp_path: Path, monkey
     monkeypatch.setattr(api_module, "build_product_evaluation_report", lambda *args, **kwargs: fake_report)
     client = TestClient(api_module.app)
 
-    started = client.post(
+    rejected_legacy = client.post(
         "/api/v1/projects/generic-agent/evaluations/runs",
         json={
             "evaluation_plan_id": plan.plan_id,
@@ -189,6 +199,12 @@ def test_run_status_evidence_and_report_api_share_one_run(tmp_path: Path, monkey
             "oracle_command": ["unused-oracle"],
             "oracle_id": "api-oracle",
         },
+    )
+    assert rejected_legacy.status_code == 422
+
+    started = client.post(
+        "/api/v1/projects/generic-agent/evaluations/runs",
+        json={"evaluation_plan_id": plan.plan_id, "execution_config_id": execution_config.config_id},
     )
     assert started.status_code == 200
     run = started.json()

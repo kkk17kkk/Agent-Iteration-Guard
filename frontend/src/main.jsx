@@ -18,10 +18,13 @@ const NAV_ITEMS = [
   ["report", "评估报告", "Report", "doc"],
 ];
 
-const initialProjectId = localStorage.getItem("aig.projectId") || "";
 const LIGHTTABLE_ID = "lighttable-pair-nutrition";
+const requestedDemo = new URLSearchParams(window.location.search).get("demo") === "lighttable";
+const configuredDemo = String(import.meta.env.VITE_AIG_DEMO_MODE || "").toLowerCase() === "true";
+const initialProjectId = configuredDemo || requestedDemo ? LIGHTTABLE_ID : (localStorage.getItem("aig.projectId") || "");
+const DEMO_NOTICE = "LightTable 示例项目已加载，仅供浏览，编辑操作已锁定。";
 const READ_ONLY_NOTICE = "此项目仅供示意，不可编辑。请上传正式 Project 后执行此操作。";
-const initialDemoMode = localStorage.getItem("aig.demoMode") === "1";
+const initialDemoMode = configuredDemo || requestedDemo || localStorage.getItem("aig.demoMode") === "1";
 const captureMode = new URLSearchParams(window.location.search).get("capture") === "1";
 
 function App() {
@@ -255,7 +258,7 @@ function App() {
       save(projectStorageKey(LIGHTTABLE_ID, "report"), demoReport); save(projectStorageKey(LIGHTTABLE_ID, "reportView"), demoBundle.view); save(projectStorageKey(LIGHTTABLE_ID, "reportEvidence"), demoEvidence); save(projectStorageKey(LIGHTTABLE_ID, "gate"), demoGate); save(projectStorageKey(LIGHTTABLE_ID, "plan"), demoPlan); save(projectStorageKey(LIGHTTABLE_ID, "run"), demoRun);
       setRunContext({ executionConfigId: collection(rawConfigs)[0]?.config_id || "demo-config", providerBindingId: collection(rawProviders).find((item) => item.role === "control_plane")?.provider_binding_id || "demo-provider", productDefinition: demoReport.product_context || {} });
       setActiveView("overview");
-      setNotice({ kind: "success", text: "LightTable 示例项目已加载，仅供浏览，编辑操作已锁定。" });
+      setNotice({ kind: "success", text: DEMO_NOTICE });
     } catch (error) {
       setIntelligence(null);
       setNotice({ kind: "error", text: `LightTable 示例项目加载失败：${error.message}` });
@@ -455,7 +458,16 @@ function App() {
           </div>
         </header>
 
-        {notice && (
+        {demoMode && intelligence && (
+          <div className="notice-wrap">
+            <div className="notice success" role="status" aria-live="polite">
+              <I name="check" />
+              {DEMO_NOTICE}
+            </div>
+          </div>
+        )}
+
+        {notice && (!demoMode || notice.kind === "error") && notice.text !== DEMO_NOTICE && (
           <div className="notice-wrap">
             <div className={`notice ${notice.kind}`}>
               <I name={notice.kind === "error" ? "alert" : "check"} />
