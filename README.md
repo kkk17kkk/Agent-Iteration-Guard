@@ -2,9 +2,9 @@
 
 面向 Tool / Skill 型 Agent 的能力演进评估系统：用真实运行、不可变证据和确定性门禁回答一次 Agent 变更是否真的值得发布。
 
-[🚀 Open Agent Iteration Guard](<AIG_DEMO_URL>?demo=lighttable) · [🧭 How AIG Works](#how-aig-works) · [🚀 Quick Start](#quick-start) · [⚙️ Public deployment](docs/demo-deployment.md) · [📊 Single Skill Report](examples/lighttable-evaluation-report.html) · [📊 Skill Pair Report](examples/lighttable-skill-pair-evaluation.html)
+[🚀 Open Agent Iteration Guard](https://agent-iteration-guard-demo.vercel.app/?demo=lighttable) · [🧭 How AIG Works](#how-aig-works) · [🚀 Quick Start](#quick-start) · [⚙️ Public deployment](docs/demo-deployment.md) · [📊 Single Skill Report](examples/lighttable-evaluation-report.html) · [📊 Skill Pair Report](examples/lighttable-skill-pair-evaluation.html)
 
-> **Live Demo**：当前仓库没有可确认的公网部署 URL，因此保留显式占位符，不编造地址。完成部署后，将 `<AIG_DEMO_URL>` 替换为 GUI 地址；`?demo=lighttable` 会让访问者直接进入只读 LightTable 示例。
+> **Live Demo**：打开 [Agent Iteration Guard System](https://agent-iteration-guard-demo.vercel.app/?demo=lighttable)，无需配置项目即可浏览预加载的只读 LightTable capability evaluation workflow。
 
 > You changed a Skill, Tool, or interaction inside an Agent.  Did the Agent actually get better — or did you introduce a regression, conflict, or uncertainty?
 

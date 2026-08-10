@@ -20,7 +20,7 @@
 ```text
 AIG_DEMO_MODE=true
 AIG_DEMO_READ_ONLY=true
-AIG_CORS_ORIGINS=<Vercel frontend URL>
+AIG_CORS_ORIGINS=https://agent-iteration-guard-demo.vercel.app
 AGENTGUARD_DB=/data/agentguard.db
 AGENTGUARD_ASSET_ROOT=/app
 AGENTGUARD_UPLOAD_ROOT=/data/uploads
@@ -31,7 +31,7 @@ VLLM_API_KEY=
 
 Railway 会注入 `PORT`；Docker entrypoint 会自动监听该端口。健康检查为 `/health`。Public Demo 只依赖镜像中的 canonical artifacts，因此不依赖持久化用户数据；如启用 Railway Volume，也只能挂载到 `/data`，不能把开发机目录映射到服务中。
 
-部署完成后，在 Railway 生成的公网域名后追加 `/health`，确认返回 `status: ok`，再把该 backend URL 配置到 Vercel。
+当前 backend URL 为 `https://aigdemobackend-production.up.railway.app`；部署完成后可访问 `/health`，确认返回 `status: ok`。
 
 ## Vercel frontend
 
@@ -40,11 +40,11 @@ Railway 会注入 `PORT`；Docker entrypoint 会自动监听该端口。健康�
 设置构建环境变量：
 
 ```text
-VITE_API_BASE=<Railway backend URL>
+VITE_API_BASE=https://aigdemobackend-production.up.railway.app
 VITE_AIG_DEMO_MODE=true
 ```
 
-部署后，使用 Vercel 生成的 HTTPS URL 访问 `/`。该 URL 直接加载 LightTable；`?demo=lighttable` 仍可作为显式入口。将最终 Vercel URL 回填到 Railway 的 `AIG_CORS_ORIGINS`，重新部署 backend，并在浏览器中验证页面刷新与 API 请求均正常。
+当前公开入口为 `https://agent-iteration-guard-demo.vercel.app/?demo=lighttable`；该 URL 直接加载 LightTable。Railway 已配置精确的 Vercel CORS origin，并通过浏览器验证了页面刷新、报告浏览与 API 请求。
 
 ## 发布后验收
 
