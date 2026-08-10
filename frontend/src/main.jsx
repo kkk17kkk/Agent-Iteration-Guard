@@ -8,6 +8,7 @@ import ProjectDetail from "./pages/ProjectDetail.jsx";
 import NewEvaluation from "./pages/NewEvaluation.jsx";
 import Running from "./pages/Running.jsx";
 import Report from "./pages/Report.jsx";
+import Copilot from "./Copilot.jsx";
 
 const NAV_ITEMS = [
   ["overview", "总览", "Overview", "overview"],
@@ -613,6 +614,23 @@ function App() {
           />}
         </div>
       </main>
+      <Copilot
+        projectId={projectId}
+        intelligence={intelligence}
+        providers={providers}
+        activeView={activeView}
+        request={request}
+        onProjectRefresh={() => refreshProject(projectId)}
+        onNavigate={(reference) => {
+          if (reference.target_view === "report") {
+            const metadata = reportList.find((item) => item.report_id === reference.object_id);
+            if (metadata) openReport(metadata.report_id, metadata.run_id);
+            else setActiveView("report");
+            return;
+          }
+          setActiveView(reference.target_view);
+        }}
+      />
     </div>
   );
 }

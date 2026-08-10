@@ -309,6 +309,12 @@ class EvaluationRequestRepository:
             return None
         return request
 
+    def list(self, project_id: str) -> list[EvaluationRequest]:
+        return sorted(
+            self.store.list(self._KIND, EvaluationRequest, project_id),
+            key=lambda item: item.created_at,
+        )
+
     def bind_scope(self, request: EvaluationRequest, scope_id: str) -> EvaluationRequest:
         if request.evaluation_scope_id not in {None, scope_id}:
             raise EvaluationRequestValidationError(

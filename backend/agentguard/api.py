@@ -23,6 +23,7 @@ from .domain import (
     RuntimeEnvironmentPreflight,
     TaskVerifierContract,
 )
+from .copilot import CopilotMessageRequest, CopilotService, ProviderCopilotReasoner
 from .evaluation_memory import EvaluationKnowledge
 from .evaluation_execution_config import (
     EvaluationExecutionConfiguration,
@@ -847,6 +848,45 @@ def create_evaluation_request(project_id: str, body: EvaluationRequestBody):
             candidate_component_name=body.candidate_component_name,
         )
     except (ProductNotFoundError, EvaluationRequestValidationError, ValueError) as error:
+        raise _unprocessable(error) from error
+
+
+@app.post("/api/v1/projects/{project_id}/copilot/messages")
+def copilot_message(project_id: str, body: CopilotMessageRequest):
+    app_service = service()
+    try:
+        reasoner = None
+        if body.provider_binding_id:
+            binding = app_service.provider_binding(project_id, body.provider_binding_id)
+            if binding.role != "control_plane":
+                raise ValueError("Copilot requires a control_plane ProviderBinding.")
+            reasoner = ProviderCopilotReasoner(
+                build_control_plane_client(binding, _provider_api_key(binding))
+            )
+        return CopilotService(app_service).message(project_id, body, reasoner=reasoner)
+    except ProductNotFoundError as error:
+        raise HTTPException(status_code=404, detail="project not found") from error
+    except (EvaluationRequestValidationError, ProviderRuntimeError, ValueError) as error:
+        raise _unprocessable(error) from error
+
+
+@app.post("/api/v1/projects/{project_id}/copilot/actions/{action_id}/confirm")
+def confirm_copilot_action(project_id: str, action_id: str):
+    try:
+        return CopilotService(service()).confirm(project_id, action_id)
+    except ProductNotFoundError as error:
+        raise HTTPException(status_code=404, detail="project not found") from error
+    except (EvaluationRequestValidationError, ValueError) as error:
+        raise _unprocessable(error) from error
+
+
+@app.post("/api/v1/projects/{project_id}/copilot/actions/{action_id}/cancel")
+def cancel_copilot_action(project_id: str, action_id: str):
+    try:
+        return CopilotService(service()).cancel(project_id, action_id)
+    except ProductNotFoundError as error:
+        raise HTTPException(status_code=404, detail="project not found") from error
+    except ValueError as error:
         raise _unprocessable(error) from error
 
 

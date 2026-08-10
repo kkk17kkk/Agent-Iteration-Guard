@@ -290,6 +290,11 @@ class Service:
     def evaluation_request(self, project_id: str, request_id: str) -> EvaluationRequest | None:
         return self.evaluation_request_store.get(project_id, request_id)
 
+    def evaluation_requests(self, project_id: str) -> list[EvaluationRequest]:
+        if self.project_intelligence(project_id) is None:
+            raise ProductNotFoundError(project_id)
+        return self.evaluation_request_store.list(project_id)
+
     def bind_evaluation_request_scope(self, request: EvaluationRequest, scope_id: str) -> EvaluationRequest:
         return self.evaluation_request_store.bind_scope(request, scope_id)
 
