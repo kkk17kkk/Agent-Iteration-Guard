@@ -427,7 +427,7 @@ function App() {
             <span>AIG · v1.0</span>
           </span>
         </div>
-        <div className="rail-caption">项目工作台 · Local</div>
+        <div className="rail-caption">项目工作台</div>
         <nav className="nav-list" aria-label="Primary">
           {NAV_ITEMS.map(([id, zh, en, icon]) => (
             <button key={id} className={activeView === id ? "nav-item active" : "nav-item"} onClick={() => setActiveView(id)}>
@@ -437,7 +437,7 @@ function App() {
             </button>
           ))}
         </nav>
-        <div className="rail-footer"><span className="live-dot" /><span>Evidence-first · Local</span></div>
+        <div className="rail-footer"><span>Local workspace</span><strong>Evidence-first</strong></div>
       </aside>
 
       <main className="main-column">

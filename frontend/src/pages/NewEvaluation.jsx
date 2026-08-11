@@ -559,7 +559,7 @@ export default function NewEvaluation({ projectId, intelligence, projectHeader, 
             </div>
           </div>
           <div className="button-row" style={{ justifyContent: "flex-end" }}>
-            <button className="primary" onClick={createPlan}><I name="sparkle" />创建 Evaluation / 生成 Plan<I name="arrowRight" /></button>
+            <button className="primary" onClick={createPlan}><I name="evaluation" />创建 Evaluation / 生成 Plan<I name="arrowRight" /></button>
           </div>
           {createdRequest && !controlBindingId && (
             <p className="form-hint">已创建 Request：<span className="mono">{createdRequest.request_id}</span>。请配置 Evaluation Model 后继续生成 Plan。</p>

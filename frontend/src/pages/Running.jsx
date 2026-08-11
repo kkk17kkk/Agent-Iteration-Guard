@@ -2,16 +2,13 @@ import React, { useEffect } from "react";
 import { I, Status, Page, SectionHeading, EmptyState, Metric, PipelineStep, ProjectContextCard } from "../components.jsx";
 
 const PIPELINE = [
-  { label: "Planning", icon: "sparkle" },
+  { label: "Planning", icon: "branch" },
   { label: "Scenario Generation", icon: "layers" },
   { label: "Readiness", icon: "shieldCheck" },
   { label: "Execution", icon: "play" },
   { label: "Evidence", icon: "doc" },
   { label: "Report", icon: "file" },
 ];
-
-const RING_R = 52;
-const RING_C = 2 * Math.PI * RING_R;
 
 function isActiveRun(run) {
   return run && !["completed", "failed", "error"].includes(String(run.status).toLowerCase());
@@ -114,29 +111,11 @@ export default function Running({ projectId, projectHeader, plan, requestRecord,
       intro="服务端拥有执行、事件状态、矩阵产物与 Evidence Bundle 引用。"
       before={<ProjectContextCard {...projectHeader} onOverview={onOverview} />}
     >
-      {/* Hero: identity + progress ring */}
+      {/* Run identity and state */}
       <section className="run-hero">
-        {active && <div className="particles"><i /><i /><i /><i /><i /><i /></div>}
-        <div className="progress-ring">
-          <svg viewBox="0 0 120 120">
-            <defs>
-              <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#5b8cff" />
-                <stop offset="100%" stopColor="#a78bfa" />
-              </linearGradient>
-            </defs>
-            <circle className="ring-track" cx="60" cy="60" r={RING_R} fill="none" strokeWidth="7" />
-            <circle
-              className="ring-fill"
-              cx="60" cy="60" r={RING_R} fill="none" strokeWidth="7"
-              strokeDasharray={RING_C}
-              strokeDashoffset={RING_C * (1 - (percent ?? 0) / 100)}
-            />
-          </svg>
-          <div className="ring-label"><strong>{percent == null ? "—" : `${percent}%`}</strong><span>Progress</span></div>
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <span className="eyebrow">{plan.component_type} / {plan.component_name}</span>
+        <div className="run-progress-value"><strong>{percent == null ? "—" : `${percent}%`}</strong><span>Progress</span></div>
+        <div className="run-identity">
+          <span className="object-type">{plan.component_type} / {plan.component_name}</span>
           <h2>{plan.evaluation_name}</h2>
           <p className="muted" style={{ margin: "0 0 12px", fontSize: 12.5 }}>
             Request <span className="mono">{requestRecord?.request_id || plan.change_id}</span> · Project <span className="mono">{projectId}</span>

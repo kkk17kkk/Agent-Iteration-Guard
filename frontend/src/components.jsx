@@ -48,7 +48,7 @@ export function ProjectContextCard({
   return (
     <section className="project-context-card">
       <div className="project-context-main">
-        <div className="project-context-kicker">项目详情 · PROJECT DETAIL</div>
+        <div className="project-context-kicker">当前项目</div>
         <h2>{displayName}</h2>
         <p>{purpose || "当前项目的扫描信息与评估上下文。"}</p>
         <div className="project-context-breadcrumb">
@@ -58,8 +58,8 @@ export function ProjectContextCard({
         </div>
       </div>
       <div className="project-context-meta" aria-label="项目版本信息">
-        <span><small>Baseline</small><strong>{baselineVersion || "-"}</strong></span>
-        <span><small>Candidate</small><strong>{candidateVersion || "-"}</strong></span>
+        <span className="trajectory-node trajectory-baseline"><small>Baseline</small><strong>{baselineVersion || "-"}</strong></span>
+        <span className="trajectory-node trajectory-candidate"><small>Candidate</small><strong>{candidateVersion || "-"}</strong></span>
         <span><small>Runtime</small><strong>{runtimeKind || "-"}</strong></span>
       </div>
       {actions && (
@@ -74,7 +74,7 @@ export function ProjectContextCard({
 }
 
 export function CapIcon({ type }) {
-  const icon = type === "skill_pair" ? "link" : type === "tool" ? "wrench" : "sparkle";
+  const icon = type === "skill_pair" ? "link" : type === "tool" ? "wrench" : "command";
   return <span className={`cap-icon cap-${type}`}><I name={icon} size={20} /></span>;
 }
 
@@ -106,7 +106,7 @@ export function Page({ title, kicker, intro, action, before, headingCard = false
   return <div className="page">
     {before}
     <div className={`page-heading${headingCard || before ? " page-heading-card" : ""}`}>
-      <div><span className="eyebrow">{kicker}</span><h1>{title}</h1>{intro && <p>{intro}</p>}</div>
+      <div><span className="page-kicker">{kicker}</span><h1>{title}</h1>{intro && <p>{intro}</p>}</div>
       {action}
     </div>
     {children}
@@ -114,11 +114,11 @@ export function Page({ title, kicker, intro, action, before, headingCard = false
 }
 
 export function SectionHeading({ label, title, detail }) {
-  return <div className="section-heading"><div><span className="eyebrow">{label}</span><h2>{title}</h2></div>{detail && <span className="section-detail">{detail}</span>}</div>;
+  return <div className="section-heading"><div><h2>{title}</h2>{label && <span className="section-heading-label">{label}</span>}</div>{detail && <span className="section-detail">{detail}</span>}</div>;
 }
 
 export function EmptyState({ title, detail, action, onClick, icon = "radar" }) {
-  return <div className="empty-state"><span className="empty-mark"><I name={icon} size={32} /></span><h1>{title}</h1><p>{detail}</p>{action && <button className="primary" onClick={onClick}>{action}<I name="arrowRight" /></button>}</div>;
+  return <div className="empty-state"><span className="empty-mark"><I name={icon} size={24} /></span><h1>{title}</h1><p>{detail}</p>{action && <button className="primary" onClick={onClick}>{action}<I name="arrowRight" /></button>}</div>;
 }
 
 export function Metric({ label, value, tone = "" }) {

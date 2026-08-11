@@ -1,17 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { pathFor, projectDisplayName } from "./lib.js";
 
-function RobotHead({ compact = false }) {
-  return (
-    <svg className={compact ? "copilot-robot compact" : "copilot-robot"} viewBox="0 0 48 48" aria-hidden="true">
-      <path d="M24 8v5M21.5 7.5a2.5 2.5 0 1 0 5 0 2.5 2.5 0 0 0-5 0Z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <path d="M13 19.5c0-3 2.5-5.5 5.5-5.5h11c3 0 5.5 2.5 5.5 5.5v12c0 3-2.5 5.5-5.5 5.5h-11c-3 0-5.5-2.5-5.5-5.5v-12Z" fill="none" stroke="currentColor" strokeWidth="2" />
-      <path d="M9 23v7M39 23v7M18 38v3M30 38v3" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-      <circle cx="20" cy="25" r="2" fill="currentColor" />
-      <circle cx="28" cy="25" r="2" fill="currentColor" />
-      <path d="M20 31h8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    </svg>
-  );
+function CopilotMark({ compact = false }) {
+  return <img className={compact ? "copilot-mark compact" : "copilot-mark"} src="/icons/agent-guard-logo.svg" alt="" aria-hidden="true" />;
 }
 
 function ActionCard({ response, busy, onConfirm, onCancel }) {
@@ -176,7 +167,7 @@ export default function Copilot({
           style={{ "--copilot-offset-x": `${panelOffset.x}px`, "--copilot-offset-y": `${panelOffset.y}px` }}
         >
           <header className="copilot-panel-header" onPointerDown={startPanelDrag}>
-            <span className="copilot-header-icon"><RobotHead compact /></span>
+            <span className="copilot-header-icon"><CopilotMark compact /></span>
             <div>
               <strong>AIG 评估助手</strong>
               <span>{projectId ? projectName : "未加载项目"}</span>
@@ -244,7 +235,7 @@ export default function Copilot({
         onClick={() => setOpen((value) => !value)}
         data-testid="copilot-launcher"
       >
-        <span className="copilot-launcher-core"><RobotHead /></span>
+        <span className="copilot-launcher-core"><CopilotMark /></span>
       </button>
     </div>
   );

@@ -8,8 +8,8 @@ AIG 为 Tool / Skill 型 Agent 建立从变更理解、对照实验到发布决�
 
 <table>
   <tr>
-    <td align="center" valign="top" width="50%"><img src="assets/首页截图.png" alt="LightTable evaluation overview" width="100%"></td>
-    <td align="center" valign="top" width="50%"><img src="assets/aig-copilot-demo.gif" alt="AIG Copilot Chinese evaluation workflow" width="100%"></td>
+    <td align="center" valign="top" width="64%"><img src="assets/首页截图.png" alt="LightTable evaluation overview" width="100%"></td>
+    <td align="center" valign="top" width="36%"><img src="assets/aig-copilot-demo.gif" alt="AIG Copilot Chinese evaluation workflow" width="74%"></td>
   </tr>
   <tr>
     <td align="center"><sub>LightTable evaluation overview</sub></td>
