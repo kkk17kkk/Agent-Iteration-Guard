@@ -116,6 +116,8 @@ flowchart TB
 
 控制面负责规划、协调、验证和报告，被测 Agent Runtime 保持为独立执行对象。项目中的 LLM 调用分为两类：目标 Agent 使用自己的 Provider 运行任务，AIG 控制面使用独立 Provider 生成场景或分析报告。两类配置、请求元数据和成本分别记录。
 
+AIG 的核心是自研的、证据优先的 Agent 评测编排。AI 负责生成候选场景和解释已验证结果，实验状态、证据、Oracle 结论与发布门禁由 AIG 的结构化领域模型和确定性规则管理。
+
 ---
 
 ## 🧪 Evaluation Modes

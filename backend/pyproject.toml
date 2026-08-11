@@ -12,7 +12,6 @@ dependencies = [
   "python-multipart>=0.0.9,<1",
   "uvicorn[standard]>=0.34,<0.35",
   "pydantic>=2.10,<3",
-  "langgraph>=0.2.60,<0.3",
   "inspect-ai>=0.3.250,<0.4",
   "openai>=1.0,<3",
   "python-dotenv>=1.0,<2",
