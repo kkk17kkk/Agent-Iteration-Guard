@@ -6,6 +6,19 @@ AIG 为 Tool / Skill 型 Agent 建立从变更理解、对照实验到发布决�
 
 公开 Demo 已预加载 LightTable 评估结果，无需配置项目或 Provider 即可浏览完整报告。AIG Copilot 可辅助创建评估、理解项目上下文和分析实验结果，减少手工串联评估流程的工作量。
 
+<table>
+  <tr>
+    <td align="center" valign="top" width="50%"><img src="assets/首页截图.png" alt="LightTable evaluation overview" width="100%"></td>
+    <td align="center" valign="top" width="50%"><img src="assets/aig-copilot-demo.gif" alt="AIG Copilot Chinese evaluation workflow" width="100%"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>LightTable evaluation overview</sub></td>
+    <td align="center"><sub>AIG Copilot · Plan → Confirm → Execute</sub></td>
+  </tr>
+</table>
+
+
+
 ---
 
 ## ✨ Summary
